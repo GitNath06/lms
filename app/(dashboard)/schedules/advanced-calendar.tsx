@@ -21,7 +21,7 @@ import {
   getOrderedDays,
   getWeekDates,
   DayKey,
-  formatGradeBadge
+  formatCleanSubjectCode
 } from '@/lib/master-data'
 import SessionActionModal, { ModalMode } from '@/components/schedules/session-action-modal'
 import { useLiveSchedule } from '@/hooks/use-live-schedule'
@@ -530,12 +530,9 @@ export default function AdvancedCalendar({ labFilter = 'all' }: AdvancedCalendar
                         >
                           <div>
                             <div className="flex items-center justify-between gap-1.5 mb-1">
-                              <div className="flex items-center gap-2 truncate">
-                                <span className="text-sm font-mono font-extrabold text-zinc-950 dark:text-white tracking-tight">
-                                  {session.subjectCode}
-                                </span>
-                                <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-zinc-200/90 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 border border-zinc-300 dark:border-zinc-700 font-extrabold shrink-0">
-                                  {formatGradeBadge(session.grade, session.subjectCode)}
+                              <div className="flex items-center gap-1.5 truncate">
+                                <span className="text-sm font-mono font-black text-zinc-950 dark:text-white tracking-tight">
+                                  {formatCleanSubjectCode(session.subjectCode, session.grade)}
                                 </span>
                               </div>
 

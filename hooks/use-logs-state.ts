@@ -7,6 +7,7 @@ import {
   deletePracticalLog as deletePracticalLogAction,
   getPracticalLogs,
 } from '@/app/actions/logs'
+import { getNepalDateStr } from '@/lib/nepali-date'
 
 export interface PracticalLogRecord {
   id: string
@@ -38,7 +39,7 @@ const INITIAL_MOCK_LOGS: PracticalLogRecord[] = [
   {
     id: 'log-seed-1',
     sessionId: 'mon-1',
-    date: new Date().toISOString().split('T')[0],
+    date: getNepalDateStr(),
     dayKey: 'mon',
     slotId: 't2',
     timeSlot: '10:10 - 11:00',
@@ -239,7 +240,7 @@ export function useLogsState() {
 
   // Get log record for a specific session and date
   const getLogForSession = (sessionId: string, dateStr?: string) => {
-    const targetDate = dateStr || new Date().toISOString().split('T')[0]
+    const targetDate = dateStr || getNepalDateStr()
     return logs.find((l) => l.sessionId === sessionId && l.date === targetDate)
   }
 

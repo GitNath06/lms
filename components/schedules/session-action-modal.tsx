@@ -22,12 +22,14 @@ import {
   DEFAULT_SUBJECTS,
   formatGradeBadge
 } from '@/lib/master-data'
+import { getNepalDateStr } from '@/lib/nepali-date'
 import { PracticalLogRecord } from '@/hooks/use-logs-state'
 import { createPracticalLog } from '@/app/actions/logs'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
+import { useInfrastructureState } from '@/hooks/use-infrastructure-state'
 
 const TEACHER_NAME_MAP: Record<string, string> = {
   t1: 'Dr. Rajesh Sharma (Computer Science)',
@@ -93,10 +95,17 @@ function SessionActionModalContent({
 
   const [activeTab, setActiveTab] = useState<ModalMode>(isBookingMode ? 'book' : initialMode === 'edit' ? 'log' : initialMode)
 
+  const {
+    faculty: infraFaculty,
+    subjects: infraSubjects,
+    classes: infraClasses,
+    labs: infraLabs
+  } = useInfrastructureState()
+
   const initialGrade = formatGradeBadge(session?.grade || '12C')
-  const bookClassSubjects = DEFAULT_SUBJECTS.filter((s) => s.grade === initialGrade)
-  const initialBookSub = bookClassSubjects[0] || DEFAULT_SUBJECTS[0]
-  const initialCls = DEFAULT_CLASSES.find((c) => c.name === initialGrade)
+  const bookClassSubjects = (infraSubjects.length > 0 ? infraSubjects : DEFAULT_SUBJECTS).filter((s) => s.grade === initialGrade)
+  const initialBookSub = bookClassSubjects[0] || infraSubjects[0] || DEFAULT_SUBJECTS[0]
+  const initialCls = infraClasses.find((c) => c.name === initialGrade) || DEFAULT_CLASSES.find((c) => c.name === initialGrade)
 
   // Booking form state
   const [bookDayKey, setBookDayKey] = useState<DayKey>(session?.dayKey || 'mon')
@@ -108,34 +117,36 @@ function SessionActionModalContent({
     (session?.labKey || initialBookSub.labId || 'comp') as MasterRoutineItem['labKey']
   )
   const [bookTeacher, setBookTeacher] = useState<string>(
-    session?.teacher || TEACHER_NAME_MAP[initialBookSub.teacherId] || 'Dr. Rajesh Sharma (Computer Science)'
+    session?.teacher || (initialBookSub as any)?.teacherName || 'Dr. Rajesh Sharma'
   )
   const [bookSpan, setBookSpan] = useState<number>(session?.span || 1)
-  const [bookStudents, setBookStudents] = useState<number>(initialCls?.strength || session?.defaultStudents || 38)
+  const [bookStudents, setBookStudents] = useState<number>((initialCls as any)?.capacity || (initialCls as any)?.strength || session?.defaultStudents || 38)
 
   const handleBookGradeChange = (newGrade: string) => {
     setBookGrade(newGrade)
-    const cls = DEFAULT_CLASSES.find((c) => c.name === newGrade)
+    const cls = infraClasses.find((c) => c.name === newGrade) || DEFAULT_CLASSES.find((c) => c.name === newGrade)
     if (cls) {
-      setBookStudents(cls.strength)
+      setBookStudents((cls as any).capacity || (cls as any).strength || 36)
     }
-    const matching = DEFAULT_SUBJECTS.filter((s) => s.grade === newGrade)
+    const matching = (infraSubjects.length > 0 ? infraSubjects : DEFAULT_SUBJECTS).filter((s) => s.grade === newGrade)
     if (matching.length > 0) {
       const sub = matching[0]
       setBookSubjectCode(sub.code)
       setBookSubjectTitle(sub.title)
-      setBookLabKey(sub.labId as MasterRoutineItem['labKey'])
-      setBookTeacher(TEACHER_NAME_MAP[sub.teacherId] || 'Dr. Rajesh Sharma (Computer Science)')
+      setBookLabKey((sub.labId || 'comp') as MasterRoutineItem['labKey'])
+      const teacher = infraFaculty.find((f) => f.id === sub.teacherId)
+      setBookTeacher(teacher ? teacher.name : (sub as any).teacherName || 'Dr. Rajesh Sharma')
     }
   }
 
   const handleBookSubjectChange = (code: string) => {
     setBookSubjectCode(code)
-    const sub = DEFAULT_SUBJECTS.find((s) => s.code === code)
+    const sub = infraSubjects.find((s) => s.code === code) || DEFAULT_SUBJECTS.find((s) => s.code === code)
     if (sub) {
       setBookSubjectTitle(sub.title)
-      setBookLabKey(sub.labId as MasterRoutineItem['labKey'])
-      setBookTeacher(TEACHER_NAME_MAP[sub.teacherId] || 'Dr. Rajesh Sharma (Computer Science)')
+      setBookLabKey((sub.labId || 'comp') as MasterRoutineItem['labKey'])
+      const teacher = infraFaculty.find((f) => f.id === sub.teacherId)
+      setBookTeacher(teacher ? teacher.name : (sub as any).teacherName || 'Dr. Rajesh Sharma')
     }
   }
 
@@ -294,7 +305,7 @@ function SessionActionModalContent({
       const logRecord = {
         id: existingLog?.id,
         sessionId: session.id,
-        date: new Date().toISOString().split('T')[0],
+        date: getNepalDateStr(),
         dayKey: session.dayKey,
         slotId: session.slotId,
         timeSlot: session.timeSlot,
@@ -320,7 +331,7 @@ function SessionActionModalContent({
           schedule_id: session.id,
           lab_id: session.labKey || 'comp',
           teacher_id: selectedTeacher || session.teacher,
-          date: new Date().toISOString().split('T')[0],
+          date: getNepalDateStr(),
           period_label: session.timeSlot,
           subject_name: `${session.subjectCode} - ${session.subjectTitle}`,
           batch_group: session.grade,
@@ -340,7 +351,7 @@ function SessionActionModalContent({
       onSaveLog({
         id: existingLog?.id,
         sessionId: session.id,
-        date: new Date().toISOString().split('T')[0],
+        date: getNepalDateStr(),
         dayKey: session.dayKey,
         slotId: session.slotId,
         timeSlot: session.timeSlot,
@@ -509,9 +520,9 @@ function SessionActionModalContent({
                     value={bookGrade}
                     onChange={(e) => handleBookGradeChange(e.target.value)}
                   >
-                    {DEFAULT_CLASSES.map((c) => (
+                    {((infraClasses && infraClasses.length > 0) ? infraClasses : DEFAULT_CLASSES).map((c: any) => (
                       <option key={c.id} value={c.name}>
-                        {c.name} — {c.stream} ({c.strength} Students)
+                        {c.name} — {c.stream} ({c.capacity || c.strength} Students)
                       </option>
                     ))}
                   </Select>
@@ -562,7 +573,7 @@ function SessionActionModalContent({
                     value={bookLabKey}
                     onChange={(e) => setBookLabKey(e.target.value as MasterRoutineItem['labKey'])}
                   >
-                    {LAB_ROOMS.map((lab) => (
+                    {((infraLabs && infraLabs.length > 0) ? infraLabs : LAB_ROOMS).map((lab: any) => (
                       <option key={lab.id} value={lab.id}>
                         {lab.name}
                       </option>
@@ -579,13 +590,16 @@ function SessionActionModalContent({
                       Auto-assigned
                     </span>
                   </div>
-                  <Input
-                    type="text"
-                    required
+                  <Select
                     value={bookTeacher}
                     onChange={(e) => setBookTeacher(e.target.value)}
-                    placeholder="Faculty In-Charge"
-                  />
+                  >
+                    {infraFaculty.map((f) => (
+                      <option key={f.id} value={f.name}>
+                        {f.name} ({f.dept.split(' ')[0]})
+                      </option>
+                    ))}
+                  </Select>
                 </div>
               </div>
 

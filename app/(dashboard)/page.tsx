@@ -27,6 +27,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { MASTER_TIME_SLOTS, MasterRoutineItem } from '@/lib/master-data'
+import { getNepalDateStr } from '@/lib/nepali-date'
 import SessionActionModal, { ModalMode } from '@/components/schedules/session-action-modal'
 import { useLiveSchedule } from '@/hooks/use-live-schedule'
 import { useRoutineState } from '@/hooks/use-routine-state'
@@ -71,7 +72,7 @@ export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<'upcoming' | 'backlog' | 'completed' | 'all'>('upcoming')
   const [labFilter, setLabFilter] = useState<'all' | 'comp' | 'phys' | 'chem'>('all')
 
-  const todayDateStr = new Date().toISOString().split('T')[0]
+  const todayDateStr = getNepalDateStr(new Date())
   const currentSlotIdx = MASTER_TIME_SLOTS.findIndex((s) => s.id === activeSlotId)
   const currentMinutes = new Date().getHours() * 60 + new Date().getMinutes()
   const isBeforeSchool = currentMinutes < 9 * 60 + 15

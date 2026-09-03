@@ -35,9 +35,19 @@ export interface HolidayItem {
   id: string
   title: string
   titleNp?: string
-  dateStr: string // YYYY-MM-DD
-  type: 'state' | 'cultural' | 'department' | 'weekend'
+  dateStr: string // YYYY-MM-DD (Start Date)
+  endDateStr?: string // YYYY-MM-DD (End Date for multi-day vacations)
+  bsDateStr?: string // e.g. "२०८३ असोज २४ - कात्तिक ५"
+  type: 'state' | 'cultural' | 'department' | 'weekend' | 'vacation'
   description?: string
+}
+
+export function isDateWithinHoliday(dateInput: string | Date, holiday: HolidayItem): boolean {
+  const dStr = typeof dateInput === 'string' ? dateInput.split('T')[0] : getNepalDateStr(dateInput)
+  if (!holiday.endDateStr || holiday.endDateStr === holiday.dateStr) {
+    return dStr === holiday.dateStr
+  }
+  return dStr >= holiday.dateStr && dStr <= holiday.endDateStr
 }
 
 export const DAYS: {
@@ -58,28 +68,43 @@ export const DAYS: {
 
 export const DEFAULT_HOLIDAYS: HolidayItem[] = [
   {
-    id: 'hol-1',
+    id: 'hol-const',
     title: 'Constitution Day (संविधान दिवस)',
-    titleNp: 'संविधान दिवस',
+    titleNp: 'राष्ट्रिय संविधान दिवस',
     dateStr: '2026-09-19',
+    bsDateStr: '२०८३ असोज ०३',
     type: 'state',
     description: 'National Constitution Day Public Holiday',
   },
   {
-    id: 'hol-2',
-    title: 'Dashain Festival Break (दशैं बिदा)',
-    titleNp: 'विजयादशमी',
-    dateStr: '2026-10-18',
+    id: 'hol-dashain',
+    title: 'Bada Dashain Vacation (बडा दसैं बिदा)',
+    titleNp: 'बडा दसैं बिदा',
+    dateStr: '2026-10-10',
+    endDateStr: '2026-10-22',
+    bsDateStr: '२०८३ असोज २४ - कात्तिक ०५',
     type: 'cultural',
-    description: 'Annual National Autumn Festival Recess',
+    description: 'Annual National Autumn Festival Recess (13 Days)',
   },
   {
-    id: 'hol-3',
-    title: 'Tihar / Deepawali (तिहार)',
-    titleNp: 'तिहार',
+    id: 'hol-tihar',
+    title: 'Tihar & Chhath Recess (तिहार तथा छठ बिदा)',
+    titleNp: 'तिहार तथा छठ पर्व बिदा',
     dateStr: '2026-11-08',
+    endDateStr: '2026-11-13',
+    bsDateStr: '२०८३ कात्तिक २३ - २८',
     type: 'cultural',
-    description: 'Festival of Lights Recess',
+    description: 'Festival of Lights & Chhath Pooja Recess (6 Days)',
+  },
+  {
+    id: 'hol-winter',
+    title: 'Winter Vacation (हिउँदे बिदा)',
+    titleNp: 'हिउँदे बिदा',
+    dateStr: '2027-01-01',
+    endDateStr: '2027-01-14',
+    bsDateStr: '२०८३ पुस १७ - ३०',
+    type: 'vacation',
+    description: 'Mid-term Winter Vacation (14 Days)',
   },
 ]
 
@@ -96,7 +121,7 @@ export function computeCombinedTimeRange(slotId: string, span: number = 1): stri
   return `${startTime} - ${endTime}`
 }
 
-import { getNepaliDate, toNepaliDigits } from '@/lib/nepali-date'
+import { getNepaliDate, toNepaliDigits, getNepalDateStr } from '@/lib/nepali-date'
 
 export function getOrderedDays(startDay: 'sun' | 'mon' = 'sun') {
   if (startDay === 'mon') {
@@ -124,7 +149,7 @@ export function getWeekDates(baseDate: Date = new Date(), startDay: 'sun' | 'mon
   return orderedDays.map((d, index) => {
     const dayDate = new Date(startDate)
     dayDate.setDate(startDate.getDate() + index)
-    const dateStr = dayDate.toISOString().split('T')[0]
+    const dateStr = getNepalDateStr(dayDate)
     const dayNum = dayDate.getDate()
     const monthName = dayDate.toLocaleDateString('en-US', { month: 'short' })
     const nepaliInfo = getNepaliDate(dayDate)
@@ -158,8 +183,26 @@ export function formatGradeBadge(grade: string, subjectCode?: string): string {
   if (clean === '9') return '9B'
   if (clean === '8') return '8A'
   if (clean === '7') return '7B'
-  if (clean === '6') return '6B'
+  if (clean === '6') return '6A'
   return clean
+}
+
+export function formatCleanSubjectCode(subjectCode: string, grade?: string): string {
+  if (!subjectCode) return 'PRAC'
+  // If already contains sub-class suffix like -12C, -11SC, -10A, -7C, -6A, return uppercase
+  if (/-[0-9]+[A-Za-z]+$/i.test(subjectCode)) {
+    return subjectCode.toUpperCase()
+  }
+  if (grade) {
+    const cleanBadge = formatGradeBadge(grade, subjectCode)
+    const normalizedBadge = cleanBadge.replace(/\s+/g, '').toUpperCase()
+    const match = subjectCode.match(/^([A-Za-z]+)[-\s]?([0-9]+)?/i)
+    if (match) {
+      const prefix = match[1].toUpperCase()
+      return `${prefix}-${normalizedBadge}`
+    }
+  }
+  return subjectCode.toUpperCase()
 }
 
 export interface ClassBatchItem {
