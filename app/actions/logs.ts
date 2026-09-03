@@ -136,48 +136,99 @@ export async function createPracticalLog(
     }
   }
 
-  const labKey = logPayload.lab_id.toLowerCase().includes('comp')
-    ? 'comp'
-    : logPayload.lab_id.toLowerCase().includes('phys')
-    ? 'phys'
-    : logPayload.lab_id.toLowerCase().includes('chem')
-    ? 'chem'
-    : logPayload.lab_id.toLowerCase().includes('bio')
-    ? 'bio'
-    : 'elec'
+  const safeLabId =
+    logPayload.lab_id.toLowerCase().includes('comp')
+      ? 'comp'
+      : logPayload.lab_id.toLowerCase().includes('phys')
+      ? 'phys'
+      : logPayload.lab_id.toLowerCase().includes('chem')
+      ? 'chem'
+      : logPayload.lab_id.toLowerCase().includes('bio')
+      ? 'bio'
+      : logPayload.lab_id.toLowerCase().includes('elec')
+      ? 'elec'
+      : 'comp'
 
-  const labInfo = LAB_NAME_MAP[labKey] || {
-    id: logPayload.lab_id,
-    name: logPayload.lab_id,
+  const labInfo = LAB_NAME_MAP[safeLabId] || {
+    id: safeLabId,
+    name: 'Laboratory',
     type: 'laboratory',
   }
 
+  const isUUID = (str?: string | null) =>
+    str ? /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str) : false
+
+  const safeTeacherId = isUUID(logPayload.teacher_id) ? logPayload.teacher_id : null
+
+  const safeAbsentRolls = Array.isArray(data.absent_rolls || data.absentRolls)
+    ? (data.absent_rolls || data.absentRolls)
+        .map((r: any) => (typeof r === 'number' ? r : parseInt(String(r), 10)))
+        .filter((n: number) => Number.isFinite(n) && n > 0)
+    : []
+
+  const recordId = data.id || logPayload.id || `log-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
+
   const teacherName =
-    TEACHER_NAME_MAP[logPayload.teacher_id] || logPayload.teacher_id || 'Faculty Member'
+    TEACHER_NAME_MAP[logPayload.teacher_id] || (data.teacher as string) || 'Faculty Member'
 
   const newLogRecord = {
-    id: `log-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+    id: recordId,
     ...logPayload,
+    lab_id: safeLabId,
+    teacher_id: safeTeacherId,
+    absent_rolls: safeAbsentRolls,
     created_at: new Date().toISOString(),
     labs: labInfo,
-    profiles: { id: logPayload.teacher_id, full_name: teacherName },
+    profiles: { id: safeTeacherId || 't1', full_name: teacherName },
   }
 
   // Prepend to persistent memory store
   const store = getStore()
-  store.unshift(newLogRecord)
+  const existingIdx = store.findIndex((l) => l.id === recordId)
+  if (existingIdx !== -1) {
+    store[existingIdx] = newLogRecord
+  } else {
+    store.unshift(newLogRecord)
+  }
 
   // Try to also write to Supabase if configured
   if (isSupabaseConfigured()) {
     try {
       const supabase = await createClient()
       const { data: userData } = await supabase.auth.getUser()
-      await (supabase.from('practical_logs') as any).insert({
-        ...logPayload,
-        logged_by: userData.user?.id || null,
-      })
-    } catch (err) {
+      const loggedBy = isUUID(userData.user?.id) ? userData.user?.id : null
+
+      const { error: dbError } = await (supabase.from('practical_logs') as any).upsert(
+        {
+          id: recordId,
+          schedule_id: logPayload.schedule_id || null,
+          lab_id: safeLabId,
+          teacher_id: safeTeacherId,
+          date: logPayload.date,
+          period_label: logPayload.period_label,
+          subject_name: logPayload.subject_name,
+          batch_group: logPayload.batch_group,
+          practical_title: logPayload.practical_title,
+          total_students: logPayload.total_students,
+          present_students: logPayload.present_students,
+          absent_students: logPayload.absent_students,
+          absent_rolls: safeAbsentRolls,
+          remarks: logPayload.remarks || null,
+          status: logPayload.status || 'conducted',
+          skip_reason: logPayload.skip_reason || null,
+          topic_learned: logPayload.topic_learned || null,
+          logged_by: loggedBy,
+        },
+        { onConflict: 'id' }
+      )
+
+      if (dbError) {
+        console.error('❌ Supabase log upsert error:', dbError)
+        return { success: false, error: dbError.message, log: newLogRecord }
+      }
+    } catch (err: any) {
       console.warn('Supabase log insert skipped (fallback active):', err)
+      return { success: false, error: err.message, log: newLogRecord }
     }
   }
 
@@ -198,8 +249,14 @@ export async function updatePracticalLog(id: string, data: Partial<PracticalLogU
   if (isSupabaseConfigured()) {
     try {
       const supabase = await createClient()
-      await (supabase.from('practical_logs') as any).update(data).eq('id', id)
-    } catch (e) {}
+      const { error } = await (supabase.from('practical_logs') as any).update(data).eq('id', id)
+      if (error) {
+        console.error('❌ Supabase log update error:', error)
+        return { success: false, error: error.message }
+      }
+    } catch (e: any) {
+      return { success: false, error: e.message }
+    }
   }
 
   revalidatePath('/logs')

@@ -98,3 +98,14 @@ body {
     box-shadow: 0 0 0 0 rgba(var(--active-color-rgb), 0);
   }
 }
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 1.8s infinite;
+}
+

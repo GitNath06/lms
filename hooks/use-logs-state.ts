@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   createPracticalLog,
   updatePracticalLog,
@@ -8,6 +8,8 @@ import {
   getPracticalLogs,
 } from '@/app/actions/logs'
 import { getNepalDateStr } from '@/lib/nepali-date'
+import { createClient } from '@/lib/supabase/client'
+import { isSupabaseConfigured } from '@/lib/supabase/config'
 
 export interface PracticalLogRecord {
   id: string
@@ -21,6 +23,7 @@ export interface PracticalLogRecord {
   grade: string
   teacher: string
   lab: string
+  labId?: string
   status: 'conducted' | 'skipped'
   topicLearned?: string
   totalStudents: number
@@ -31,9 +34,11 @@ export interface PracticalLogRecord {
   skipReason?: string
   createdAt: string
   updatedAt?: string
+  isSynced?: boolean
 }
 
 const STORAGE_KEY = 'lab_practical_logs_v1'
+const OUTBOX_KEY = 'lab_pending_logs_outbox_v1'
 
 const INITIAL_MOCK_LOGS: PracticalLogRecord[] = [
   {
@@ -48,6 +53,7 @@ const INITIAL_MOCK_LOGS: PracticalLogRecord[] = [
     grade: 'Class 12',
     teacher: 'Mr. R. Sharma',
     lab: 'Computer Lab',
+    labId: 'comp',
     status: 'conducted',
     topicLearned: 'Implementation of Binary Search Trees in C++',
     totalStudents: 38,
@@ -56,8 +62,48 @@ const INITIAL_MOCK_LOGS: PracticalLogRecord[] = [
     absentRolls: [14, 28],
     remarks: 'All workstations functioning properly. Students completed traversal exercise.',
     createdAt: new Date(Date.now() - 3600000 * 3).toISOString(),
+    isSynced: true,
   },
 ]
+
+// Outbox helpers
+function getPendingOutbox(): PracticalLogRecord[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = localStorage.getItem(OUTBOX_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed)) return parsed
+    }
+  } catch {}
+  return []
+}
+
+function savePendingOutbox(queue: PracticalLogRecord[]) {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(OUTBOX_KEY, JSON.stringify(queue))
+    window.dispatchEvent(new CustomEvent('sync-status-changed', { detail: { pendingCount: queue.length } }))
+  } catch {}
+}
+
+function addToOutbox(record: PracticalLogRecord) {
+  const current = getPendingOutbox()
+  const filtered = current.filter(
+    (item) => !(item.id === record.id || (item.sessionId === record.sessionId && item.date === record.date))
+  )
+  savePendingOutbox([...filtered, { ...record, isSynced: false }])
+}
+
+function removeFromOutbox(id: string, sessionId?: string, date?: string) {
+  const current = getPendingOutbox()
+  const filtered = current.filter((item) => {
+    if (item.id === id) return false
+    if (sessionId && date && item.sessionId === sessionId && item.date === date) return false
+    return true
+  })
+  savePendingOutbox(filtered)
+}
 
 export function useLogsState() {
   const [logs, setLogs] = useState<PracticalLogRecord[]>(() => {
@@ -66,22 +112,99 @@ export function useLogsState() {
         const saved = localStorage.getItem(STORAGE_KEY)
         if (saved) {
           const parsed = JSON.parse(saved)
-          if (Array.isArray(parsed)) return parsed
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed
         }
       } catch (e) {}
     }
     return INITIAL_MOCK_LOGS
   })
 
-  // Load from Supabase on mount
-  useEffect(() => {
-    let isMounted = true
+  const [isSyncing, setIsSyncing] = useState<boolean>(false)
+  const isSyncingRef = useRef(false)
 
-    async function loadRemoteLogs() {
-      try {
-        const remoteLogs = await getPracticalLogs()
-        if (isMounted && remoteLogs && remoteLogs.length > 0) {
-          const mapped: PracticalLogRecord[] = remoteLogs.map((l: any) => ({
+  // Flush Outbox Queue to Supabase
+  const flushOutbox = useCallback(async () => {
+    if (typeof window === 'undefined' || !navigator.onLine) return
+    if (!isSupabaseConfigured()) return
+    if (isSyncingRef.current) return
+
+    const pending = getPendingOutbox()
+    if (pending.length === 0) return
+
+    isSyncingRef.current = true
+    setIsSyncing(true)
+
+    try {
+      for (const item of pending) {
+        const res = await createPracticalLog({
+          id: item.id,
+          schedule_id: item.sessionId,
+          lab_id: item.labId || item.lab,
+          date: item.date,
+          period_label: item.timeSlot,
+          subject_name: `${item.subjectCode} - ${item.subjectTitle}`,
+          batch_group: item.grade,
+          practical_title: item.topicLearned || item.subjectTitle,
+          total_students: item.totalStudents,
+          present_students: item.presentStudents,
+          absent_students: item.absentStudents,
+          absent_rolls: item.absentRolls,
+          remarks: item.remarks,
+          status: item.status,
+          skip_reason: item.skipReason,
+          topic_learned: item.topicLearned,
+        })
+
+        if (res && res.success) {
+          removeFromOutbox(item.id, item.sessionId, item.date)
+          // Mark local copy as synced
+          setLogs((prev) =>
+            prev.map((l) => (l.id === item.id || (l.sessionId === item.sessionId && l.date === item.date) ? { ...l, isSynced: true } : l))
+          )
+        }
+      }
+    } catch (err) {
+      console.warn('Error flushing logs outbox:', err)
+    } finally {
+      isSyncingRef.current = false
+      setIsSyncing(false)
+    }
+  }, [])
+
+  // Persist helper
+  const persistLogs = useCallback(
+    (updater: PracticalLogRecord[] | ((prev: PracticalLogRecord[]) => PracticalLogRecord[])) => {
+      setLogs((prev) => {
+        const updated = typeof updater === 'function' ? updater(prev) : updater
+        try {
+          if (typeof window !== 'undefined') {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(updated))
+            window.dispatchEvent(new Event('logs-updated'))
+          }
+        } catch (e) {
+          console.error('Failed to save logs', e)
+        }
+        return updated
+      })
+    },
+    []
+  )
+
+  // Load from Supabase on mount and merge with local un-synced outbox
+  const loadRemoteLogs = useCallback(async () => {
+    try {
+      // First attempt to flush any pending offline logs
+      await flushOutbox()
+
+      const remoteLogs = await getPracticalLogs()
+      if (remoteLogs && remoteLogs.length > 0) {
+        const pending = getPendingOutbox()
+        const pendingKeySet = new Set(pending.map((p) => `${p.sessionId}_${p.date}`))
+        const pendingIdSet = new Set(pending.map((p) => p.id))
+
+        const mappedRemote: PracticalLogRecord[] = remoteLogs
+          .filter((l: any) => !pendingIdSet.has(l.id) && !pendingKeySet.has(`${l.schedule_id}_${l.date}`))
+          .map((l: any) => ({
             id: l.id,
             sessionId: l.schedule_id || `log-${l.id}`,
             date: l.date,
@@ -93,55 +216,73 @@ export function useLogsState() {
             grade: l.batch_group,
             teacher: l.profiles?.full_name || 'Assigned Faculty',
             lab: l.labs?.name || 'Laboratory',
+            labId: l.lab_id || l.labs?.id || 'comp',
             status: l.status || 'conducted',
             topicLearned: l.practical_title,
             totalStudents: l.total_students,
             presentStudents: l.present_students,
             absentStudents: l.absent_students,
+            absentRolls: l.absent_rolls || [],
             remarks: l.remarks || undefined,
             skipReason: l.skip_reason || undefined,
             createdAt: l.created_at,
+            isSynced: true,
           }))
 
-          setLogs(mapped)
-          return
-        }
-      } catch (e) {
-        console.warn('Using local logs store:', e)
+        // Merge: pending local outbox takes priority over remote stale records
+        const merged = [...pending, ...mappedRemote]
+        persistLogs(merged)
+        return
       }
-
-      // Local fallback
-      try {
-        const saved = localStorage.getItem(STORAGE_KEY)
-        if (saved) {
-          const parsed = JSON.parse(saved)
-          if (Array.isArray(parsed)) {
-            setLogs(parsed)
-          }
-        }
-      } catch (e) {}
+    } catch (e) {
+      console.warn('Using local logs store fallback:', e)
     }
 
+    // Local fallback
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY)
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setLogs(parsed)
+        }
+      }
+    } catch (e) {}
+  }, [flushOutbox, persistLogs])
+
+  useEffect(() => {
     loadRemoteLogs()
-    return () => {
-      isMounted = false
-    }
-  }, [])
 
-  const persistLogs = useCallback((updater: PracticalLogRecord[] | ((prev: PracticalLogRecord[]) => PracticalLogRecord[])) => {
-    setLogs((prev) => {
-      const updated = typeof updater === 'function' ? updater(prev) : updater
+    // Listen to online events to immediately flush outbox
+    const handleOnline = () => {
+      flushOutbox()
+      loadRemoteLogs()
+    }
+
+    window.addEventListener('online', handleOnline)
+
+    // Realtime subscription on practical_logs
+    if (isSupabaseConfigured()) {
       try {
-        if (typeof window !== 'undefined') {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(updated))
-          window.dispatchEvent(new Event('logs-updated'))
+        const supabase = createClient()
+        const channel = supabase
+          .channel('practical-logs-feed')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'practical_logs' }, () => {
+            loadRemoteLogs()
+          })
+          .subscribe()
+
+        return () => {
+          window.removeEventListener('online', handleOnline)
+          supabase.removeChannel(channel)
         }
-      } catch (e) {
-        console.error('Failed to save logs', e)
-      }
-      return updated
-    })
-  }, [])
+      } catch {}
+    }
+
+    return () => {
+      window.removeEventListener('online', handleOnline)
+    }
+  }, [flushOutbox, loadRemoteLogs])
 
   // Cross-tab sync
   useEffect(() => {
@@ -158,14 +299,29 @@ export function useLogsState() {
     return () => window.removeEventListener('logs-updated', handleUpdate)
   }, [])
 
-  // Save new log record (Optimistic UI + Server Action Persistence)
+  // Save new log record (Optimistic UI + Outbox Queue + Server Action Persistence)
   const saveLog = async (logData: Omit<PracticalLogRecord, 'id' | 'createdAt'> & { id?: string }) => {
+    const labKey =
+      logData.labId ||
+      (logData.lab?.toLowerCase().includes('comp')
+        ? 'comp'
+        : logData.lab?.toLowerCase().includes('phys')
+        ? 'phys'
+        : logData.lab?.toLowerCase().includes('chem')
+        ? 'chem'
+        : logData.lab?.toLowerCase().includes('bio')
+        ? 'bio'
+        : 'elec')
+
     const newRecord: PracticalLogRecord = {
       ...logData,
-      id: logData.id || `log-${Date.now()}`,
+      labId: labKey,
+      id: logData.id || `log-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       createdAt: new Date().toISOString(),
+      isSynced: false,
     }
 
+    // 1. Immediately update optimistic UI & localStorage
     persistLogs((prev) => {
       const filtered = prev.filter(
         (l) => !(l.sessionId === logData.sessionId && l.date === logData.date)
@@ -173,26 +329,41 @@ export function useLogsState() {
       return [newRecord, ...filtered]
     })
 
-    // Server action sync
-    try {
-      await createPracticalLog({
-        schedule_id: logData.sessionId,
-        lab_id: logData.lab,
-        date: logData.date,
-        period_label: logData.timeSlot,
-        subject_name: `${logData.subjectCode} - ${logData.subjectTitle}`,
-        batch_group: logData.grade,
-        practical_title: logData.topicLearned || logData.subjectTitle,
-        total_students: logData.totalStudents,
-        present_students: logData.presentStudents,
-        absent_students: logData.absentStudents,
-        remarks: logData.remarks,
-        status: logData.status,
-        skip_reason: logData.skipReason,
-        topic_learned: logData.topicLearned,
-      })
-    } catch (e) {
-      console.warn('Server sync for saveLog skipped:', e)
+    // 2. Add to offline outbox queue
+    addToOutbox(newRecord)
+
+    // 3. Attempt immediate server action sync if online
+    if (navigator.onLine && isSupabaseConfigured()) {
+      try {
+        const res = await createPracticalLog({
+          id: newRecord.id,
+          schedule_id: logData.sessionId,
+          lab_id: labKey,
+          date: logData.date,
+          period_label: logData.timeSlot,
+          subject_name: `${logData.subjectCode} - ${logData.subjectTitle}`,
+          batch_group: logData.grade,
+          practical_title: logData.topicLearned || logData.subjectTitle,
+          total_students: logData.totalStudents,
+          present_students: logData.presentStudents,
+          absent_students: logData.absentStudents,
+          absent_rolls: logData.absentRolls,
+          remarks: logData.remarks,
+          status: logData.status,
+          skip_reason: logData.skipReason,
+          topic_learned: logData.topicLearned,
+        })
+
+        if (res && res.success) {
+          removeFromOutbox(newRecord.id, logData.sessionId, logData.date)
+          newRecord.isSynced = true
+          persistLogs((prev) =>
+            prev.map((l) => (l.id === newRecord.id ? { ...l, isSynced: true } : l))
+          )
+        }
+      } catch (e) {
+        console.warn('Network offline, queued in outbox for automatic sync:', e)
+      }
     }
 
     return newRecord
@@ -203,33 +374,45 @@ export function useLogsState() {
     persistLogs((prev) =>
       prev.map((l) => {
         if (l.id === logId) {
-          return {
+          const updated = {
             ...l,
             ...updatedData,
             updatedAt: new Date().toISOString(),
+            isSynced: false,
           }
+          addToOutbox(updated)
+          return updated
         }
         return l
       })
     )
 
-    try {
-      await updatePracticalLog(logId, {
-        practical_title: updatedData.topicLearned,
-        present_students: updatedData.presentStudents,
-        total_students: updatedData.totalStudents,
-        absent_students: updatedData.absentStudents,
-        remarks: updatedData.remarks,
-        status: updatedData.status,
-        skip_reason: updatedData.skipReason,
-      })
-    } catch (e) {
-      console.warn('Server sync for updateLog skipped:', e)
+    if (navigator.onLine && isSupabaseConfigured()) {
+      try {
+        const res = await updatePracticalLog(logId, {
+          practical_title: updatedData.topicLearned,
+          present_students: updatedData.presentStudents,
+          total_students: updatedData.totalStudents,
+          absent_students: updatedData.absentStudents,
+          remarks: updatedData.remarks,
+          status: updatedData.status,
+          skip_reason: updatedData.skipReason,
+        })
+        if (res && res.success) {
+          removeFromOutbox(logId)
+          persistLogs((prev) =>
+            prev.map((l) => (l.id === logId ? { ...l, isSynced: true } : l))
+          )
+        }
+      } catch (e) {
+        console.warn('Update queued in outbox for retry:', e)
+      }
     }
   }
 
   // Delete a log record
   const deleteLog = async (logId: string) => {
+    removeFromOutbox(logId)
     persistLogs((prev) => prev.filter((l) => l.id !== logId))
     try {
       await deletePracticalLogAction(logId)
@@ -250,5 +433,7 @@ export function useLogsState() {
     updateLog,
     deleteLog,
     getLogForSession,
+    isSyncing,
+    flushOutbox,
   }
 }

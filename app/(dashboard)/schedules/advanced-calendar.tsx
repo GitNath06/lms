@@ -189,17 +189,6 @@ export default function AdvancedCalendar({ labFilter = 'all' }: AdvancedCalendar
 
   const aurora = getAuroraStyles()
 
-  if (!mounted) {
-    return (
-      <div className="flex h-full items-center justify-center bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl">
-        <div className="flex items-center gap-2 text-xs font-mono text-zinc-400">
-          <Sparkles className="h-4 w-4 animate-spin text-indigo-500" />
-          <span>Synchronizing Laboratory Matrix...</span>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="flex flex-col h-full bg-white/95 dark:bg-zinc-950/95 border border-zinc-200/90 dark:border-zinc-800/90 rounded-2xl shadow-sm overflow-hidden select-none relative backdrop-blur-xl">
       {/* 🌌 Dynamic Ambient Aurora Glow Blobs Layer */}

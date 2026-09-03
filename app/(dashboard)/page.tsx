@@ -33,7 +33,6 @@ import { useLiveSchedule } from '@/hooks/use-live-schedule'
 import { useRoutineState } from '@/hooks/use-routine-state'
 import { useLogsState, PracticalLogRecord } from '@/hooks/use-logs-state'
 import SyllabusProgress from '@/components/dashboard/syllabus-progress'
-import DashboardLoading from './loading'
 
 export default function DashboardPage() {
   const {
@@ -170,10 +169,6 @@ export default function DashboardPage() {
   const filterByLab = (s: MasterRoutineItem) => {
     if (labFilter === 'all') return true
     return s.labKey === labFilter
-  }
-
-  if (!mounted) {
-    return <DashboardLoading />
   }
 
   return (

@@ -302,6 +302,18 @@ function SessionActionModalContent({
       }
       onClose()
     } else if (activeTab === 'log') {
+      const sanitizedRolls = Array.from(
+        new Set(
+          absentRolls
+            .map((r) => (typeof r === 'number' ? r : parseInt(String(r), 10)))
+            .filter((n) => Number.isFinite(n) && n > 0)
+        )
+      ).sort((a, b) => a - b)
+
+      const safeTotal = Math.max(1, totalStudents)
+      const safeAbsent = Math.max(0, Math.min(safeTotal, effectiveAbsentCount))
+      const safePresent = Math.max(0, Math.min(safeTotal, safeTotal - safeAbsent))
+
       const logRecord = {
         id: existingLog?.id,
         sessionId: session.id,
@@ -316,10 +328,10 @@ function SessionActionModalContent({
         lab: selectedLab,
         status: 'conducted' as const,
         topicLearned: topicLearned || 'Conducted Practical Curriculum Experiment',
-        totalStudents,
-        presentStudents,
-        absentStudents: effectiveAbsentCount,
-        absentRolls,
+        totalStudents: safeTotal,
+        presentStudents: safePresent,
+        absentStudents: safeAbsent,
+        absentRolls: sanitizedRolls,
         remarks,
       }
 
@@ -336,9 +348,9 @@ function SessionActionModalContent({
           subject_name: `${session.subjectCode} - ${session.subjectTitle}`,
           batch_group: session.grade,
           practical_title: topicLearned || 'Conducted Practical Curriculum Experiment',
-          total_students: totalStudents,
-          present_students: presentStudents,
-          absent_students: effectiveAbsentCount,
+          total_students: safeTotal,
+          present_students: safePresent,
+          absent_students: safeAbsent,
           remarks,
           status: 'conducted',
           topic_learned: topicLearned,
@@ -716,7 +728,11 @@ function SessionActionModalContent({
                         type="number"
                         min="1"
                         value={totalStudents}
-                        onChange={(e) => setTotalStudents(parseInt(e.target.value) || 0)}
+                        onChange={(e) => {
+                          const val = Math.max(1, parseInt(e.target.value, 10) || 1)
+                          setTotalStudents(val)
+                          if (absentCountInput > val) setAbsentCountInput(val)
+                        }}
                         required
                       />
                     </div>
@@ -727,7 +743,10 @@ function SessionActionModalContent({
                         min="0"
                         max={totalStudents}
                         value={absentCountInput}
-                        onChange={(e) => setAbsentCountInput(parseInt(e.target.value) || 0)}
+                        onChange={(e) => {
+                          const val = Math.max(0, parseInt(e.target.value, 10) || 0)
+                          setAbsentCountInput(Math.min(val, totalStudents))
+                        }}
                         className="border-amber-400 dark:border-amber-600 font-bold"
                         required
                         autoFocus

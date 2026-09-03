@@ -15,6 +15,21 @@ const DEFAULT_LABS: LabRow[] = [
   { id: 'bio', name: 'Biology Laboratory', type: 'biology_lab', capacity: 35, is_active: true },
 ]
 
+const SLOT_ORDER = ['t1', 't2', 't3', 't4', 't5', 't6', 't7', 't8', 't9', 't10']
+
+function getSlotRange(startSlotId: string, span: number = 1): { start: number; end: number } {
+  const startIdx = SLOT_ORDER.indexOf(startSlotId)
+  const safeStart = startIdx === -1 ? 0 : startIdx
+  return {
+    start: safeStart,
+    end: safeStart + (span || 1) - 1,
+  }
+}
+
+function rangesOverlap(r1: { start: number; end: number }, r2: { start: number; end: number }): boolean {
+  return r1.start <= r2.end && r1.end >= r2.start
+}
+
 // 1. Fetch or Seed Labs
 export async function getLabs(): Promise<LabRow[]> {
   if (!isSupabaseConfigured()) {
@@ -99,19 +114,43 @@ export async function createSchedule(data: {
   try {
     const supabase = await createClient()
 
-    // Validate for conflicting overlapping booking
-    const { data: conflicts } = await supabase
+    // 3-Way Multi-Period Span Conflict Detection (Room, Teacher, Batch)
+    const targetRange = getSlotRange(data.slot_id, data.span || 1)
+
+    const { data: daySchedules } = await supabase
       .from('schedules')
-      .select('id, subject_name, start_time, end_time')
-      .eq('lab_id', data.lab_id)
+      .select('id, lab_id, teacher_id, subject_name, batch_name, slot_id, span, metadata')
       .eq('day_key', data.day_key)
-      .eq('slot_id', data.slot_id)
       .neq('status', 'cancelled')
 
-    const conflictList = (conflicts as any[]) || []
-    if (conflictList.length > 0) {
-      return {
-        error: `Conflict detected! ${conflictList[0].subject_name} is already booked for this lab room during this period.`,
+    const activeDaySchedules = (daySchedules as any[]) || []
+    for (const existing of activeDaySchedules) {
+      const existRange = getSlotRange(existing.slot_id || 't1', existing.span || 1)
+      if (rangesOverlap(targetRange, existRange)) {
+        // 1. Room / Facility Collision
+        if (existing.lab_id === data.lab_id) {
+          return {
+            error: `Facility Collision: This lab room is already reserved for "${existing.subject_name}" (${existing.batch_name}) during Period ${existing.slot_id?.toUpperCase() || ''}.`,
+          }
+        }
+        // 2. Faculty / Teacher Collision
+        const sameTeacherId = data.teacher_id && existing.teacher_id && data.teacher_id === existing.teacher_id
+        const reqTeacherName = data.metadata?.teacher?.trim()?.toLowerCase()
+        const existTeacherName = existing.metadata?.teacher?.trim()?.toLowerCase()
+        const sameTeacherName = reqTeacherName && existTeacherName && reqTeacherName === existTeacherName
+        if (sameTeacherId || sameTeacherName) {
+          return {
+            error: `Faculty Collision: ${data.metadata?.teacher || 'The assigned teacher'} is already conducting "${existing.subject_name}" in another laboratory during this period.`,
+          }
+        }
+        // 3. Student Class Batch Collision
+        const reqBatch = data.batch_name?.trim()?.toLowerCase()
+        const existBatch = existing.batch_name?.trim()?.toLowerCase()
+        if (reqBatch && existBatch && (reqBatch === existBatch || reqBatch.includes(existBatch) || existBatch.includes(reqBatch))) {
+          return {
+            error: `Class Batch Collision: Student group "${data.batch_name}" is already scheduled for "${existing.subject_name}" in another lab during this period.`,
+          }
+        }
       }
     }
 

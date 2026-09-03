@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { Calendar, ClipboardList, LayoutDashboard, LogOut, FlaskConical, Printer, Command, UserCheck, Shield } from 'lucide-react'
 import ThemeToggle from '@/components/ui/theme-toggle'
 import LiveClockHeader from '@/components/layout/live-clock-header'
+import CloudSyncStatus from '@/components/layout/cloud-sync-status'
 import CommandPalette from '@/components/command-palette'
 import { getCurrentUserProfile, signOut } from '@/app/actions/auth'
 
@@ -121,6 +122,7 @@ export default async function DashboardLayout({
           </div>
           
           <div className="flex items-center gap-3">
+            <CloudSyncStatus />
             <ThemeToggle />
 
             {/* User Profile Badge */}

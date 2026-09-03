@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { createClient } from '@/lib/supabase/client'
+import { isSupabaseConfigured } from '@/lib/supabase/config'
 import {
   MASTER_TIME_SLOTS,
   LAB_ROOMS,
@@ -181,6 +183,91 @@ export function useInfrastructureState() {
       }
     }
   }
+
+  // Two-way remote synchronization with Supabase
+  useEffect(() => {
+    let isMounted = true
+    if (!isSupabaseConfigured()) return
+
+    const supabase = createClient()
+
+    // 1. Fetch remote labs
+    supabase
+      .from('labs')
+      .select('*')
+      .eq('is_active', true)
+      .order('name')
+      .then(({ data: dbLabs, error }) => {
+        if (!error && dbLabs && dbLabs.length > 0 && isMounted) {
+          const mappedLabs: LabFacilityItem[] = dbLabs.map((l: any) => ({
+            id: l.id,
+            name: l.name,
+            code: l.code || l.id.toUpperCase(),
+            capacity: l.capacity || 40,
+            type: l.type || 'computer_lab',
+            status: l.is_active ? 'Operational' : 'Maintenance',
+          }))
+          setLabs(mappedLabs)
+          try {
+            localStorage.setItem(STORAGE_KEYS.LABS, JSON.stringify(mappedLabs))
+          } catch (e) {}
+        }
+      })
+
+    // 2. Fetch remote faculty/profiles
+    supabase
+      .from('profiles')
+      .select('*')
+      .order('full_name')
+      .then(({ data: dbProfiles, error }) => {
+        if (!error && dbProfiles && dbProfiles.length > 0 && isMounted) {
+          const mappedFaculty: FacultyMemberItem[] = dbProfiles.map((p: any) => ({
+            id: p.id,
+            name: p.full_name || 'Faculty Member',
+            dept: p.department || 'Academic Department',
+            role: p.role === 'admin' ? 'Lab In-Charge' : 'Senior Faculty',
+            email: p.email || '',
+            assignedSubjectCodes: [],
+          }))
+          setFaculty(mappedFaculty)
+          try {
+            localStorage.setItem(STORAGE_KEYS.FACULTY, JSON.stringify(mappedFaculty))
+          } catch (e) {}
+        }
+      })
+
+    // 3. Realtime subscription on labs and profiles
+    const channel = supabase
+      .channel('infra-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'labs' }, () => {
+        supabase
+          .from('labs')
+          .select('*')
+          .eq('is_active', true)
+          .then(({ data: updatedLabs }) => {
+            if (updatedLabs && isMounted) {
+              const mapped: LabFacilityItem[] = updatedLabs.map((l: any) => ({
+                id: l.id,
+                name: l.name,
+                code: l.code || l.id.toUpperCase(),
+                capacity: l.capacity || 40,
+                type: l.type || 'computer_lab',
+                status: l.is_active ? 'Operational' : 'Maintenance',
+              }))
+              setLabs(mapped)
+              try {
+                localStorage.setItem(STORAGE_KEYS.LABS, JSON.stringify(mapped))
+              } catch (e) {}
+            }
+          })
+      })
+      .subscribe()
+
+    return () => {
+      isMounted = false
+      supabase.removeChannel(channel)
+    }
+  }, [])
 
   // Cross-tab / cross-component sync
   useEffect(() => {
