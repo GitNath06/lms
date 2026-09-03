@@ -134,14 +134,23 @@ export async function reportIncident(data: Omit<LabIncidentRecord, 'id' | 'creat
 
     // Auto-generate notifications for roles
     const notifStore = getNotifStore()
+    const labName =
+      data.lab_id === 'chem'
+        ? 'Chemistry Laboratory'
+        : data.lab_id === 'phys'
+        ? 'Physics Laboratory'
+        : data.lab_id === 'comp'
+        ? 'Computer Laboratory'
+        : `${data.lab_id.toUpperCase()} Lab`
+
     const notifsToInsert: LabNotificationRecord[] = [
       {
         id: `notif-${Date.now()}-admin`,
         incident_id: recordId,
         target_role: 'super_admin',
         target_lab_id: data.lab_id,
-        title: `${isCritical ? '🚨 CRITICAL: ' : ''}Lab Incident Reported (${data.equipment_name})`,
-        message: `${data.lab_id.toUpperCase()} Lab: ${data.title} during ${data.session_label} (${data.batch_name}). Reported by ${data.reported_by}.`,
+        title: `${isCritical ? '🚨 CRITICAL: ' : ''}${data.title}`,
+        message: `${labName}: Reported by ${data.reported_by} during ${data.session_label} (${data.batch_name}). ${data.circumstances || ''}`,
         severity: isCritical ? 'critical' : data.severity === 'moderate' ? 'warning' : 'info',
         is_read: false,
         created_at: new Date().toISOString(),
@@ -151,24 +160,24 @@ export async function reportIncident(data: Omit<LabIncidentRecord, 'id' | 'creat
         incident_id: recordId,
         target_role: 'lab_incharge',
         target_lab_id: data.lab_id,
-        title: `Damage Reported: ${data.equipment_name}`,
-        message: `Session: ${data.session_label} (${data.subject_name}). ${data.is_fined ? `Fine assessed: NPR ${data.fine_amount}.` : 'No fine.'}`,
-        severity: isCritical ? 'critical' : 'warning',
+        title: `Damage Reported in ${data.lab_id.toUpperCase()} Lab`,
+        message: `${data.title} (${data.batch_name} • ${data.session_label}). Assigned to Lab In-Charge for repair or replacement triage.`,
+        severity: isCritical ? 'critical' : data.severity === 'moderate' ? 'warning' : 'info',
         is_read: false,
         created_at: new Date().toISOString(),
       },
     ]
 
-    // If critical, notify HOD immediately
-    if (isCritical) {
+    // If critical or moderate, notify HOD as well
+    if (isCritical || data.severity === 'moderate') {
       notifsToInsert.push({
         id: `notif-${Date.now()}-hod`,
         incident_id: recordId,
         target_role: 'hod',
         target_lab_id: data.lab_id,
-        title: `🚨 HOD Attention Required: Major Lab Damage (${data.lab_id.toUpperCase()})`,
-        message: `Major incident reported: ${data.title}. Equipment: ${data.equipment_name}. Action required by Head of Department.`,
-        severity: 'critical',
+        title: `${isCritical ? '🚨 HOD ESCALATION: ' : 'HOD Notice: '}${data.title}`,
+        message: `${labName}: ${data.batch_name} practical session damage reported. ${isCritical ? 'Immediate Head review and directive required.' : 'Logged in institutional register.'}`,
+        severity: isCritical ? 'critical' : 'warning',
         is_read: false,
         created_at: new Date().toISOString(),
       })

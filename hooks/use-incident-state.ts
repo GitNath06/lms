@@ -260,34 +260,65 @@ export function useIncidentState() {
     // 1. Optimistic save
     persistIncidents((prev) => [newRecord, ...prev])
 
-    // Generate local notifications optimistically
+    const labName =
+      data.lab_id === 'chem'
+        ? 'Chemistry Lab'
+        : data.lab_id === 'phys'
+        ? 'Physics Lab'
+        : data.lab_id === 'comp'
+        ? 'Computer Lab'
+        : `${data.lab_id.toUpperCase()} Lab`
+
+    // Generate local notifications optimistically for Admin, Lab In-Charge, and HOD
     const localNotifs: LabNotificationRecord[] = [
       {
         id: `notif-${Date.now()}-local-admin`,
         incident_id: recordId,
         target_role: 'super_admin',
         target_lab_id: data.lab_id,
-        title: `${isCritical ? '🚨 ' : ''}Incident: ${data.equipment_name}`,
-        message: `${data.title} in ${data.lab_id.toUpperCase()} Lab (${data.batch_name})`,
-        severity: isCritical ? 'critical' : 'warning',
+        title: `${isCritical ? '🚨 CRITICAL: ' : ''}${data.title}`,
+        message: `${labName}: Reported by ${data.reported_by} during ${data.session_label} (${data.batch_name}).`,
+        severity: isCritical ? 'critical' : data.severity === 'moderate' ? 'warning' : 'info',
+        is_read: false,
+        created_at: new Date().toISOString(),
+      },
+      {
+        id: `notif-${Date.now()}-local-incharge`,
+        incident_id: recordId,
+        target_role: 'lab_incharge',
+        target_lab_id: data.lab_id,
+        title: `Damage Reported in ${labName}`,
+        message: `${data.title} (${data.batch_name}). Assigned to Lab In-Charge for repair or replacement triage.`,
+        severity: isCritical ? 'critical' : data.severity === 'moderate' ? 'warning' : 'info',
         is_read: false,
         created_at: new Date().toISOString(),
       },
     ]
-    if (isCritical) {
+
+    if (isCritical || data.severity === 'moderate') {
       localNotifs.push({
         id: `notif-${Date.now()}-local-hod`,
         incident_id: recordId,
         target_role: 'hod',
         target_lab_id: data.lab_id,
-        title: `🚨 HOD Alert: Major Damage in ${data.lab_id.toUpperCase()}`,
-        message: `Major incident requiring HOD decision: ${data.title}`,
-        severity: 'critical',
+        title: `${isCritical ? '🚨 HOD Escalation: ' : 'HOD Notice: '}${data.title}`,
+        message: `${labName}: Practical session damage reported for ${data.batch_name}. ${isCritical ? 'Immediate Head directive required.' : 'Logged in institutional register.'}`,
+        severity: isCritical ? 'critical' : 'warning',
         is_read: false,
         created_at: new Date().toISOString(),
       })
     }
+
     persistNotifs((prev) => [...localNotifs, ...prev])
+
+    // Broadcast instant incident event across components and tabs
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('new-incident-broadcast', {
+          detail: { incident: newRecord, notifs: localNotifs },
+        })
+      )
+    }
 
     // 2. Queue in outbox
     addToOutbox(newRecord)
