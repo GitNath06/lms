@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { getNepaliDate, NepaliDateInfo } from '@/lib/nepali-date'
-import { MASTER_TIME_SLOTS, MASTER_ROUTINE, MasterRoutineItem } from '@/lib/master-data'
+import { MASTER_TIME_SLOTS, MASTER_ROUTINE, MasterRoutineItem, DayKey } from '@/lib/master-data'
+import { useCalendarSettings } from '@/hooks/use-calendar-settings'
 
 interface PeriodMinuteRange {
   id: string
@@ -63,8 +64,10 @@ export function useLiveSchedule(customRoutines?: MasterRoutineItem[]): LiveSched
     5: 'fri',
     6: 'sat',
   }
+  const { sundayWeekend, saturdayWeekend, startDay } = useCalendarSettings()
   const dayKey = dayKeyMap[dayIndex]
-  const isWeekend = dayKey === 'sat' // Saturday is official weekend in Nepal
+  // In Nepal, Saturday is the national weekend; Sunday is weekend if specifically marked by admin
+  const isWeekend = (dayKey === 'sat' && saturdayWeekend) || (dayKey === 'sun' && sundayWeekend)
 
   // Time in minutes from midnight
   const currentMinutes = now.getHours() * 60 + now.getMinutes()
@@ -89,8 +92,8 @@ export function useLiveSchedule(customRoutines?: MasterRoutineItem[]): LiveSched
   // Filter routine for today using customRoutines (live state) or MASTER_ROUTINE
   const routineSource = (customRoutines && customRoutines.length > 0) ? customRoutines : MASTER_ROUTINE
   
-  // In Nepal, Sunday is day 0; if Saturday, default to Monday for academic preview
-  const queryDayKey = dayKey === 'sat' ? 'mon' : (dayKey === 'sun' ? 'mon' : dayKey)
+  // If today is a weekend, preview the official starting school day (Mon if Sunday is weekend, else Sun)
+  const queryDayKey: DayKey = isWeekend ? (sundayWeekend ? 'mon' : 'sun') : dayKey
   const todaySessions = routineSource.filter((s) => s.dayKey === queryDayKey)
 
   // Find active sessions right now across labs

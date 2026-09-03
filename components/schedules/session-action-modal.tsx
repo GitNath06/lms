@@ -314,25 +314,25 @@ function SessionActionModalContent({
 
       if (onSaveLog) {
         onSaveLog(logRecord)
+      } else {
+        // Fallback server action persistence only if onSaveLog is not provided
+        createPracticalLog({
+          schedule_id: session.id,
+          lab_id: session.labKey || 'comp',
+          teacher_id: selectedTeacher || session.teacher,
+          date: new Date().toISOString().split('T')[0],
+          period_label: session.timeSlot,
+          subject_name: `${session.subjectCode} - ${session.subjectTitle}`,
+          batch_group: session.grade,
+          practical_title: topicLearned || 'Conducted Practical Curriculum Experiment',
+          total_students: totalStudents,
+          present_students: presentStudents,
+          absent_students: effectiveAbsentCount,
+          remarks,
+          status: 'conducted',
+          topic_learned: topicLearned,
+        }).catch(() => {})
       }
-
-      // Automatically persist to server practical logs store
-      createPracticalLog({
-        sessionId: session.id,
-        lab_id: session.labKey || 'comp',
-        teacher_id: selectedTeacher || session.teacher,
-        date: new Date().toISOString().split('T')[0],
-        period_label: session.timeSlot,
-        subject_name: `${session.subjectCode} - ${session.subjectTitle}`,
-        batch_group: session.grade,
-        practical_title: topicLearned || 'Conducted Practical Curriculum Experiment',
-        total_students: totalStudents,
-        present_students: presentStudents,
-        absent_students: effectiveAbsentCount,
-        remarks,
-        status: 'conducted',
-        topic_learned: topicLearned,
-      }).catch(() => {})
 
       if (onSuccess) onSuccess('Practical log recorded successfully.')
       onClose()

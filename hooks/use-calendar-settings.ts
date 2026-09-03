@@ -12,8 +12,8 @@ const STORAGE_KEY = 'lmr_calendar_settings'
 
 const DEFAULT_SETTINGS: CalendarSettings = {
   startDay: 'sun',
-  sundayWeekend: true,
-  saturdayWeekend: true,
+  sundayWeekend: false, // Default in Nepal: Sunday is active working day
+  saturdayWeekend: true, // Saturday is official weekly off
 }
 
 export function useCalendarSettings() {
@@ -53,7 +53,20 @@ export function useCalendarSettings() {
   }, [])
 
   const updateSettings = (newSettings: Partial<CalendarSettings>) => {
-    const updated = { ...settings, ...newSettings }
+    // When sundayWeekend is updated, auto-align startDay:
+    // If Sunday is marked as holiday -> start week from Monday
+    // If Sunday is marked as working day -> start week from Sunday
+    let computedStartDay = newSettings.startDay || settings.startDay
+    if (newSettings.sundayWeekend !== undefined && newSettings.startDay === undefined) {
+      computedStartDay = newSettings.sundayWeekend ? 'mon' : 'sun'
+    }
+
+    const updated: CalendarSettings = {
+      ...settings,
+      ...newSettings,
+      startDay: computedStartDay,
+    }
+
     setSettings(updated)
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updated))

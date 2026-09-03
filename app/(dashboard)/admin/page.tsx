@@ -965,25 +965,38 @@ export default function SuperAdminPage() {
                 </div>
 
                 <div className="flex items-center justify-between p-3.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40">
-                  <div>
-                    <div className="font-bold text-zinc-950 dark:text-white">Sunday (आइतवार) Recess Policy</div>
-                    <div className="text-[11px] text-zinc-400">
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-zinc-950 dark:text-white">Sunday (आइतवार) Recess Policy</span>
+                      <span className={`text-[10px] font-bold font-mono px-2 py-0.5 rounded-full border ${
+                        sundayWeekend
+                          ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700'
+                          : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700'
+                      }`}>
+                        {sundayWeekend ? 'Holiday (Starts Monday)' : 'Active Working Day (Starts Sunday)'}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
                       {sundayWeekend
-                        ? 'Sunday is marked as a Weekend Recess (Scheduling is locked)'
-                        : 'Sunday is marked as an Active School Day (Scheduling enabled)'}
+                        ? 'Sunday is marked as a weekend holiday. Weekly routine automatically starts from Monday.'
+                        : 'Sunday is an active school day. Weekly routine automatically starts from Sunday (National standard in Nepal).'}
                     </div>
                   </div>
                   <Button
                     size="sm"
                     variant={sundayWeekend ? 'default' : 'outline'}
-                    className={sundayWeekend ? 'bg-amber-600 hover:bg-amber-700 text-white font-bold' : 'font-bold text-emerald-600 border-emerald-500/40'}
+                    className={sundayWeekend ? 'bg-amber-600 hover:bg-amber-700 text-white font-bold' : 'font-bold text-emerald-600 border-emerald-500/40 hover:bg-emerald-50 dark:hover:bg-emerald-950/30'}
                     onClick={() => {
                       const next = !sundayWeekend
-                      updateSettings({ sundayWeekend: next })
-                      triggerToast(`Sunday weekend policy updated to: ${next ? 'Weekend Recess (Locked)' : 'Active School Day (Open)'}.`)
+                      updateSettings({ sundayWeekend: next, startDay: next ? 'mon' : 'sun' })
+                      triggerToast(
+                        next
+                          ? 'Sunday marked as Weekend Holiday. Schedule now starts on Monday.'
+                          : 'Sunday marked as Active Working Day. Schedule now starts on Sunday.'
+                      )
                     }}
                   >
-                    {sundayWeekend ? 'Weekend Off' : 'Active Day'}
+                    {sundayWeekend ? 'Mark Active Day' : 'Mark as Holiday'}
                   </Button>
                 </div>
 
