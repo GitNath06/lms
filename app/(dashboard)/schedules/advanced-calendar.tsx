@@ -13,7 +13,8 @@ import {
   Sparkles,
   Lock,
   Flame,
-  Radio
+  Radio,
+  UserCheck
 } from 'lucide-react'
 import {
   MASTER_TIME_SLOTS,
@@ -27,6 +28,7 @@ import SessionActionModal, { ModalMode } from '@/components/schedules/session-ac
 import { useLiveSchedule } from '@/hooks/use-live-schedule'
 import { useRoutineState } from '@/hooks/use-routine-state'
 import { useCalendarSettings } from '@/hooks/use-calendar-settings'
+import { useSubstitutionState } from '@/hooks/use-substitution-state'
 
 interface AdvancedCalendarProps {
   labFilter?: string
@@ -55,6 +57,8 @@ export default function AdvancedCalendar({ labFilter = 'all' }: AdvancedCalendar
     unmergeSession,
     resetToMaster,
   } = useRoutineState()
+
+  const { getSubForSession } = useSubstitutionState()
 
   const [mounted, setMounted] = useState(false)
   const [selectedSession, setSelectedSession] = useState<MasterRoutineItem | null>(null)
@@ -273,7 +277,7 @@ export default function AdvancedCalendar({ labFilter = 'all' }: AdvancedCalendar
           </div>
 
           {/* 7 Day Rows in Configured Order */}
-          <div className="flex-1 flex flex-col divide-y divide-zinc-200/80 dark:divide-zinc-800/80">
+          <div suppressHydrationWarning className="flex-1 flex flex-col divide-y divide-zinc-200/80 dark:divide-zinc-800/80">
             {orderedDays.map((day) => {
               const isToday = currentDayKey === day.id
               const daySchedules = filteredRoutine.filter((s) => s.dayKey === day.id)
@@ -391,7 +395,7 @@ export default function AdvancedCalendar({ labFilter = 'all' }: AdvancedCalendar
                       )}
                     </div>
 
-                    <div className="mt-2">
+                    <div className="mt-2" suppressHydrationWarning>
                       {isToday ? (
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-extrabold bg-emerald-500/25 text-emerald-900 dark:text-emerald-200 border border-emerald-500/80 shadow-[0_0_10px_rgba(16,185,129,0.25)]">
                           <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
@@ -403,7 +407,7 @@ export default function AdvancedCalendar({ labFilter = 'all' }: AdvancedCalendar
                           Weekend Recess
                         </span>
                       ) : (
-                        <span className="text-[11px] font-mono font-semibold text-zinc-500 dark:text-zinc-400">
+                        <span suppressHydrationWarning className="text-[11px] font-mono font-semibold text-zinc-500 dark:text-zinc-400">
                           {daySchedules.length} Sessions
                         </span>
                       )}
@@ -483,6 +487,7 @@ export default function AdvancedCalendar({ labFilter = 'all' }: AdvancedCalendar
                       const trackIdx = sessionTracks.get(session.id) || 0
                       const isMultiPeriod = span > 1
                       const isLiveNow = isToday && activeSlotId === session.slotId
+                      const activeSub = getSubForSession(session.id, dayDateInfo?.dateStr || '')
 
                       const isComp = session.lab.toLowerCase().includes('comp') || session.labKey === 'comp'
                       const isPhys = session.lab.toLowerCase().includes('phys') || session.labKey === 'phys'
@@ -544,11 +549,24 @@ export default function AdvancedCalendar({ labFilter = 'all' }: AdvancedCalendar
                             <div className="text-[12px] text-zinc-800 dark:text-zinc-200 font-bold truncate">
                               {session.subjectTitle}
                             </div>
+
+                            {activeSub && (
+                              <div className="flex items-center gap-1 text-[10px] font-mono text-indigo-700 dark:text-indigo-300 bg-indigo-100/90 dark:bg-indigo-950/90 px-1.5 py-0.5 rounded border border-indigo-300/70 dark:border-indigo-800/70 mt-1 font-bold">
+                                <UserCheck className="h-3 w-3 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                                <span className="truncate">Sub: {activeSub.substitute_teacher_name}</span>
+                              </div>
+                            )}
                           </div>
 
                           <div className="flex items-center justify-between text-[11px] font-mono text-zinc-600 dark:text-zinc-400 mt-1.5">
                             <span className="truncate font-semibold text-zinc-700 dark:text-zinc-300">
-                              {session.teacher}
+                              {activeSub ? (
+                                <span className="text-indigo-600 dark:text-indigo-400 font-bold">
+                                  {activeSub.substitute_teacher_name} (Proxy)
+                                </span>
+                              ) : (
+                                session.teacher
+                              )}
                             </span>
                             <span className="shrink-0 font-bold text-zinc-900 dark:text-zinc-200">
                               {session.timeSlot}

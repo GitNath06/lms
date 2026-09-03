@@ -15,7 +15,8 @@ import {
   FlaskRound,
   X,
   Command,
-  ArrowRight
+  ArrowRight,
+  AlertTriangle,
 } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { MASTER_ROUTINE } from '@/lib/master-data'
@@ -117,6 +118,17 @@ export default function CommandPalette() {
               <div className="flex items-center gap-2.5">
                 <Printer className="h-3.5 w-3.5 text-zinc-500" />
                 <span>PRINT // Daily Laboratory Register</span>
+              </div>
+              <ArrowRight className="h-3 w-3 text-zinc-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+            </button>
+
+            <button
+              onClick={() => handleSelect(() => router.push('/incidents'))}
+              className="w-full px-3 py-2 rounded-lg flex items-center justify-between text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 transition-colors group text-left"
+            >
+              <div className="flex items-center gap-2.5">
+                <AlertTriangle className="h-3.5 w-3.5 text-rose-500" />
+                <span>INCIDENT // Incident and Damage Workspace</span>
               </div>
               <ArrowRight className="h-3 w-3 text-zinc-400 opacity-0 group-hover:opacity-100 transition-opacity" />
             </button>

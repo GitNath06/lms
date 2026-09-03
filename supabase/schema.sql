@@ -162,3 +162,77 @@ on conflict (id) do nothing;
 insert into public.calendar_settings (id, start_day, sunday_weekend, saturday_weekend, academic_year) values
   ('default', 'sun', false, true, '2083')
 on conflict (id) do nothing;
+
+-- 11. FACULTY SUBSTITUTIONS (Proxy Teacher Assignments)
+create table if not exists public.faculty_substitutions (
+  id text primary key,
+  schedule_id text references public.schedules(id) on delete cascade,
+  date date not null default current_date,
+  slot_id text not null default 't2',
+  lab_id text references public.labs(id) on delete cascade not null,
+  original_teacher_id text not null,
+  original_teacher_name text not null,
+  substitute_teacher_id text not null,
+  substitute_teacher_name text not null,
+  reason text,
+  status text not null default 'assigned', -- 'assigned', 'completed', 'cancelled'
+  created_at timestamptz default now()
+);
+
+-- 12. LABORATORY INCIDENT & APPARATUS DAMAGE LOGS
+create table if not exists public.lab_incidents (
+  id text primary key,
+  lab_id text references public.labs(id) on delete cascade not null,
+  schedule_id text references public.schedules(id) on delete set null,
+  date date not null default current_date,
+  session_label text not null,
+  subject_name text not null,
+  subject_teacher_name text not null,
+  batch_name text not null,
+  title text not null,
+  incident_type text not null default 'breakage', -- 'breakage', 'malfunction', 'chemical_hazard', 'burnt_apparatus', 'missing', 'other'
+  severity text not null default 'minor', -- 'minor', 'moderate', 'major_critical'
+  equipment_name text not null,
+  quantity int not null default 1,
+  student_rolls text, -- e.g. "Roll 14, 28"
+  is_fined boolean not null default false,
+  fine_amount numeric not null default 0,
+  fine_paid boolean not null default false,
+  fine_receipt_no text,
+  status text not null default 'reported', -- 'reported', 'escalated_to_hod', 'under_repair', 'replaced', 'resolved'
+  escalated_to_hod boolean not null default false,
+  escalation_reason text,
+  escalated_at timestamptz,
+  resolution_notes text,
+  resolved_by text,
+  resolved_at timestamptz,
+  reported_by text not null default 'Faculty In-Charge',
+  created_at timestamptz default now()
+);
+
+-- 13. ROLE-TARGETED LAB NOTIFICATIONS (Super Admin, Lab In-Charge, HOD)
+create table if not exists public.lab_notifications (
+  id text primary key,
+  incident_id text references public.lab_incidents(id) on delete cascade,
+  target_role text not null, -- 'super_admin', 'lab_incharge', 'hod'
+  target_lab_id text references public.labs(id) on delete set null,
+  title text not null,
+  message text not null,
+  severity text not null default 'info', -- 'info', 'warning', 'critical'
+  is_read boolean not null default false,
+  created_at timestamptz default now()
+);
+
+-- Enable RLS
+alter table public.faculty_substitutions enable row level security;
+alter table public.lab_incidents enable row level security;
+alter table public.lab_notifications enable row level security;
+
+create policy "Allow manage faculty substitutions" on public.faculty_substitutions for all using (true);
+create policy "Allow manage lab incidents" on public.lab_incidents for all using (true);
+create policy "Allow manage lab notifications" on public.lab_notifications for all using (true);
+
+-- Add to Realtime
+alter publication supabase_realtime add table public.faculty_substitutions;
+alter publication supabase_realtime add table public.lab_incidents;
+alter publication supabase_realtime add table public.lab_notifications;

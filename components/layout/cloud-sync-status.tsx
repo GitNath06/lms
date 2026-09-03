@@ -7,6 +7,8 @@ import { isSupabaseConfigured } from '@/lib/supabase/config'
 
 const LOGS_OUTBOX_KEY = 'lab_pending_logs_outbox_v1'
 const ROUTINE_OUTBOX_KEY = 'lab_pending_schedules_outbox_v1'
+const SUB_OUTBOX_KEY = 'lab_pending_substitutions_outbox_v1'
+const INC_OUTBOX_KEY = 'lab_pending_incidents_outbox_v1'
 
 export default function CloudSyncStatus() {
   const [isOnline, setIsOnline] = useState<boolean>(true)
@@ -14,9 +16,11 @@ export default function CloudSyncStatus() {
   const [isHovered, setIsHovered] = useState<boolean>(false)
   const [pendingLogs, setPendingLogs] = useState<number>(0)
   const [pendingSchedules, setPendingSchedules] = useState<number>(0)
+  const [pendingSubs, setPendingSubs] = useState<number>(0)
+  const [pendingIncidents, setPendingIncidents] = useState<number>(0)
 
   useEffect(() => {
-    // Check both logs and routine offline outbox queues
+    // Check all 4 offline outbox queues
     const checkPending = () => {
       try {
         const rawLogs = localStorage.getItem(LOGS_OUTBOX_KEY)
@@ -33,18 +37,32 @@ export default function CloudSyncStatus() {
       } catch {
         setPendingSchedules(0)
       }
+
+      try {
+        const rawSub = localStorage.getItem(SUB_OUTBOX_KEY)
+        const parsedSub = rawSub ? JSON.parse(rawSub) : []
+        setPendingSubs(Array.isArray(parsedSub) ? parsedSub.length : 0)
+      } catch {
+        setPendingSubs(0)
+      }
+
+      try {
+        const rawInc = localStorage.getItem(INC_OUTBOX_KEY)
+        const parsedInc = rawInc ? JSON.parse(rawInc) : []
+        setPendingIncidents(Array.isArray(parsedInc) ? parsedInc.length : 0)
+      } catch {
+        setPendingIncidents(0)
+      }
     }
 
     checkPending()
 
     const handleSyncChange = (e: any) => {
       if (e.detail) {
-        if (typeof e.detail.pendingCount === 'number') {
-          setPendingLogs(e.detail.pendingCount)
-        }
-        if (typeof e.detail.pendingSchedulesCount === 'number') {
-          setPendingSchedules(e.detail.pendingSchedulesCount)
-        }
+        if (typeof e.detail.pendingCount === 'number') setPendingLogs(e.detail.pendingCount)
+        if (typeof e.detail.pendingSchedulesCount === 'number') setPendingSchedules(e.detail.pendingSchedulesCount)
+        if (typeof e.detail.pendingSubstitutionsCount === 'number') setPendingSubs(e.detail.pendingSubstitutionsCount)
+        if (typeof e.detail.pendingIncidentsCount === 'number') setPendingIncidents(e.detail.pendingIncidentsCount)
       }
       checkPending()
     }
@@ -84,7 +102,8 @@ export default function CloudSyncStatus() {
           }
         )
 
-      const channel = supabase.channel('telemetry-status')
+      const channelName = `telemetry-status-${Math.random().toString(36).substring(2, 8)}`
+      const channel = supabase.channel(channelName)
       channel.subscribe((status) => {
         if (status === 'SUBSCRIBED') {
           setIsConnected(true)
@@ -105,7 +124,7 @@ export default function CloudSyncStatus() {
     }
   }, [])
 
-  const totalPending = pendingLogs + pendingSchedules
+  const totalPending = pendingLogs + pendingSchedules + pendingSubs + pendingIncidents
   const isLive = isOnline && isConnected && totalPending === 0
   const isSyncing = isOnline && totalPending > 0
 
@@ -170,10 +189,10 @@ export default function CloudSyncStatus() {
           </div>
           <p className="text-[11px] text-zinc-400 leading-relaxed font-sans">
             {isLive
-              ? 'All practical logs, endorsements, and routine schedules are synchronized with Supabase cloud database.'
+              ? 'All logs, schedules, proxy substitutions, and incident reports are synchronized with Supabase.'
               : isSyncing
-              ? `Reconnected. Flushing ${pendingLogs} log(s) and ${pendingSchedules} schedule change(s) to Supabase...`
-              : `${totalPending} actions queued locally (${pendingLogs} logs/skips, ${pendingSchedules} schedule slots). Everything will automatically synchronize to Supabase the moment you reconnect.`}
+              ? `Reconnected. Flushing ${totalPending} action(s) to Supabase...`
+              : `${totalPending} action(s) queued locally (${pendingLogs} logs, ${pendingSchedules} schedule slots, ${pendingSubs} proxies, ${pendingIncidents} incidents). Changes will automatically synchronize when you reconnect.`}
           </p>
         </div>
       )}

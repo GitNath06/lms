@@ -1,8 +1,9 @@
 import Link from 'next/link'
-import { Calendar, ClipboardList, LayoutDashboard, LogOut, FlaskConical, Printer, Command, UserCheck, Shield } from 'lucide-react'
+import { Calendar, ClipboardList, LayoutDashboard, LogOut, FlaskConical, Printer, Command, UserCheck, Shield, AlertTriangle } from 'lucide-react'
 import ThemeToggle from '@/components/ui/theme-toggle'
 import LiveClockHeader from '@/components/layout/live-clock-header'
 import CloudSyncStatus from '@/components/layout/cloud-sync-status'
+import NotificationBell from '@/components/layout/notification-bell'
 import CommandPalette from '@/components/command-palette'
 import { getCurrentUserProfile, signOut } from '@/app/actions/auth'
 
@@ -87,6 +88,15 @@ export default async function DashboardLayout({
                 Daily Certified Report
               </Link>
             </li>
+            <li>
+              <Link
+                href="/incidents"
+                className="flex items-center px-3 py-2 text-sm font-medium rounded-lg text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-all group font-medium"
+              >
+                <AlertTriangle className="mr-3 h-4 w-4 text-rose-500 group-hover:scale-110 transition-transform" />
+                <span>Incident and Damage</span>
+              </Link>
+            </li>
             <li className="pt-2 border-t border-zinc-100 dark:border-zinc-800/60">
               <Link
                 href="/admin"
@@ -121,8 +131,9 @@ export default async function DashboardLayout({
             <LiveClockHeader />
           </div>
           
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5">
             <CloudSyncStatus />
+            <NotificationBell />
             <ThemeToggle />
 
             {/* User Profile Badge */}

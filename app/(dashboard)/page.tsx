@@ -20,7 +20,8 @@ import {
   Atom,
   FlaskRound,
   Filter,
-  ArrowUpRight
+  ArrowUpRight,
+  AlertTriangle,
 } from 'lucide-react'
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -33,6 +34,8 @@ import { useLiveSchedule } from '@/hooks/use-live-schedule'
 import { useRoutineState } from '@/hooks/use-routine-state'
 import { useLogsState, PracticalLogRecord } from '@/hooks/use-logs-state'
 import SyllabusProgress from '@/components/dashboard/syllabus-progress'
+import IncidentRegistryCard from '@/components/dashboard/incident-registry-card'
+import ReportIncidentModal from '@/components/dashboard/report-incident-modal'
 
 export default function DashboardPage() {
   const {
@@ -65,6 +68,7 @@ export default function DashboardPage() {
   const [selectedExistingLog, setSelectedExistingLog] = useState<PracticalLogRecord | null>(null)
   const [modalMode, setModalMode] = useState<ModalMode>('log')
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
 
   // Segmented Tab and Lab Filter State
@@ -202,16 +206,16 @@ export default function DashboardPage() {
             </span>
           </div>
 
-          <div className="mt-3 mb-2 flex items-baseline justify-between">
-            <div className="flex items-baseline gap-1.5">
-              <span className="text-3xl font-extrabold font-mono tracking-tight text-zinc-950 dark:text-white">
+          <div className="mt-3 mb-2 flex items-baseline justify-between" suppressHydrationWarning>
+            <div className="flex items-baseline gap-1.5" suppressHydrationWarning>
+              <span suppressHydrationWarning className="text-3xl font-extrabold font-mono tracking-tight text-zinc-950 dark:text-white">
                 {todaySessions.length}
               </span>
               <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
                 Practical Slots
               </span>
             </div>
-            <span className="text-xs font-mono font-bold text-zinc-700 dark:text-zinc-300">
+            <span suppressHydrationWarning className="text-xs font-mono font-bold text-zinc-700 dark:text-zinc-300">
               {ongoingSessions.length > 0 ? (
                 <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1 text-[11px]">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-ping" />
@@ -247,26 +251,26 @@ export default function DashboardPage() {
                 Log Turnout
               </span>
             </div>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/50 font-bold">
+            <span suppressHydrationWarning className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/50 font-bold">
               {todaySessions.length > 0 ? Math.round((loggedSessions.length / todaySessions.length) * 100) : 0}% Done
             </span>
           </div>
 
-          <div className="mt-3 mb-2 flex items-baseline justify-between">
-            <div className="flex items-baseline gap-1.5">
-              <span className="text-3xl font-extrabold font-mono tracking-tight text-emerald-600 dark:text-emerald-400">
+          <div className="mt-3 mb-2 flex items-baseline justify-between" suppressHydrationWarning>
+            <div className="flex items-baseline gap-1.5" suppressHydrationWarning>
+              <span suppressHydrationWarning className="text-3xl font-extrabold font-mono tracking-tight text-emerald-600 dark:text-emerald-400">
                 {loggedSessions.length}
               </span>
-              <span className="text-xs font-mono text-zinc-400">
+              <span suppressHydrationWarning className="text-xs font-mono text-zinc-400">
                 / {todaySessions.length} Logged
               </span>
             </div>
             {passedUnloggedSessions.length > 0 ? (
-              <span className="text-[11px] font-mono text-amber-600 dark:text-amber-400 font-semibold">
+              <span suppressHydrationWarning className="text-[11px] font-mono text-amber-600 dark:text-amber-400 font-semibold">
                 {passedUnloggedSessions.length} Pending
               </span>
             ) : (
-              <span className="text-[11px] font-mono text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5 font-semibold">
+              <span suppressHydrationWarning className="text-[11px] font-mono text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5 font-semibold">
                 <CheckCircle2 className="h-3 w-3" /> Up to date
               </span>
             )}
@@ -430,7 +434,7 @@ export default function DashboardPage() {
                     <span>Current Status:</span>
                     <span className="font-mono text-zinc-500 font-normal">{activePeriodName}</span>
                   </div>
-                  <div className="text-[11px] text-zinc-400 font-mono">
+                  <div suppressHydrationWarning className="text-[11px] text-zinc-400 font-mono">
                     {upcomingSessions.length > 0
                       ? `${upcomingSessions.length} upcoming scheduled sessions remaining today.`
                       : 'All scheduled practical sessions for today have concluded.'}
@@ -452,9 +456,10 @@ export default function DashboardPage() {
             {/* Tab Header Bar */}
             <div className="border-b border-zinc-100 dark:border-zinc-800/80 p-3 bg-zinc-50/50 dark:bg-zinc-900/40 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
               {/* Segmented Pills */}
-              <div className="flex items-center gap-1 p-1 bg-zinc-200/60 dark:bg-zinc-800/60 rounded-lg text-xs font-medium font-mono">
+              <div suppressHydrationWarning className="flex items-center gap-1 p-1 bg-zinc-200/60 dark:bg-zinc-800/60 rounded-lg text-xs font-medium font-mono">
                 <button
                   type="button"
+                  suppressHydrationWarning
                   onClick={() => setActiveTab('upcoming')}
                   className={`px-3 py-1.5 rounded-md transition-all ${
                     activeTab === 'upcoming'
@@ -467,6 +472,7 @@ export default function DashboardPage() {
 
                 <button
                   type="button"
+                  suppressHydrationWarning
                   onClick={() => setActiveTab('backlog')}
                   className={`px-3 py-1.5 rounded-md transition-all flex items-center gap-1.5 ${
                     activeTab === 'backlog'
@@ -476,7 +482,7 @@ export default function DashboardPage() {
                 >
                   <span>Pending</span>
                   {passedUnloggedSessions.length > 0 && (
-                    <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-zinc-200 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-200 font-bold">
+                    <span suppressHydrationWarning className="px-1.5 py-0.2 rounded-full text-[9px] bg-zinc-200 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-200 font-bold">
                       {passedUnloggedSessions.length}
                     </span>
                   )}
@@ -484,6 +490,7 @@ export default function DashboardPage() {
 
                 <button
                   type="button"
+                  suppressHydrationWarning
                   onClick={() => setActiveTab('completed')}
                   className={`px-3 py-1.5 rounded-md transition-all ${
                     activeTab === 'completed'
@@ -496,6 +503,7 @@ export default function DashboardPage() {
 
                 <button
                   type="button"
+                  suppressHydrationWarning
                   onClick={() => setActiveTab('all')}
                   className={`px-3 py-1.5 rounded-md transition-all hidden sm:block ${
                     activeTab === 'all'
@@ -942,7 +950,7 @@ export default function DashboardPage() {
             <div className="text-xs font-mono font-bold text-zinc-900 dark:text-zinc-100 uppercase tracking-wider">
               Quick Actions
             </div>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <Link href="/logs/new" className="w-full">
                 <Button variant="outline" size="sm" className="w-full h-8 text-xs font-semibold gap-1 text-zinc-700 dark:text-zinc-300">
                   <Plus className="h-3 w-3" />
@@ -955,11 +963,23 @@ export default function DashboardPage() {
                   <span>Daily Sheet</span>
                 </Button>
               </Link>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsReportModalOpen(true)}
+                className="w-full h-8 text-xs font-semibold gap-1 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-900/60 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+              >
+                <AlertTriangle className="h-3 w-3 text-rose-500" />
+                <span>Damage</span>
+              </Button>
             </div>
           </div>
 
           {/* 3. Syllabus & Practical Progress */}
           <SyllabusProgress />
+
+          {/* 4. Laboratory Incidents & Breakage Register */}
+          <IncidentRegistryCard />
         </div>
       </div>
 
@@ -983,6 +1003,12 @@ export default function DashboardPage() {
             saveLog(logData)
           }
         }}
+      />
+
+      {/* Standalone Quick-Action Damage Report Modal */}
+      <ReportIncidentModal
+        isOpen={isReportModalOpen}
+        onClose={() => setIsReportModalOpen(false)}
       />
     </div>
   )

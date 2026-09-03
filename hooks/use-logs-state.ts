@@ -265,8 +265,9 @@ export function useLogsState() {
     if (isSupabaseConfigured()) {
       try {
         const supabase = createClient()
+        const channelName = `practical-logs-feed-${Math.random().toString(36).substring(2, 8)}`
         const channel = supabase
-          .channel('practical-logs-feed')
+          .channel(channelName)
           .on('postgres_changes', { event: '*', schema: 'public', table: 'practical_logs' }, () => {
             loadRemoteLogs()
           })

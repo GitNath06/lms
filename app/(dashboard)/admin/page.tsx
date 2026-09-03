@@ -1,8 +1,10 @@
 'use client'
 
 import React, { useState } from 'react'
+import Link from 'next/link'
 import {
   ShieldCheck,
+  Shield,
   Building2,
   BookOpen,
   Users,
@@ -25,7 +27,8 @@ import {
   HardDriveUpload,
   Database,
   UserCheck,
-  AlertCircle
+  AlertCircle,
+  ChevronRight,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -43,13 +46,15 @@ import {
 } from '@/hooks/use-infrastructure-state'
 import DualCalendarPicker from '@/components/admin/dual-calendar-picker'
 import { HolidayItem } from '@/lib/master-data'
+import { useIncidentState, LabIncidentRecord } from '@/hooks/use-incident-state'
+import IncidentDrawer from '@/components/dashboard/incident-drawer'
 
 interface DangerModalState {
   isOpen: boolean
   title: string
   description: string
   impactMessage: string
-  itemType: 'lab' | 'class' | 'period' | 'subject' | 'faculty' | 'holiday' | 'reset'
+  itemType: 'lab' | 'class' | 'period' | 'subject' | 'faculty' | 'holiday' | 'reset' | 'category'
   itemId?: string
   requiresTypedConfirmation?: boolean
   typedConfirmationWord?: string
@@ -58,9 +63,16 @@ interface DangerModalState {
 
 export default function SuperAdminPage() {
   const [activeTab, setActiveTab] = useState<
-    'periods' | 'labs' | 'classes' | 'subjects' | 'faculty' | 'holidays' | 'snapshots'
+    'periods' | 'labs' | 'classes' | 'subjects' | 'faculty' | 'holidays' | 'snapshots' | 'incidents'
   >('subjects')
   const [toastMessage, setToastMessage] = useState<string | null>(null)
+
+  // Incidents state for audit register
+  const { incidents } = useIncidentState()
+  const [selectedIncident, setSelectedIncident] = useState<LabIncidentRecord | null>(null)
+  const [isIncidentDrawerOpen, setIsIncidentDrawerOpen] = useState(false)
+  const [incidentLabFilter, setIncidentLabFilter] = useState('all')
+  const [incidentStatusFilter, setIncidentStatusFilter] = useState('all')
 
   // 🛡️ Precaution Safety Mode (Locked by default to prevent accidental edits/deletions)
   const [isEditModeUnlocked, setIsEditModeUnlocked] = useState(false)
@@ -102,6 +114,12 @@ export default function SuperAdminPage() {
     assignTeacherToSubject,
     addHoliday,
     deleteHoliday,
+    incidentCategories,
+    incidentSettings,
+    addIncidentCategory,
+    deleteIncidentCategory,
+    resetIncidentCategories,
+    updateIncidentSettings,
   } = useInfrastructureState()
 
   // Form Inputs State
@@ -133,6 +151,19 @@ export default function SuperAdminPage() {
   const [newFacDept, setNewFacDept] = useState('Computer Science & Engineering')
   const [newFacRole, setNewFacRole] = useState('Faculty Member')
   const [newFacEmail, setNewFacEmail] = useState('')
+
+  // Incident Categories & Emergency Routing Form State
+  const [newCatName, setNewCatName] = useState('')
+  const [newCatCode, setNewCatCode] = useState('')
+  const [newCatDesc, setNewCatDesc] = useState('')
+  const [newCatSeverity, setNewCatSeverity] = useState<'minor' | 'moderate' | 'major_critical'>('minor')
+  const [newCatLab, setNewCatLab] = useState<'all' | 'phys' | 'chem' | 'comp'>('all')
+
+  const [contactPhys, setContactPhys] = useState(incidentSettings?.emergencyContacts?.physEmail || 'physics.incharge@rrl.edu.np')
+  const [contactChem, setContactChem] = useState(incidentSettings?.emergencyContacts?.chemEmail || 'chemistry.incharge@rrl.edu.np')
+  const [contactComp, setContactComp] = useState(incidentSettings?.emergencyContacts?.compEmail || 'computer.incharge@rrl.edu.np')
+  const [contactHod, setContactHod] = useState(incidentSettings?.emergencyContacts?.hodEmail || 'hod.science@rrl.edu.np')
+  const [autoEscalateHOD, setAutoEscalateHOD] = useState(incidentSettings?.autoEscalateMajorToHOD ?? true)
 
   const triggerToast = (msg: string) => {
     setToastMessage(msg)
@@ -445,6 +476,56 @@ export default function SuperAdminPage() {
     })
   }
 
+  // --- Incident Categories & Governance Handlers ---
+  const handleAddCategory = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!requireEditMode()) return
+    if (!newCatName.trim() || !newCatCode.trim()) return
+
+    const sanitizedCode = newCatCode.trim().toLowerCase().replace(/\s+/g, '_')
+    addIncidentCategory({
+      id: `cat-${Date.now()}`,
+      code: sanitizedCode,
+      name: newCatName.trim(),
+      description: newCatDesc.trim() || 'Laboratory apparatus damage or operational incident',
+      severity: newCatSeverity,
+      targetLab: newCatLab,
+    })
+    setNewCatName('')
+    setNewCatCode('')
+    setNewCatDesc('')
+    triggerToast(`Incident category "${newCatName.trim()}" registered.`)
+  }
+
+  const handleDeleteCategory = (cat: any) => {
+    requestDangerAction({
+      title: `Delete Category: ${cat.name}`,
+      description: `You are about to remove the incident category "${cat.name}" (#${cat.code}).`,
+      impactMessage: 'Faculty will no longer be able to select this category when reporting damages.',
+      itemType: 'category',
+      itemId: cat.id,
+      onConfirm: () => {
+        deleteIncidentCategory(cat.id)
+        setDangerModal((prev) => ({ ...prev, isOpen: false }))
+        triggerToast(`Category "${cat.name}" deleted.`)
+      },
+    })
+  }
+
+  const handleSaveIncidentSettings = () => {
+    if (!requireEditMode()) return
+    updateIncidentSettings({
+      autoEscalateMajorToHOD: autoEscalateHOD,
+      emergencyContacts: {
+        physEmail: contactPhys,
+        chemEmail: contactChem,
+        compEmail: contactComp,
+        hodEmail: contactHod,
+      },
+    })
+    triggerToast('Incident governance policy & emergency routing saved.')
+  }
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto animate-in fade-in duration-300 select-none pb-12">
       {/* Toast Notification */}
@@ -634,6 +715,19 @@ export default function SuperAdminPage() {
         >
           <Database className="h-3.5 w-3.5 text-blue-500" />
           <span>Disaster Recovery & Snapshots</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('incidents')}
+          className={`px-3.5 py-2 rounded-lg transition-all flex items-center gap-2 whitespace-nowrap ${
+            activeTab === 'incidents'
+              ? 'bg-white dark:bg-zinc-800 text-zinc-950 dark:text-white font-bold shadow-xs'
+              : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
+          }`}
+        >
+          <AlertTriangle className="h-3.5 w-3.5 text-rose-500" />
+          <span>Incident and Damage</span>
         </button>
       </div>
 
@@ -1615,6 +1709,387 @@ export default function SuperAdminPage() {
                 </Button>
               </CardContent>
             </Card>
+          </div>
+        </div>
+      )}
+
+      {/* 8. APPARATUS BREAKAGE & INCIDENTS AUDIT TAB */}
+      {/* 6. INCIDENT AND DAMAGE GOVERNANCE TAB */}
+      {/* 6. INCIDENT AND DAMAGE GOVERNANCE & SETTINGS TAB */}
+      {activeTab === 'incidents' && (
+        <div className="space-y-6 animate-in fade-in duration-150 font-mono">
+          {/* Header Bar with Metrics & Single Clean CTA */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 px-5 rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white/95 dark:bg-zinc-900/90 shadow-2xs">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="text-sm font-bold text-zinc-950 dark:text-white uppercase tracking-wider">
+                  Incident and Damage Core Settings & Governance
+                </h2>
+                <p className="text-[11px] text-zinc-500 font-sans mt-0.5">
+                  Configure apparatus damage classifications, auto-escalation thresholds, and emergency routing contacts.
+                </p>
+              </div>
+            </div>
+
+            {/* Single Clean Link to Live Register */}
+            <Link href="/incidents">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 px-3 text-xs font-mono font-bold text-rose-600 hover:text-rose-700 border-rose-200 dark:border-rose-900/60 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 gap-1.5 shadow-2xs shrink-0"
+              >
+                <span>Live Register Feed ({incidents.length})</span>
+                <ChevronRight className="h-3 w-3" />
+              </Button>
+            </Link>
+          </div>
+
+          {/* 3 Metric Pills */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="p-3.5 px-4 rounded-xl border border-zinc-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs">
+              <span className="text-[10px] text-zinc-400 uppercase font-bold">Configured Categories</span>
+              <div className="text-xl font-black text-zinc-950 dark:text-white mt-0.5">
+                {incidentCategories.length} Active
+              </div>
+              <span className="text-[10px] text-zinc-500 font-sans">Used in all reporting dropdowns</span>
+            </div>
+
+            <div className="p-3.5 px-4 rounded-xl border border-zinc-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs">
+              <span className="text-[10px] text-zinc-400 uppercase font-bold">Total Incident History</span>
+              <div className="text-xl font-black text-zinc-950 dark:text-white mt-0.5">
+                {incidents.length} Logged
+              </div>
+              <span className="text-[10px] text-zinc-500 font-sans">Physics, Chemistry & Computer Labs</span>
+            </div>
+
+            <div className="p-3.5 px-4 rounded-xl border border-zinc-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs">
+              <span className="text-[10px] text-zinc-400 uppercase font-bold">HOD Auto-Escalation</span>
+              <div className="text-xl font-black text-rose-600 dark:text-rose-400 mt-0.5">
+                {autoEscalateHOD ? 'Enforced' : 'Manual'}
+              </div>
+              <span className="text-[10px] text-rose-600 dark:text-rose-400 font-sans font-medium">
+                {autoEscalateHOD ? 'Major/Critical routed to Head' : 'Manual routing only'}
+              </span>
+            </div>
+          </div>
+
+          {/* Two-Column Management Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* Left Column (8 cols): Categories List + Emergency Routing */}
+            <div className="lg:col-span-8 space-y-6">
+              {/* 1. Incident Categories Management Card */}
+              <Card className="border border-zinc-200 dark:border-zinc-800 shadow-2xs overflow-hidden">
+                <CardHeader className="p-4 px-5 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40 flex flex-row items-center justify-between">
+                  <div>
+                    <CardTitle className="text-xs font-mono font-bold uppercase tracking-wider text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+                      <Settings className="h-4 w-4 text-indigo-500" />
+                      Apparatus Damage & Incident Classifications
+                    </CardTitle>
+                    <CardDescription className="text-[11px] text-zinc-500">
+                      Standardized failure categories shown to faculty and assistants when reporting lab damage.
+                    </CardDescription>
+                  </div>
+
+                  <Badge variant="outline" className="font-mono text-[10px]">
+                    {incidentCategories.length} Categories
+                  </Badge>
+                </CardHeader>
+
+                <CardContent className="p-0 divide-y divide-zinc-100 dark:divide-zinc-800">
+                  {incidentCategories.map((cat) => (
+                    <div
+                      key={cat.id}
+                      className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-zinc-50/60 dark:hover:bg-zinc-800/30 transition-colors"
+                    >
+                      <div className="space-y-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs font-bold text-zinc-950 dark:text-white">
+                            {cat.name}
+                          </span>
+                          <span className="px-1.5 py-0.2 rounded bg-zinc-100 dark:bg-zinc-800 text-[10px] text-zinc-500 font-mono font-semibold">
+                            #{cat.code}
+                          </span>
+                          <Badge
+                            className={`text-[9px] uppercase font-mono ${
+                              cat.severity === 'major_critical'
+                                ? 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/20'
+                                : cat.severity === 'moderate'
+                                ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/20'
+                                : 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/20'
+                            }`}
+                          >
+                            {cat.severity.replace('_', ' ')}
+                          </Badge>
+                          <span className="text-[10px] text-zinc-400 uppercase font-mono">
+                            {cat.targetLab === 'all'
+                              ? 'All Labs'
+                              : `${cat.targetLab?.toUpperCase()} Lab`}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-zinc-500 font-sans leading-relaxed">
+                          {cat.description}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeleteCategory(cat)}
+                          className="h-7 w-7 p-0 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Reset Defaults Action in Footer */}
+                  <div className="p-3 px-4 bg-zinc-50/50 dark:bg-zinc-900/50 flex items-center justify-between text-xs">
+                    <span className="text-zinc-500 text-[11px]">
+                      Need standard categories?
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        if (!requireEditMode()) return
+                        resetIncidentCategories()
+                        triggerToast('Restored default 6 institutional incident categories.')
+                      }}
+                      className="h-7 text-[11px] font-mono gap-1 text-zinc-600 dark:text-zinc-400"
+                    >
+                      <RotateCcw className="h-3 w-3" />
+                      <span>Reset Standard Baseline</span>
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* 2. Emergency Contacts & Governance Policy Card */}
+              <Card className="border border-zinc-200 dark:border-zinc-800 shadow-2xs">
+                <CardHeader className="p-4 px-5 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40">
+                  <CardTitle className="text-xs font-mono font-bold uppercase tracking-wider text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+                    <Shield className="h-4 w-4 text-emerald-500" />
+                    Emergency Alert Routing & Designated Lab In-Charges
+                  </CardTitle>
+                  <CardDescription className="text-[11px] text-zinc-500">
+                    Contacts designated to receive automated incident notices upon apparatus breakage or safety hazards.
+                  </CardDescription>
+                </CardHeader>
+
+                <CardContent className="p-5 space-y-4">
+                  {/* Auto Escalation Toggle */}
+                  <div className="p-3.5 rounded-xl border border-zinc-200/80 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40 flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100 uppercase">
+                        Automatic HOD Escalation for Major Hazards
+                      </span>
+                      <p className="text-[11px] text-zinc-500 font-sans">
+                        Immediately route high-severity chemical hazards or major equipment failures to Head of Department.
+                      </p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={autoEscalateHOD}
+                      onChange={(e) => setAutoEscalateHOD(e.target.checked)}
+                      className="h-4 w-4 rounded border-zinc-300 text-rose-600 focus:ring-rose-500 cursor-pointer"
+                    />
+                  </div>
+
+                  {/* 4 Designated In-Charge Emails */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+                        Physics Lab Designated In-Charge Email
+                      </label>
+                      <Input
+                        type="email"
+                        value={contactPhys}
+                        onChange={(e) => setContactPhys(e.target.value)}
+                        placeholder="physics.incharge@rrl.edu.np"
+                        className="text-xs font-mono bg-white dark:bg-zinc-950"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+                        Chemistry Lab Designated In-Charge Email
+                      </label>
+                      <Input
+                        type="email"
+                        value={contactChem}
+                        onChange={(e) => setContactChem(e.target.value)}
+                        placeholder="chemistry.incharge@rrl.edu.np"
+                        className="text-xs font-mono bg-white dark:bg-zinc-950"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+                        Computer Lab Designated In-Charge Email
+                      </label>
+                      <Input
+                        type="email"
+                        value={contactComp}
+                        onChange={(e) => setContactComp(e.target.value)}
+                        placeholder="computer.incharge@rrl.edu.np"
+                        className="text-xs font-mono bg-white dark:bg-zinc-950"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+                        Head of Department (HOD) Escalation Email
+                      </label>
+                      <Input
+                        type="email"
+                        value={contactHod}
+                        onChange={(e) => setContactHod(e.target.value)}
+                        placeholder="hod.science@rrl.edu.np"
+                        className="text-xs font-mono bg-white dark:bg-zinc-950"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Save Button */}
+                  <div className="pt-2 flex justify-end">
+                    <Button
+                      size="sm"
+                      onClick={handleSaveIncidentSettings}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white font-mono text-xs font-bold shadow-xs"
+                    >
+                      Save Governance & Routing Contacts
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Right Column (4 cols): Add Category Form + RBAC Summary */}
+            <div className="lg:col-span-4 space-y-6">
+              {/* Add New Category Card */}
+              <Card className="border border-zinc-200 dark:border-zinc-800 shadow-2xs">
+                <CardHeader className="p-4 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40">
+                  <CardTitle className="text-xs font-mono font-bold uppercase tracking-wider text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+                    <Plus className="h-4 w-4 text-rose-500" />
+                    Register New Category
+                  </CardTitle>
+                  <CardDescription className="text-[11px] text-zinc-500">
+                    Define institutional category code & severity default.
+                  </CardDescription>
+                </CardHeader>
+
+                <CardContent className="p-4">
+                  <form onSubmit={handleAddCategory} className="space-y-3.5">
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+                        Category Name *
+                      </label>
+                      <Input
+                        type="text"
+                        required
+                        value={newCatName}
+                        onChange={(e) => setNewCatName(e.target.value)}
+                        placeholder="e.g. Optics Scratch"
+                        className="text-xs bg-white dark:bg-zinc-950"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+                        System Code *
+                      </label>
+                      <Input
+                        type="text"
+                        required
+                        value={newCatCode}
+                        onChange={(e) => setNewCatCode(e.target.value)}
+                        placeholder="e.g. optics_scratch"
+                        className="text-xs bg-white dark:bg-zinc-950"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+                        Default Severity *
+                      </label>
+                      <Select
+                        value={newCatSeverity}
+                        onChange={(e) => setNewCatSeverity(e.target.value as any)}
+                        className="text-xs bg-white dark:bg-zinc-950"
+                      >
+                        <option value="minor">Minor (Low impact)</option>
+                        <option value="moderate">Moderate (Store replace)</option>
+                        <option value="major_critical">Major / Critical (HOD Attention)</option>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+                        Target Laboratory *
+                      </label>
+                      <Select
+                        value={newCatLab}
+                        onChange={(e) => setNewCatLab(e.target.value as any)}
+                        className="text-xs bg-white dark:bg-zinc-950"
+                      >
+                        <option value="all">All Labs (Phys, Chem, Comp)</option>
+                        <option value="phys">Physics Laboratory Only</option>
+                        <option value="chem">Chemistry Laboratory Only</option>
+                        <option value="comp">Computer Laboratory Only</option>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+                        Scope Description
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={newCatDesc}
+                        onChange={(e) => setNewCatDesc(e.target.value)}
+                        placeholder="Describe what apparatus faults or incidents belong in this category..."
+                        className="flex w-full rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 px-3 py-2 text-xs text-zinc-900 dark:text-zinc-100 font-sans"
+                      />
+                    </div>
+
+                    <Button
+                      type="submit"
+                      className="w-full bg-rose-600 hover:bg-rose-700 text-white font-mono text-xs font-bold shadow-xs gap-1.5"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      <span>Register Category</span>
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
+
+              {/* RBAC Reference Guide */}
+              <Card className="border border-zinc-200 dark:border-zinc-800 p-4 shadow-2xs space-y-2.5 bg-zinc-50/50 dark:bg-zinc-900/30">
+                <span className="text-[11px] font-bold text-zinc-950 dark:text-white uppercase flex items-center gap-1.5">
+                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
+                  Access Governance Reference
+                </span>
+                <p className="text-[11px] font-sans text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                  In next phase, authenticated staff profiles will enforce role permissions automatically:
+                </p>
+                <div className="space-y-1.5 text-[10px] font-sans text-zinc-700 dark:text-zinc-300">
+                  <div>
+                    <strong>Super Admin & Lab In-Charge:</strong> Manage resolution statuses (*Under Repair*, *Replaced*, *Resolved*) and forward to HOD.
+                  </div>
+                  <div>
+                    <strong>Head of Department (HOD):</strong> Review escalated cases and issue final institutional directives.
+                  </div>
+                  <div>
+                    <strong>Faculty & Assistants:</strong> Standard reporting access only.
+                  </div>
+                </div>
+              </Card>
+            </div>
           </div>
         </div>
       )}

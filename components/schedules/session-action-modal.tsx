@@ -10,7 +10,10 @@ import {
   Users,
   Trash2,
   Split,
-  CalendarPlus
+  CalendarPlus,
+  UserCheck,
+  AlertTriangle,
+  Receipt
 } from 'lucide-react'
 import {
   MasterRoutineItem,
@@ -30,6 +33,8 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { useInfrastructureState } from '@/hooks/use-infrastructure-state'
+import { useSubstitutionState } from '@/hooks/use-substitution-state'
+import { useIncidentState } from '@/hooks/use-incident-state'
 
 const TEACHER_NAME_MAP: Record<string, string> = {
   t1: 'Dr. Rajesh Sharma (Computer Science)',
@@ -39,7 +44,7 @@ const TEACHER_NAME_MAP: Record<string, string> = {
   t5: 'Dr. Nirmala Poudel (Biology)',
 }
 
-export type ModalMode = 'log' | 'skip' | 'merge' | 'adhoc' | 'book' | 'delete' | 'edit'
+export type ModalMode = 'log' | 'skip' | 'merge' | 'adhoc' | 'book' | 'delete' | 'edit' | 'substitute' | 'incident'
 
 interface SessionActionModalProps {
   isOpen: boolean
@@ -180,6 +185,24 @@ function SessionActionModalContent({
   const [remarks, setRemarks] = useState<string>(existingLog?.remarks || '')
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false)
 
+  const { assignProxy } = useSubstitutionState()
+  const { logIncident } = useIncidentState()
+
+  // Substitution state
+  const [subTeacherId, setSubTeacherId] = useState<string>(infraFaculty[0]?.id || 't4')
+  const [subDate, setSubDate] = useState<string>(getNepalDateStr())
+  const [subReason, setSubReason] = useState<string>('Official Leave / Exam Duty')
+  const [subError, setSubError] = useState<string | null>(null)
+
+  // Incident & Damage state
+  const [incTitle, setIncTitle] = useState<string>('')
+  const [incType, setIncType] = useState<'breakage' | 'malfunction' | 'chemical_hazard' | 'burnt_apparatus' | 'missing' | 'other'>('breakage')
+  const [incSeverity, setIncSeverity] = useState<'minor' | 'moderate' | 'major_critical'>('minor')
+  const [incEquipment, setIncEquipment] = useState<string>('')
+  const [incQuantity, setIncQuantity] = useState<number>(1)
+  const [incRolls, setIncRolls] = useState<string>('')
+  const [incRemarks, setIncRemarks] = useState<string>('')
+
   const effectiveAbsentCount =
     attendanceMode === 'grid'
       ? absentRolls.length
@@ -196,9 +219,10 @@ function SessionActionModalContent({
     )
   }
 
-  const handleActionSubmit = (e: React.FormEvent) => {
+  const handleActionSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsSubmitting(true)
+    setSubError(null)
 
     if (activeTab === 'book' && onAddSession) {
       const dayObj = DAYS.find((d) => d.id === bookDayKey)
@@ -381,6 +405,49 @@ function SessionActionModalContent({
       })
       if (onSuccess) onSuccess('Session marked as skipped.')
       onClose()
+    } else if (activeTab === 'substitute' && session) {
+      const subFacultyObj = infraFaculty.find((f) => f.id === subTeacherId)
+      const res = await assignProxy({
+        schedule_id: session.id,
+        date: subDate,
+        slot_id: session.slotId,
+        lab_id: session.labKey || 'comp',
+        original_teacher_id: session.teacher,
+        original_teacher_name: session.teacher,
+        substitute_teacher_id: subTeacherId,
+        substitute_teacher_name: subFacultyObj ? subFacultyObj.name : subTeacherId,
+        reason: subReason,
+      })
+
+      if (!res.success) {
+        setSubError(res.error || 'Failed to assign proxy faculty')
+        setIsSubmitting(false)
+        return
+      }
+
+      if (onSuccess) onSuccess(`Proxy faculty assigned: ${subFacultyObj?.name} for ${session.teacher}`)
+      onClose()
+    } else if (activeTab === 'incident' && session) {
+      await logIncident({
+        lab_id: session.labKey || 'comp',
+        schedule_id: session.id,
+        date: getNepalDateStr(),
+        session_label: `${session.timeSlot} (${session.grade})`,
+        subject_name: `${session.subjectCode} - ${session.subjectTitle}`,
+        subject_teacher_name: selectedTeacher || session.teacher,
+        batch_name: session.grade,
+        title: incTitle || `${incRemarks?.substring(0, 40) || 'Practical Breakage / Incident'} (${session.lab})`,
+        incident_type: incType,
+        severity: incSeverity,
+        equipment_name: incEquipment || 'Laboratory Equipment',
+        quantity: 1,
+        student_rolls: incRolls || undefined,
+        resolution_notes: incRemarks || undefined,
+        reported_by: selectedTeacher || session.teacher,
+      })
+
+      if (onSuccess) onSuccess('Incident reported. Alerts dispatched to Admin, Lab In-Charge & HOD.')
+      onClose()
     }
   }
 
@@ -463,14 +530,40 @@ function SessionActionModalContent({
 
             <button
               type="button"
+              onClick={() => setActiveTab('substitute')}
+              className={`flex-1 py-1.5 px-2 rounded-lg font-bold transition-all flex items-center justify-center gap-1 text-[11px] ${
+                activeTab === 'substitute'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60'
+              }`}
+            >
+              <UserCheck className="h-3 w-3" />
+              <span>Proxy</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('incident')}
+              className={`flex-1 py-1.5 px-2 rounded-lg font-bold transition-all flex items-center justify-center gap-1 text-[11px] ${
+                activeTab === 'incident'
+                  ? 'bg-rose-600 text-white shadow-xs'
+                  : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60'
+              }`}
+            >
+              <AlertTriangle className="h-3 w-3" />
+              <span>Damage</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setActiveTab('delete')}
-              className={`py-1.5 px-2.5 rounded-lg font-bold transition-all flex items-center justify-center gap-1.5 ${
+              className={`py-1.5 px-2 rounded-lg font-bold transition-all flex items-center justify-center gap-1 text-[11px] ${
                 activeTab === 'delete'
                   ? 'bg-rose-600 text-white shadow-xs'
                   : 'text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40'
               }`}
             >
-              <Trash2 className="h-3.5 w-3.5" />
+              <Trash2 className="h-3 w-3" />
               <span>Delete</span>
             </button>
           </div>
@@ -902,6 +995,178 @@ function SessionActionModalContent({
             </div>
           )}
 
+          {/* F. PROXY / SUBSTITUTE ASSIGNMENT TAB */}
+          {activeTab === 'substitute' && session && (
+            <div className="space-y-4 animate-in fade-in duration-150 font-mono">
+              <div className="p-3.5 rounded-xl bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200/80 dark:border-indigo-800/60 text-xs space-y-1">
+                <div className="flex items-center gap-1.5 font-bold text-indigo-950 dark:text-indigo-200">
+                  <UserCheck className="h-4 w-4 text-indigo-600" />
+                  <span>Faculty Proxy / Substitution Assignment</span>
+                </div>
+                <p className="text-[11px] text-zinc-600 dark:text-zinc-300 font-sans">
+                  Assign an available faculty member to conduct <strong>{session.subjectCode}</strong> ({session.timeSlot}) in place of <strong>{session.teacher}</strong>.
+                </p>
+              </div>
+
+              {subError && (
+                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-900 text-xs text-rose-700 dark:text-rose-300 flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-rose-600" />
+                  <span>{subError}</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+                    Original Faculty
+                  </label>
+                  <Input
+                    type="text"
+                    disabled
+                    value={session.teacher}
+                    className="bg-zinc-100 dark:bg-zinc-800 text-xs opacity-80"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+                    Effective Date
+                  </label>
+                  <Input
+                    type="date"
+                    value={subDate}
+                    onChange={(e) => setSubDate(e.target.value)}
+                    className="text-xs bg-white dark:bg-zinc-900"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+                  Select Substitute Faculty *
+                </label>
+                <Select
+                  value={subTeacherId}
+                  onChange={(e) => {
+                    setSubTeacherId(e.target.value)
+                    setSubError(null)
+                  }}
+                >
+                  {infraFaculty
+                    .filter((f) => f.name.toLowerCase() !== session.teacher.toLowerCase())
+                    .map((f) => (
+                      <option key={f.id} value={f.id}>
+                        {f.name} ({f.dept || f.role || 'Faculty'})
+                      </option>
+                    ))}
+                </Select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+                  Reason for Proxy Assignment
+                </label>
+                <Input
+                  type="text"
+                  placeholder="e.g. University practical examiner duty / sick leave"
+                  value={subReason}
+                  onChange={(e) => setSubReason(e.target.value)}
+                  className="text-xs bg-white dark:bg-zinc-900"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* G. REPORT INCIDENT / BREAKAGE TAB */}
+          {activeTab === 'incident' && session && (
+            <div className="space-y-3.5 animate-in fade-in duration-150 font-mono">
+              <div className="p-3 rounded-xl bg-rose-50/70 dark:bg-rose-950/40 border border-rose-200/80 dark:border-rose-900/60 text-xs space-y-1">
+                <div className="flex items-center gap-1.5 font-bold text-rose-950 dark:text-rose-200">
+                  <AlertTriangle className="h-4 w-4 text-rose-600" />
+                  <span>Report Laboratory Incident or Apparatus Breakage</span>
+                </div>
+                <p className="text-[11px] text-zinc-600 dark:text-zinc-300 font-sans">
+                  Instantly notifies <strong>Admin</strong>, <strong>Lab In-Charge</strong>, and routes major damages to <strong>Head of Department (HOD)</strong>.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+                    Incident Type *
+                  </label>
+                  <Select
+                    value={incType}
+                    onChange={(e) => setIncType(e.target.value as any)}
+                  >
+                    <option value="breakage">Apparatus Breakage (Glassware/Tools)</option>
+                    <option value="malfunction">Equipment Malfunction (No Power/Faulty)</option>
+                    <option value="burnt_apparatus">Burnt Component / Overload</option>
+                    <option value="chemical_hazard">Chemical Spill / Hazard</option>
+                    <option value="missing">Missing Apparatus / Consumable</option>
+                    <option value="other">Other Operational Incident</option>
+                  </Select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+                    Severity Level *
+                  </label>
+                  <Select
+                    value={incSeverity}
+                    onChange={(e) => setIncSeverity(e.target.value as any)}
+                  >
+                    <option value="minor">Minor (Low Cost / Internal Fix)</option>
+                    <option value="moderate">Moderate (Requires Store Replacement)</option>
+                    <option value="major_critical">Major / Critical (HOD Attention Required)</option>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+                  Incident Headline / Title *
+                </label>
+                <Input
+                  type="text"
+                  required
+                  placeholder="e.g. Glassware fracture or device malfunction during experiment"
+                  value={incTitle}
+                  onChange={(e) => setIncTitle(e.target.value)}
+                  className="text-xs bg-white dark:bg-zinc-900"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200 flex items-center justify-between">
+                  <span>What Happened & Damage Circumstances *</span>
+                  <span className="text-[10px] text-zinc-400 font-normal">Specify apparatus, cause, and safety steps</span>
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  value={incRemarks}
+                  onChange={(e) => setIncRemarks(e.target.value)}
+                  placeholder="Describe what apparatus broke or malfunctioned, how it occurred, broken pieces cleared, workshop/store replacement needed..."
+                  className="flex w-full rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-2 text-xs text-zinc-900 dark:text-zinc-100 font-sans"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+                  Involved Student Roll(s) (Optional)
+                </label>
+                <Input
+                  type="text"
+                  placeholder="e.g. Roll 12, 19 (Class 12C)"
+                  value={incRolls}
+                  onChange={(e) => setIncRolls(e.target.value)}
+                  className="text-xs bg-white dark:bg-zinc-900"
+                />
+              </div>
+            </div>
+          )}
+
           {/* Modal Footer Actions */}
           <div className="pt-4 flex items-center justify-between border-t border-zinc-100 dark:border-zinc-800">
             <Button
@@ -927,6 +1192,8 @@ function SessionActionModalContent({
                   ? 'bg-amber-600 hover:bg-amber-700'
                   : activeTab === 'merge'
                   ? 'bg-violet-600 hover:bg-violet-700'
+                  : activeTab === 'substitute'
+                  ? 'bg-indigo-600 hover:bg-indigo-700'
                   : 'bg-rose-600 hover:bg-rose-700'
               }`}
             >
@@ -959,6 +1226,16 @@ function SessionActionModalContent({
                     <span>Confirm Merge</span>
                   </>
                 )
+              ) : activeTab === 'substitute' ? (
+                <>
+                  <UserCheck className="h-3.5 w-3.5" />
+                  <span>Assign Proxy Faculty</span>
+                </>
+              ) : activeTab === 'incident' ? (
+                <>
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  <span>Submit Damage Report</span>
+                </>
               ) : (
                 <>
                   <Trash2 className="h-3.5 w-3.5" />

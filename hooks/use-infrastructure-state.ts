@@ -56,6 +56,88 @@ export interface SubjectCurriculumItem {
   teacherName?: string
 }
 
+export interface IncidentCategoryItem {
+  id: string
+  code: string
+  name: string
+  description: string
+  severity: 'minor' | 'moderate' | 'major_critical'
+  targetLab?: 'all' | 'phys' | 'chem' | 'comp'
+}
+
+export interface IncidentGovernanceSettings {
+  autoEscalateMajorToHOD: boolean
+  notifyLabInCharge: boolean
+  emergencyContacts: {
+    physEmail: string
+    chemEmail: string
+    compEmail: string
+    hodEmail: string
+  }
+}
+
+export const DEFAULT_INCIDENT_CATEGORIES: IncidentCategoryItem[] = [
+  {
+    id: 'cat-1',
+    code: 'breakage',
+    name: 'Apparatus Breakage / Glassware',
+    description: 'Glassware fracture, burette/pipette crack, beaker collapse, optical lens drop',
+    severity: 'moderate',
+    targetLab: 'all',
+  },
+  {
+    id: 'cat-2',
+    code: 'malfunction',
+    name: 'Equipment Fault / System Crash',
+    description: 'PC system fault, monitor blackout, multimeter no-response, power pack fuse issue',
+    severity: 'minor',
+    targetLab: 'all',
+  },
+  {
+    id: 'cat-3',
+    code: 'burnt_apparatus',
+    name: 'Burnt Component / Circuit Short',
+    description: 'Resistor overheat, capacitor burst, IC circuit short, burning odor from PSU',
+    severity: 'moderate',
+    targetLab: 'all',
+  },
+  {
+    id: 'cat-4',
+    code: 'chemical_hazard',
+    name: 'Chemical Spill / Acid Hazard',
+    description: 'Corrosive reagent spillage, hazardous acid leak, fume hood failure, mercury vapor leak',
+    severity: 'major_critical',
+    targetLab: 'chem',
+  },
+  {
+    id: 'cat-5',
+    code: 'missing',
+    name: 'Missing / Unreturned Equipment',
+    description: 'Unaccounted station tool, missing patch cord, missing micro-pipette, unreturned specimen slide',
+    severity: 'minor',
+    targetLab: 'all',
+  },
+  {
+    id: 'cat-6',
+    code: 'other',
+    name: 'Other Practical Incident',
+    description: 'Any miscellaneous station damage or safety hazard during scheduled practical session',
+    severity: 'minor',
+    targetLab: 'all',
+  },
+]
+
+export const DEFAULT_INCIDENT_SETTINGS: IncidentGovernanceSettings = {
+  autoEscalateMajorToHOD: true,
+  notifyLabInCharge: true,
+  emergencyContacts: {
+    physEmail: 'physics.incharge@rrl.edu.np',
+    chemEmail: 'chemistry.incharge@rrl.edu.np',
+    compEmail: 'computer.incharge@rrl.edu.np',
+    hodEmail: 'hod.science@rrl.edu.np',
+  },
+}
+
 const STORAGE_KEYS = {
   PERIODS: 'lmr_admin_periods_v2',
   LABS: 'lmr_admin_labs_v2',
@@ -63,6 +145,8 @@ const STORAGE_KEYS = {
   FACULTY: 'lmr_admin_faculty_v2',
   SUBJECTS: 'lmr_admin_subjects_v2',
   HOLIDAYS: 'lmr_admin_holidays_v2',
+  INCIDENT_CATEGORIES: 'lmr_admin_incident_categories_v2',
+  INCIDENT_SETTINGS: 'lmr_admin_incident_settings_v2',
 }
 
 const INITIAL_FACULTY: FacultyMemberItem[] = [
@@ -165,6 +249,26 @@ export function useInfrastructureState() {
     return DEFAULT_HOLIDAYS
   })
 
+  const [incidentCategories, setIncidentCategories] = useState<IncidentCategoryItem[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEYS.INCIDENT_CATEGORIES)
+        if (saved) return JSON.parse(saved)
+      } catch (e) {}
+    }
+    return DEFAULT_INCIDENT_CATEGORIES
+  })
+
+  const [incidentSettings, setIncidentSettings] = useState<IncidentGovernanceSettings>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEYS.INCIDENT_SETTINGS)
+        if (saved) return JSON.parse(saved)
+      } catch (e) {}
+    }
+    return DEFAULT_INCIDENT_SETTINGS
+  })
+
   // Broadcast helper
   const notifyUpdated = () => {
     if (typeof window !== 'undefined') {
@@ -237,8 +341,9 @@ export function useInfrastructureState() {
       })
 
     // 3. Realtime subscription on labs and profiles
+    const channelName = `infra-changes-${Math.random().toString(36).substring(2, 8)}`
     const channel = supabase
-      .channel('infra-changes')
+      .channel(channelName)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'labs' }, () => {
         supabase
           .from('labs')
@@ -285,6 +390,10 @@ export function useInfrastructureState() {
         if (s) setSubjects(JSON.parse(s))
         const h = localStorage.getItem(STORAGE_KEYS.HOLIDAYS)
         if (h) setHolidays(JSON.parse(h))
+        const ic = localStorage.getItem(STORAGE_KEYS.INCIDENT_CATEGORIES)
+        if (ic) setIncidentCategories(JSON.parse(ic))
+        const is = localStorage.getItem(STORAGE_KEYS.INCIDENT_SETTINGS)
+        if (is) setIncidentSettings(JSON.parse(is))
       } catch (e) {}
     }
 
@@ -452,6 +561,51 @@ export function useInfrastructureState() {
     return holidays.find((h) => isDateWithinHoliday(dateStr, h))
   }, [holidays])
 
+  // 7. Incident Categories & Governance Settings Management
+  const addIncidentCategory = useCallback((cat: IncidentCategoryItem) => {
+    setIncidentCategories((prev) => {
+      const updated = [...prev, cat]
+      saveToStorage(STORAGE_KEYS.INCIDENT_CATEGORIES, updated)
+      return updated
+    })
+  }, [])
+
+  const updateIncidentCategory = useCallback((id: string, updates: Partial<IncidentCategoryItem>) => {
+    setIncidentCategories((prev) => {
+      const updated = prev.map((c) => (c.id === id ? { ...c, ...updates } : c))
+      saveToStorage(STORAGE_KEYS.INCIDENT_CATEGORIES, updated)
+      return updated
+    })
+  }, [])
+
+  const deleteIncidentCategory = useCallback((id: string) => {
+    setIncidentCategories((prev) => {
+      const updated = prev.filter((c) => c.id !== id)
+      saveToStorage(STORAGE_KEYS.INCIDENT_CATEGORIES, updated)
+      return updated
+    })
+  }, [])
+
+  const resetIncidentCategories = useCallback(() => {
+    setIncidentCategories(DEFAULT_INCIDENT_CATEGORIES)
+    saveToStorage(STORAGE_KEYS.INCIDENT_CATEGORIES, DEFAULT_INCIDENT_CATEGORIES)
+  }, [])
+
+  const updateIncidentSettings = useCallback((updates: Partial<IncidentGovernanceSettings>) => {
+    setIncidentSettings((prev) => {
+      const updated = {
+        ...prev,
+        ...updates,
+        emergencyContacts: {
+          ...prev.emergencyContacts,
+          ...(updates.emergencyContacts || {}),
+        },
+      }
+      saveToStorage(STORAGE_KEYS.INCIDENT_SETTINGS, updated)
+      return updated
+    })
+  }, [])
+
   return {
     periods,
     labs,
@@ -459,6 +613,8 @@ export function useInfrastructureState() {
     faculty,
     subjects,
     holidays,
+    incidentCategories,
+    incidentSettings,
     addPeriod,
     updatePeriod,
     deletePeriod,
@@ -477,5 +633,10 @@ export function useInfrastructureState() {
     deleteHoliday,
     checkIsHoliday,
     getHolidayForDate,
+    addIncidentCategory,
+    updateIncidentCategory,
+    deleteIncidentCategory,
+    resetIncidentCategories,
+    updateIncidentSettings,
   }
 }
