@@ -154,6 +154,8 @@ export async function createSchedule(data: {
       }
     }
 
+    const scheduleStatus = data.metadata?.status || (data as any).status || 'scheduled'
+
     const payload: ScheduleInsert = {
       lab_id: data.lab_id,
       teacher_id: data.teacher_id || null,
@@ -165,7 +167,7 @@ export async function createSchedule(data: {
       start_time: data.start_time,
       end_time: data.end_time,
       is_merged: (data.span || 1) > 1,
-      status: 'scheduled',
+      status: scheduleStatus,
       metadata: data.metadata || null,
     }
 
@@ -177,6 +179,33 @@ export async function createSchedule(data: {
 
     if (error) {
       return { error: error.message }
+    }
+
+    // If a teacher submits a slot request, notify Super Admin & Lab Incharge
+    if (scheduleStatus === 'requested') {
+      const teacherName = data.metadata?.teacher || 'Subject Teacher'
+      const notifId1 = `notif-slot-req-${Date.now()}-admin`
+      const notifId2 = `notif-slot-req-${Date.now()}-incharge`
+      try {
+        await supabase.from('lab_notifications').insert([
+          {
+            id: notifId1,
+            target_role: 'super_admin',
+            title: `Slot Booking Request: ${teacherName}`,
+            message: `${teacherName} has requested a practical session for "${data.subject_name}" (${data.batch_name}) on ${data.day_key.toUpperCase()} Period ${data.slot_id.toUpperCase()}.`,
+            severity: 'info',
+            is_read: false,
+          },
+          {
+            id: notifId2,
+            target_role: 'lab_incharge',
+            title: `Slot Booking Request: ${teacherName}`,
+            message: `${teacherName} has requested a practical session for "${data.subject_name}" (${data.batch_name}) on ${data.day_key.toUpperCase()} Period ${data.slot_id.toUpperCase()}.`,
+            severity: 'info',
+            is_read: false,
+          },
+        ] as any)
+      } catch {}
     }
 
     revalidatePath('/schedules')
@@ -328,5 +357,89 @@ export async function deleteSchedule(scheduleId: string) {
     return { success: true }
   } catch (e) {
     return { success: true }
+  }
+}
+
+// 7. Update Schedule Status (e.g. 'confirmed', 'requested', 'skipped', with decline reason)
+export async function updateScheduleStatus(scheduleId: string, data: {
+  status: 'confirmed' | 'requested' | 'skipped' | 'scheduled'
+  is_skipped?: boolean
+  skipped_reason?: string
+  skipped_by?: string
+  decline_reason?: string
+}) {
+  if (!isSupabaseConfigured()) {
+    revalidatePath('/schedules')
+    revalidatePath('/')
+    return { success: true }
+  }
+
+  try {
+    const supabase = await createClient()
+
+    const { data: existing } = await (supabase.from('schedules') as any)
+      .select('*')
+      .eq('id', scheduleId)
+      .single()
+
+    const currentMeta = (existing as any)?.metadata || {}
+    const updatedMeta = {
+      ...currentMeta,
+      is_skipped: data.is_skipped ?? (data.status === 'skipped'),
+      skipped_reason: data.skipped_reason || currentMeta.skipped_reason,
+      skipped_by: data.skipped_by || currentMeta.skipped_by,
+      decline_reason: data.decline_reason || currentMeta.decline_reason,
+    }
+
+    const { error } = await (supabase.from('schedules') as any)
+      .update({
+        status: data.status,
+        metadata: updatedMeta,
+      })
+      .eq('id', scheduleId)
+
+    if (error) return { error: error.message }
+
+    const subjectName = (existing as any)?.subject_name || 'Practical Session'
+
+    // If declined with reason, notify the teacher
+    if (data.status === 'skipped' && data.decline_reason && currentMeta.teacher) {
+      const notifId = `notif-slot-dec-${Date.now()}`
+      try {
+        await supabase.from('lab_notifications').insert([
+          {
+            id: notifId,
+            target_role: 'teacher',
+            title: `Slot Request Declined: ${subjectName}`,
+            message: `Your booking request was declined. Reason: "${data.decline_reason}"`,
+            severity: 'warning',
+            is_read: false,
+          },
+        ] as any)
+      } catch {}
+    }
+
+    // If approved, notify the teacher
+    if (data.status === 'confirmed' && currentMeta.teacher) {
+      const notifId = `notif-slot-app-${Date.now()}`
+      try {
+        await supabase.from('lab_notifications').insert([
+          {
+            id: notifId,
+            target_role: 'teacher',
+            title: `Slot Request Approved: ${subjectName}`,
+            message: `Your booking request for ${subjectName} has been approved and confirmed.`,
+            severity: 'info',
+            is_read: false,
+          },
+        ] as any)
+      } catch {}
+    }
+
+    revalidatePath('/schedules')
+    revalidatePath('/')
+    return { success: true }
+  } catch (e: any) {
+    return { error: e.message || 'Failed to update schedule status' }
   }
 }

@@ -36,11 +36,13 @@ function savePendingOutbox(queue: LabIncidentRecord[]) {
   if (typeof window === 'undefined') return
   try {
     localStorage.setItem(OUTBOX_KEY, JSON.stringify(queue))
-    window.dispatchEvent(
-      new CustomEvent('sync-status-changed', {
-        detail: { pendingIncidentsCount: queue.length },
-      })
-    )
+    queueMicrotask(() => {
+      window.dispatchEvent(
+        new CustomEvent('sync-status-changed', {
+          detail: { pendingIncidentsCount: queue.length },
+        })
+      )
+    })
   } catch {}
 }
 
@@ -56,33 +58,26 @@ function removeFromOutbox(id: string) {
 }
 
 export function useIncidentState() {
-  const [incidents, setIncidents] = useState<LabIncidentRecord[]>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem(INCIDENTS_KEY)
-        if (saved) {
-          const parsed = JSON.parse(saved)
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed
-        }
-      } catch (e) {}
-    }
-    return []
-  })
-
-  const [notifications, setNotifications] = useState<LabNotificationRecord[]>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem(NOTIFS_KEY)
-        if (saved) {
-          const parsed = JSON.parse(saved)
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed
-        }
-      } catch (e) {}
-    }
-    return []
-  })
-
+  const [incidents, setIncidents] = useState<LabIncidentRecord[]>([])
+  const [notifications, setNotifications] = useState<LabNotificationRecord[]>([])
+  const [isLoading, setIsLoading] = useState<boolean>(true)
   const isFlushingRef = useRef(false)
+
+  // Load from localStorage on mount (prevents SSR hydration mismatch)
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(INCIDENTS_KEY)
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        if (Array.isArray(parsed) && parsed.length > 0) setIncidents(parsed)
+      }
+      const savedNotifs = localStorage.getItem(NOTIFS_KEY)
+      if (savedNotifs) {
+        const parsed = JSON.parse(savedNotifs)
+        if (Array.isArray(parsed) && parsed.length > 0) setNotifications(parsed)
+      }
+    } catch (e) {}
+  }, [])
 
   // Flush Outbox Queue to Supabase
   const flushOutbox = useCallback(async () => {
@@ -165,11 +160,15 @@ export function useIncidentState() {
   )
 
   const loadRemoteData = useCallback(async () => {
+    if (typeof window !== 'undefined' && window.location.pathname.startsWith('/login')) {
+      return
+    }
+
     try {
       await flushOutbox()
       const [remoteInc, remoteNotifs] = await Promise.all([getIncidents(), getNotifications()])
 
-      if (remoteInc && remoteInc.length > 0) {
+      if (Array.isArray(remoteInc)) {
         const pending = getPendingOutbox()
         const pendingIds = new Set(pending.map((p) => p.id))
         const filteredRemote = remoteInc.filter((r) => !pendingIds.has(r.id))
@@ -180,7 +179,7 @@ export function useIncidentState() {
         setIncidents(merged)
       }
 
-      if (remoteNotifs && remoteNotifs.length > 0) {
+      if (Array.isArray(remoteNotifs)) {
         try {
           localStorage.setItem(NOTIFS_KEY, JSON.stringify(remoteNotifs))
         } catch {}
@@ -188,6 +187,8 @@ export function useIncidentState() {
       }
     } catch (e) {
       console.warn('Using local incidents cache:', e)
+    } finally {
+      setIsLoading(false)
     }
   }, [flushOutbox])
 
@@ -229,17 +230,33 @@ export function useIncidentState() {
     const handleUpdate = () => {
       try {
         const savedInc = localStorage.getItem(INCIDENTS_KEY)
-        if (savedInc) setIncidents(JSON.parse(savedInc))
+        if (savedInc) {
+          const parsed = JSON.parse(savedInc)
+          setIncidents((prev) => {
+            if (prev.length === parsed.length && JSON.stringify(prev) === savedInc) return prev
+            return parsed
+          })
+        }
         const savedNotifs = localStorage.getItem(NOTIFS_KEY)
-        if (savedNotifs) setNotifications(JSON.parse(savedNotifs))
+        if (savedNotifs) {
+          const parsed = JSON.parse(savedNotifs)
+          setNotifications((prev) => {
+            if (prev.length === parsed.length && JSON.stringify(prev) === savedNotifs) return prev
+            return parsed
+          })
+        }
       } catch (e) {}
     }
 
     window.addEventListener('incidents-updated', handleUpdate)
     window.addEventListener('notifications-updated', handleUpdate)
+    window.addEventListener('storage', (e) => {
+      if (e.key === INCIDENTS_KEY || e.key === NOTIFS_KEY) handleUpdate()
+    })
     return () => {
       window.removeEventListener('incidents-updated', handleUpdate)
       window.removeEventListener('notifications-updated', handleUpdate)
+      window.removeEventListener('storage', handleUpdate as any)
     }
   }, [])
 
@@ -425,6 +442,7 @@ export function useIncidentState() {
     incidents,
     notifications,
     unreadCount,
+    isLoading,
     logIncident,
     escalateToHOD,
     resolveIncident,

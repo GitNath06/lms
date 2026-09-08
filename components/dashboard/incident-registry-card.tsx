@@ -30,16 +30,19 @@ export default function IncidentRegistryCard() {
   }
 
   const activeIncidents = incidents.filter((i) => i.status !== 'resolved')
-  const pendingHOD = incidents.filter((i) => i.status === 'escalated_to_hod')
+  const pendingCoordinator = incidents.filter((i) => i.status === 'escalated_to_hod' || i.escalated_to_hod)
 
   return (
     <>
-      <Card className="border-zinc-200/80 dark:border-zinc-800 shadow-2xs overflow-hidden">
-        <CardHeader className="p-4 pb-3 border-b border-zinc-100 dark:border-zinc-800/80 flex flex-row items-center justify-between bg-zinc-50/50 dark:bg-zinc-900/40">
+      <Card className="glass-card border border-zinc-200/80 dark:border-white/[0.08] shadow-2xs overflow-hidden relative">
+        {/* Milled Top Specular Sheen */}
+        <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-white/15 to-transparent pointer-events-none" />
+
+        <CardHeader className="p-4 pb-3 border-b border-zinc-100 dark:border-white/[0.06] flex flex-row items-center justify-between bg-zinc-50/50 dark:bg-surface-1/60">
           <div>
             <CardTitle className="text-xs font-mono font-bold text-zinc-900 dark:text-zinc-100 uppercase tracking-wider flex items-center gap-2">
               <span className="h-2 w-2 rounded-full bg-rose-500" />
-              Apparatus Breakage & Incident Register
+              Equipment Breakage & Incident Register
             </CardTitle>
             <p className="text-[11px] text-zinc-500 font-mono mt-0.5">
               Laboratory equipment health & damage settlements
@@ -51,15 +54,15 @@ export default function IncidentRegistryCard() {
               size="sm"
               variant="outline"
               onClick={() => setIsReportModalOpen(true)}
-              className="h-7 px-2.5 text-[11px] font-mono gap-1 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-900/60 hover:bg-rose-50 dark:hover:bg-rose-950/40 shadow-2xs font-bold"
+              className="h-7 px-2.5 text-[11px] font-mono gap-1 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-900/60 hover:bg-rose-50 dark:hover:bg-rose-950/40 shadow-2xs font-bold cursor-pointer"
             >
               <Plus className="h-3 w-3" />
               <span>Report Damage</span>
             </Button>
-            {pendingHOD.length > 0 && (
+            {pendingCoordinator.length > 0 && (
               <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 flex items-center gap-1">
                 <Send className="h-2.5 w-2.5" />
-                {pendingHOD.length} HOD
+                {pendingCoordinator.length} Coordinator
               </span>
             )}
             <Badge variant="outline" className="font-mono text-[10px]">
@@ -89,10 +92,10 @@ export default function IncidentRegistryCard() {
                   <div
                     key={inc.id}
                     onClick={() => openDrawer(inc)}
-                    className={`p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-3 group ${
+                    className={`p-3 rounded-xl border transition-all duration-150 ease-out hover:-translate-y-0.5 motion-reduce:hover:translate-y-0 active:scale-[0.99] cursor-pointer flex items-center justify-between gap-3 group ${
                       isEscalated
                         ? 'border-rose-300 dark:border-rose-900/60 bg-rose-50/30 dark:bg-rose-950/20 hover:border-rose-400'
-                        : 'border-zinc-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900/80 hover:border-zinc-300 dark:hover:border-zinc-700'
+                        : 'border-zinc-200/80 dark:border-white/[0.06] bg-white dark:bg-surface-2/70 hover:border-zinc-300 dark:hover:border-white/15'
                     }`}
                   >
                     <div className="flex items-center gap-3 min-w-0">
@@ -122,19 +125,20 @@ export default function IncidentRegistryCard() {
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0">
-                      <span
-                        className={`text-[10px] font-mono uppercase px-2 py-0.5 rounded-full font-bold ${
+                      <Badge
+                        variant={
                           isEscalated
-                            ? 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/20'
+                            ? 'destructive'
                             : inc.status === 'under_repair'
-                            ? 'bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20'
+                            ? 'info'
                             : inc.status === 'replaced'
-                            ? 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-500/20'
-                            : 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20'
-                        }`}
+                            ? 'indigo'
+                            : 'warning'
+                        }
+                        className="text-[10px] uppercase font-bold"
                       >
                         {inc.status.replace('_', ' ')}
-                      </span>
+                      </Badge>
 
                       <ChevronRight className="h-3.5 w-3.5 text-zinc-400 group-hover:translate-x-0.5 transition-transform" />
                     </div>
@@ -144,14 +148,19 @@ export default function IncidentRegistryCard() {
             </div>
           )}
 
-          {/* Direct link to dedicated /incidents page */}
+          {/* Direct link to dedicated /records/incidents page & printout */}
           <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800/80 flex items-center justify-between text-[11px] font-mono">
-            <span className="text-zinc-500">Physics, Chem & Comp Labs</span>
             <a
-              href="/incidents"
+              href="/print/incidents"
+              className="text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 hover:underline flex items-center gap-1"
+            >
+              <span>Certified Printout ↗</span>
+            </a>
+            <a
+              href="/records/incidents"
               className="text-rose-600 dark:text-rose-400 hover:underline font-bold flex items-center gap-1"
             >
-              <span>Incident & Damage Hub</span>
+              <span>Full Incident Register</span>
               <ChevronRight className="h-3 w-3" />
             </a>
           </div>

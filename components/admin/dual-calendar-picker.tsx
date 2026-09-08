@@ -11,7 +11,13 @@ import {
   Check,
   X,
   AlertCircle,
-  Plus
+  Plus,
+  RotateCcw,
+  Search,
+  ExternalLink,
+  ShieldCheck,
+  Ban,
+  BookOpen
 } from 'lucide-react'
 import {
   getBsMonthCalendar,
@@ -32,7 +38,9 @@ interface DualCalendarPickerProps {
   holidays: HolidayItem[]
   onAddHoliday: (holiday: HolidayItem) => void
   onDeleteHoliday: (id: string) => void
+  onResetHolidays?: () => void
   sundayWeekend: boolean
+  saturdayWeekend?: boolean
   isEditModeUnlocked: boolean
 }
 
@@ -40,12 +48,14 @@ export default function DualCalendarPicker({
   holidays,
   onAddHoliday,
   onDeleteHoliday,
+  onResetHolidays,
   sundayWeekend,
+  saturdayWeekend = true,
   isEditModeUnlocked,
 }: DualCalendarPickerProps) {
-  // Default to current BS Month (Bhadra = 5 in 2083 BS)
+  // Determine current BS year from today's date
   const todayInfo = useMemo(() => getNepaliDate(new Date()), [])
-  const [currentBsYear, setCurrentBsYear] = useState<number>(todayInfo.bsYear || 2083)
+  const [currentBsYear, setCurrentBsYear] = useState<number>(todayInfo.bsYear || 2081)
   const [currentBsMonth, setCurrentBsMonth] = useState<number>(todayInfo.bsMonth || 5)
 
   // Selection Range State for interactive marking
@@ -56,11 +66,53 @@ export default function DualCalendarPicker({
   const [holidayTitle, setHolidayTitle] = useState('')
   const [holidayType, setHolidayType] = useState<'cultural' | 'state' | 'department' | 'vacation'>('cultural')
   const [selectedExistingHoliday, setSelectedExistingHoliday] = useState<HolidayItem | null>(null)
+  const [directorySearch, setDirectorySearch] = useState('')
+  const [directoryFilter, setDirectoryFilter] = useState<'all' | 'cultural' | 'state' | 'vacation'>('all')
 
   // Calendar Days for current month
   const monthData = useMemo(() => {
     return getBsMonthCalendar(currentBsYear, currentBsMonth)
   }, [currentBsYear, currentBsMonth])
+
+  // Filter holidays belonging to the currently selected BS Year (Deduplicated by ID)
+  const yearHolidays = useMemo(() => {
+    const npYearStr = toNepaliDigits(currentBsYear)
+    const enYearStr = currentBsYear.toString()
+    const seenIds = new Set<string>()
+
+    return holidays
+      .filter((h) => {
+        if (!h || !h.id || seenIds.has(h.id)) return false
+        seenIds.add(h.id)
+
+        if (h.bsDateStr) {
+          if (h.bsDateStr.includes(npYearStr) || h.bsDateStr.includes(enYearStr)) {
+            return true
+          }
+        }
+        try {
+          const np = getNepaliDate(new Date(h.dateStr))
+          return np.bsYear === currentBsYear
+        } catch (e) {
+          return false
+        }
+      })
+      .sort((a, b) => a.dateStr.localeCompare(b.dateStr))
+  }, [holidays, currentBsYear])
+
+  // Directory filtered list
+  const filteredDirectoryHolidays = useMemo(() => {
+    return yearHolidays.filter((h) => {
+      const matchSearch =
+        directorySearch === '' ||
+        (h.title && h.title.toLowerCase().includes(directorySearch.toLowerCase())) ||
+        (h.titleNp && h.titleNp.includes(directorySearch)) ||
+        (h.bsDateStr && h.bsDateStr.includes(directorySearch))
+
+      const matchFilter = directoryFilter === 'all' || h.type === directoryFilter
+      return matchSearch && matchFilter
+    })
+  }, [yearHolidays, directorySearch, directoryFilter])
 
   // Month navigation
   const handlePrevMonth = () => {
@@ -92,9 +144,17 @@ export default function DualCalendarPicker({
     setRangeEnd(null)
   }
 
+  const handleJumpToHolidayMonth = (h: HolidayItem) => {
+    try {
+      const np = getNepaliDate(new Date(h.dateStr))
+      setCurrentBsYear(np.bsYear)
+      setCurrentBsMonth(np.bsMonth)
+      setSelectedExistingHoliday(h)
+    } catch (e) {}
+  }
+
   // Handle clicking a day on the calendar
   const handleDayClick = (day: BsCalendarDay) => {
-    // Check if day already has a holiday
     const existing = holidays.find((h) => isDateWithinHoliday(day.dateStr, h))
     if (existing) {
       setSelectedExistingHoliday(existing)
@@ -103,20 +163,16 @@ export default function DualCalendarPicker({
     setSelectedExistingHoliday(null)
 
     if (!rangeStart) {
-      // Step 1: Set Start Day
       setRangeStart(day)
       setRangeEnd(null)
     } else if (!rangeEnd) {
-      // Step 2: Set End Day
       if (day.dateStr < rangeStart.dateStr) {
-        // Clicked an earlier date, swap start & end
         setRangeEnd(rangeStart)
         setRangeStart(day)
       } else {
         setRangeEnd(day)
       }
     } else {
-      // Reset and set new start
       setRangeStart(day)
       setRangeEnd(null)
     }
@@ -142,18 +198,19 @@ export default function DualCalendarPicker({
     const isMultiDay = effectiveEnd.dateStr !== rangeStart.dateStr
 
     const bsDateRangeString = isMultiDay
-      ? `${rangeStart.bsYear} ${rangeStart.monthNameNp} ${rangeStart.bsDayNp} - ${effectiveEnd.monthNameNp} ${effectiveEnd.bsDayNp}`
-      : `${rangeStart.bsYear} ${rangeStart.monthNameNp} ${rangeStart.bsDayNp}`
+      ? `${toNepaliDigits(rangeStart.bsYear)} ${rangeStart.monthNameNp} ${rangeStart.bsDayNp} - ${effectiveEnd.monthNameNp} ${effectiveEnd.bsDayNp}`
+      : `${toNepaliDigits(rangeStart.bsYear)} ${rangeStart.monthNameNp} ${rangeStart.bsDayNp}`
 
     const newHol: HolidayItem = {
       id: `hol-${Date.now()}`,
       title: holidayTitle.trim(),
+      name: holidayTitle.trim(),
       titleNp: holidayTitle.trim(),
       dateStr: rangeStart.dateStr,
-      endDateStr: isMultiDay ? effectiveEnd.dateStr : undefined,
+      endDateStr: effectiveEnd.dateStr,
       bsDateStr: bsDateRangeString,
       type: isMultiDay ? 'vacation' : holidayType,
-      description: `Academic recess marked via Dual Calendar Picker (${isMultiDay ? 'Multi-Day Vacation' : 'Single Day'})`,
+      description: `Institutional recess marked via Dual Calendar Picker (${isMultiDay ? 'Multi-Day Vacation' : 'Single Day'})`,
     }
 
     onAddHoliday(newHol)
@@ -182,7 +239,7 @@ export default function DualCalendarPicker({
   const todayDateStr = getNepalDateStr(new Date())
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {/* TODAY STATUS BANNER */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 px-4 py-2.5 rounded-xl bg-emerald-50/90 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/60 text-emerald-900 dark:text-emerald-200 font-mono text-xs shadow-2xs">
         <div className="flex items-center gap-2">
@@ -200,13 +257,18 @@ export default function DualCalendarPicker({
             • {todayInfo.englishDate} (A.D.)
           </span>
         </div>
-        <button
-          type="button"
-          onClick={handleJumpToToday}
-          className="text-[11px] font-bold text-emerald-800 dark:text-emerald-300 hover:text-emerald-950 dark:hover:text-white underline cursor-pointer"
-        >
-          Go to Current Month ➔
-        </button>
+        <div className="flex items-center gap-3">
+          <Badge variant="outline" className="font-mono text-[10px] bg-emerald-100/60 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300 border-emerald-300/60">
+            Current: {toNepaliDigits(todayInfo.bsYear)} B.S.
+          </Badge>
+          <button
+            type="button"
+            onClick={handleJumpToToday}
+            className="text-[11px] font-bold text-emerald-800 dark:text-emerald-300 hover:text-emerald-950 dark:hover:text-white underline cursor-pointer"
+          >
+            Go to Today ➔
+          </button>
+        </div>
       </div>
 
       {/* 1. CALENDAR HEADER BAR */}
@@ -223,6 +285,9 @@ export default function DualCalendarPicker({
               <Badge variant="outline" className="font-mono text-[10px]">
                 {currentBsYear} B.S.
               </Badge>
+              <Badge variant="secondary" className="font-mono text-[10px] bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60">
+                {yearHolidays.length} Public Holidays
+              </Badge>
             </div>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 font-sans mt-0.5">
               {englishSpan}
@@ -232,38 +297,44 @@ export default function DualCalendarPicker({
 
         <div className="flex flex-wrap items-center gap-2">
           {/* Year Selector */}
-          <Select
-            value={currentBsYear.toString()}
-            onChange={(e) => {
-              setCurrentBsYear(parseInt(e.target.value))
-              setRangeStart(null)
-              setRangeEnd(null)
-            }}
-            className="h-8 text-xs font-mono w-28"
-          >
-            {[2080, 2081, 2082, 2083, 2084, 2085].map((y) => (
-              <option key={y} value={y.toString()}>
-                {y} B.S. ({toNepaliDigits(y)})
-              </option>
-            ))}
-          </Select>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] font-mono text-zinc-500 font-semibold">Year:</span>
+            <Select
+              value={currentBsYear.toString()}
+              onChange={(e) => {
+                setCurrentBsYear(parseInt(e.target.value))
+                setRangeStart(null)
+                setRangeEnd(null)
+              }}
+              className="h-8 text-xs font-mono w-32"
+            >
+              {[2080, 2081, 2082, 2083, 2084, 2085].map((y) => (
+                <option key={y} value={y.toString()}>
+                  {y} B.S. ({toNepaliDigits(y)})
+                </option>
+              ))}
+            </Select>
+          </div>
 
           {/* Month Selector */}
-          <Select
-            value={currentBsMonth.toString()}
-            onChange={(e) => {
-              setCurrentBsMonth(parseInt(e.target.value))
-              setRangeStart(null)
-              setRangeEnd(null)
-            }}
-            className="h-8 text-xs font-mono w-36"
-          >
-            {NEPALI_MONTHS_EN.map((name, idx) => (
-              <option key={name} value={(idx + 1).toString()}>
-                {idx + 1}. {name} ({NEPALI_MONTHS_NP[idx]})
-              </option>
-            ))}
-          </Select>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] font-mono text-zinc-500 font-semibold">Month:</span>
+            <Select
+              value={currentBsMonth.toString()}
+              onChange={(e) => {
+                setCurrentBsMonth(parseInt(e.target.value))
+                setRangeStart(null)
+                setRangeEnd(null)
+              }}
+              className="h-8 text-xs font-mono w-36"
+            >
+              {NEPALI_MONTHS_EN.map((name, idx) => (
+                <option key={name} value={(idx + 1).toString()}>
+                  {idx + 1}. {name} ({NEPALI_MONTHS_NP[idx]})
+                </option>
+              ))}
+            </Select>
+          </div>
 
           <div className="flex items-center border border-zinc-200 dark:border-zinc-800 rounded-lg p-0.5 bg-zinc-50 dark:bg-zinc-800">
             <button
@@ -279,7 +350,7 @@ export default function DualCalendarPicker({
               onClick={handleJumpToToday}
               className="px-2 py-0.5 text-[11px] font-mono font-bold hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded text-zinc-700 dark:text-zinc-200 cursor-pointer"
             >
-              Today (आज)
+              Today
             </button>
             <button
               type="button"
@@ -298,7 +369,7 @@ export default function DualCalendarPicker({
         {/* Day Name Columns */}
         <div className="grid grid-cols-7 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/60 font-mono text-center">
           {dayHeaders.map((dh, idx) => {
-            const isWeekendCol = idx === 6 || (idx === 0 && sundayWeekend)
+            const isWeekendCol = (idx === 6 && saturdayWeekend) || (idx === 0 && sundayWeekend)
             return (
               <div
                 key={dh.en}
@@ -326,7 +397,7 @@ export default function DualCalendarPicker({
           {/* Actual Month Days */}
           {monthData.days.map((day) => {
             const isToday = day.dateStr === todayDateStr
-            const isSaturday = day.dayOfWeek === 6
+            const isSaturday = day.dayOfWeek === 6 && saturdayWeekend
             const isSundayWeekend = day.dayOfWeek === 0 && sundayWeekend
             const isWeekend = isSaturday || isSundayWeekend
 
@@ -338,7 +409,7 @@ export default function DualCalendarPicker({
               <div
                 key={day.dateStr}
                 onClick={() => handleDayClick(day)}
-                className={`min-h-[96px] p-2 transition-all cursor-pointer relative group flex flex-col justify-between rounded-sm ${
+                className={`min-h-[100px] p-2 transition-all cursor-pointer relative group flex flex-col justify-between rounded-sm ${
                   selected
                     ? 'bg-indigo-50 dark:bg-indigo-950/70 ring-2 ring-indigo-500 z-10'
                     : isToday
@@ -445,7 +516,7 @@ export default function DualCalendarPicker({
             <div className="sm:col-span-6">
               <Input
                 type="text"
-                placeholder="e.g. Bada Dashain Break / Mid-Term Vacation"
+                placeholder="e.g. Annual Sports Week / Terminal Examination Recess"
                 value={holidayTitle}
                 onChange={(e) => setHolidayTitle(e.target.value)}
                 className="h-8 text-xs bg-white dark:bg-zinc-900 border-indigo-300 dark:border-indigo-700"
@@ -536,6 +607,164 @@ export default function DualCalendarPicker({
           </div>
         </div>
       )}
+
+      {/* 5. OFFICIAL GOVERNMENT GAZETTE & INSTITUTIONAL RECESS DIRECTORY */}
+      <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-100 dark:border-zinc-800 pb-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <BookOpen className="h-4 w-4 text-indigo-500" />
+              <h3 className="text-sm font-bold font-mono text-zinc-950 dark:text-white">
+                Official Institutional & Gazette Holiday Directory ({currentBsYear} B.S.)
+              </h3>
+              <Badge variant="outline" className="font-mono text-[10px]">
+                {filteredDirectoryHolidays.length} Holidays
+              </Badge>
+            </div>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+              Verified against official Nepal Government Gazette (गृह मन्त्रालय) & Academic Calendar
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {onResetHolidays && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={onResetHolidays}
+                disabled={!isEditModeUnlocked}
+                className="h-8 text-xs font-mono font-semibold gap-1.5 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                title="Reset all holidays for all academic years to official Nepal Gazette presets"
+              >
+                <RotateCcw className="h-3.5 w-3.5 text-zinc-500" />
+                <span>Sync MoHA Gazette Preset</span>
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Directory Filters */}
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="relative w-full sm:w-72">
+            <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-zinc-400" />
+            <Input
+              type="text"
+              placeholder="Filter by festival or date..."
+              value={directorySearch}
+              onChange={(e) => setDirectorySearch(e.target.value)}
+              className="pl-8 h-8 text-xs font-mono"
+            />
+          </div>
+
+          <div className="flex items-center gap-1.5 w-full sm:w-auto">
+            {(['all', 'cultural', 'state', 'vacation'] as const).map((filterType) => (
+              <button
+                key={filterType}
+                type="button"
+                onClick={() => setDirectoryFilter(filterType)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-mono capitalize transition-all cursor-pointer ${
+                  directoryFilter === filterType
+                    ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 font-bold shadow-2xs'
+                    : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200'
+                }`}
+              >
+                {filterType}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Directory List Table */}
+        <div className="border border-zinc-200/80 dark:border-zinc-800/80 rounded-xl overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs font-mono">
+              <thead>
+                <tr className="border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/80 dark:bg-zinc-900/80 text-zinc-500 font-bold uppercase text-[10px]">
+                  <th className="py-2.5 px-4">Bikram Sambat (B.S.)</th>
+                  <th className="py-2.5 px-4">English Date (A.D.)</th>
+                  <th className="py-2.5 px-4">Official Holiday / Festival</th>
+                  <th className="py-2.5 px-4">Category</th>
+                  <th className="py-2.5 px-4">Laboratory Status</th>
+                  <th className="py-2.5 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
+                {filteredDirectoryHolidays.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="py-8 text-center text-zinc-400 font-mono text-xs">
+                      No official holidays found matching criteria for {currentBsYear} B.S.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredDirectoryHolidays.map((h, idx) => (
+                    <tr key={`${h.id}-${idx}`} className="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40 transition-colors">
+                      <td className="py-2.5 px-4 font-bold text-zinc-900 dark:text-zinc-100">
+                        {h.bsDateStr || h.dateStr}
+                      </td>
+                      <td className="py-2.5 px-4 text-zinc-500">
+                        {h.dateStr} {h.endDateStr && h.endDateStr !== h.dateStr ? `➔ ${h.endDateStr}` : ''}
+                      </td>
+                      <td className="py-2.5 px-4">
+                        <div className="font-bold text-zinc-950 dark:text-white">
+                          {h.titleNp || h.name || h.title}
+                        </div>
+                        <div className="text-[11px] text-zinc-500">{h.title}</div>
+                      </td>
+                      <td className="py-2.5 px-4">
+                        <Badge
+                          variant="outline"
+                          className={`text-[9px] uppercase font-bold ${
+                            h.type === 'cultural'
+                              ? 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800'
+                              : h.type === 'vacation'
+                              ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
+                              : 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800'
+                          }`}
+                        >
+                          {h.type}
+                        </Badge>
+                      </td>
+                      <td className="py-2.5 px-4">
+                        <span className="inline-flex items-center gap-1 text-[11px] text-rose-600 dark:text-rose-400 font-semibold">
+                          <Ban className="h-3 w-3" />
+                          <span>Practicals Suspended</span>
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-4 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleJumpToHolidayMonth(h)}
+                            className="h-7 px-2 text-[11px] font-mono text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
+                          >
+                            <span>Inspect</span>
+                            <ChevronRight className="h-3 w-3 ml-0.5" />
+                          </Button>
+                          {isEditModeUnlocked && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => onDeleteHoliday(h.id)}
+                              className="h-7 w-7 p-0 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                              title="Delete holiday"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

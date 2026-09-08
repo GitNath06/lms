@@ -13,7 +13,8 @@ import {
   CalendarPlus,
   UserCheck,
   AlertTriangle,
-  Receipt
+  Receipt,
+  RotateCcw,
 } from 'lucide-react'
 import {
   MasterRoutineItem,
@@ -35,6 +36,8 @@ import { Badge } from '@/components/ui/badge'
 import { useInfrastructureState } from '@/hooks/use-infrastructure-state'
 import { useSubstitutionState } from '@/hooks/use-substitution-state'
 import { useIncidentState } from '@/hooks/use-incident-state'
+import { UserProfile } from '@/app/actions/auth'
+import { resolveUserScope } from '@/lib/context/user-scope'
 
 const TEACHER_NAME_MAP: Record<string, string> = {
   t1: 'Dr. Rajesh Sharma (Computer Science)',
@@ -53,6 +56,7 @@ interface SessionActionModalProps {
   existingLog?: PracticalLogRecord | null
   allRoutines?: MasterRoutineItem[]
   initialMode?: ModalMode
+  currentUser?: UserProfile | null
   onSuccess?: (message: string) => void
   onDeleteSession?: (sessionId: string) => void
   onExtendSession?: (sessionId: string, span: number) => void
@@ -67,6 +71,8 @@ interface SessionActionModalProps {
   onUnmergeSession?: (sessionId: string) => void
   onAddSession?: (session: MasterRoutineItem) => void
   onSaveLog?: (logData: Omit<PracticalLogRecord, 'id' | 'createdAt'> & { id?: string }) => void
+  onSkipSession?: (sessionId: string, reason: string) => void
+  onUnskipSession?: (sessionId: string) => void
 }
 
 export default function SessionActionModal(props: SessionActionModalProps) {
@@ -86,12 +92,15 @@ function SessionActionModalContent({
   existingLog = null,
   allRoutines = [],
   initialMode = 'log',
+  currentUser = null,
   onSuccess,
   onDeleteSession,
   onMergeSession,
   onUnmergeSession,
   onAddSession,
   onSaveLog,
+  onSkipSession,
+  onUnskipSession,
 }: SessionActionModalProps) {
   const isBookingMode =
     initialMode === 'book' ||
@@ -100,17 +109,62 @@ function SessionActionModalContent({
 
   const [activeTab, setActiveTab] = useState<ModalMode>(isBookingMode ? 'book' : initialMode === 'edit' ? 'log' : initialMode)
 
+  const userScope = resolveUserScope(currentUser)
+  const isTeacher = userScope.isTeacher
+  const teacherName = userScope.teacherProfile?.name || currentUser?.full_name || ''
+  const isOwnSession =
+    !isTeacher ||
+    (session?.teacher && (
+      session.teacher.toLowerCase().includes(teacherName.toLowerCase()) ||
+      teacherName.toLowerCase().includes(session.teacher.toLowerCase())
+    )) ||
+    (session?.requestedBy && (
+      session.requestedBy.toLowerCase().includes(teacherName.toLowerCase()) ||
+      teacherName.toLowerCase().includes(session.requestedBy.toLowerCase())
+    ))
+
   const {
     faculty: infraFaculty,
     subjects: infraSubjects,
     classes: infraClasses,
-    labs: infraLabs
+    labs: infraLabs,
+    getHolidayForDate,
   } = useInfrastructureState()
 
-  const initialGrade = formatGradeBadge(session?.grade || '12C')
-  const bookClassSubjects = (infraSubjects.length > 0 ? infraSubjects : DEFAULT_SUBJECTS).filter((s) => s.grade === initialGrade)
+  const todayStr = getNepalDateStr(new Date())
+  const holidayItem = getHolidayForDate(todayStr)
+  const isHoliday = Boolean(holidayItem)
+
+  const allClasses = (infraClasses && infraClasses.length > 0) ? infraClasses : DEFAULT_CLASSES
+  const scopedClasses = (isTeacher && userScope.assignedClasses.length > 0)
+    ? allClasses.filter((c) =>
+        userScope.assignedClasses.some((ac) => ac === c.name || c.name.includes(ac) || ac.includes(c.name))
+      )
+    : allClasses
+
+  const rawInitialGrade = formatGradeBadge(session?.grade || '12C')
+  const initialGrade = (isTeacher && userScope.assignedClasses.length > 0)
+    ? (scopedClasses.find((c) => c.name === rawInitialGrade)?.name || scopedClasses[0]?.name || userScope.assignedClasses[0])
+    : rawInitialGrade
+
+  const getSubjectsForGrade = (gradeName: string) => {
+    const allGradeSubs = (infraSubjects.length > 0 ? infraSubjects : DEFAULT_SUBJECTS).filter((s) => s.grade === gradeName)
+    if (isTeacher && userScope.assignedSubjects.length > 0) {
+      const filtered = allGradeSubs.filter((s) =>
+        userScope.assignedSubjects.some((asub) =>
+          asub.code.toLowerCase() === s.code.toLowerCase() ||
+          asub.title.toLowerCase().includes(s.title.toLowerCase()) ||
+          s.title.toLowerCase().includes(asub.title.toLowerCase())
+        )
+      )
+      return filtered.length > 0 ? filtered : allGradeSubs
+    }
+    return allGradeSubs
+  }
+
+  const bookClassSubjects = getSubjectsForGrade(initialGrade)
   const initialBookSub = bookClassSubjects[0] || infraSubjects[0] || DEFAULT_SUBJECTS[0]
-  const initialCls = infraClasses.find((c) => c.name === initialGrade) || DEFAULT_CLASSES.find((c) => c.name === initialGrade)
+  const initialCls = scopedClasses.find((c) => c.name === initialGrade) || allClasses.find((c) => c.name === initialGrade)
 
   // Booking form state
   const [bookDayKey, setBookDayKey] = useState<DayKey>(session?.dayKey || 'mon')
@@ -122,25 +176,29 @@ function SessionActionModalContent({
     (session?.labKey || initialBookSub.labId || 'comp') as MasterRoutineItem['labKey']
   )
   const [bookTeacher, setBookTeacher] = useState<string>(
-    session?.teacher || (initialBookSub as any)?.teacherName || 'Dr. Rajesh Sharma'
+    isTeacher
+      ? teacherName
+      : (session?.teacher || (initialBookSub as any)?.teacherName || 'Dr. Rajesh Sharma')
   )
   const [bookSpan, setBookSpan] = useState<number>(session?.span || 1)
   const [bookStudents, setBookStudents] = useState<number>((initialCls as any)?.capacity || (initialCls as any)?.strength || session?.defaultStudents || 38)
 
   const handleBookGradeChange = (newGrade: string) => {
     setBookGrade(newGrade)
-    const cls = infraClasses.find((c) => c.name === newGrade) || DEFAULT_CLASSES.find((c) => c.name === newGrade)
+    const cls = scopedClasses.find((c) => c.name === newGrade) || allClasses.find((c) => c.name === newGrade)
     if (cls) {
       setBookStudents((cls as any).capacity || (cls as any).strength || 36)
     }
-    const matching = (infraSubjects.length > 0 ? infraSubjects : DEFAULT_SUBJECTS).filter((s) => s.grade === newGrade)
+    const matching = getSubjectsForGrade(newGrade)
     if (matching.length > 0) {
       const sub = matching[0]
       setBookSubjectCode(sub.code)
       setBookSubjectTitle(sub.title)
       setBookLabKey((sub.labId || 'comp') as MasterRoutineItem['labKey'])
-      const teacher = infraFaculty.find((f) => f.id === sub.teacherId)
-      setBookTeacher(teacher ? teacher.name : (sub as any).teacherName || 'Dr. Rajesh Sharma')
+      if (!isTeacher) {
+        const teacher = infraFaculty.find((f) => f.id === sub.teacherId)
+        setBookTeacher(teacher ? teacher.name : (sub as any).teacherName || 'Dr. Rajesh Sharma')
+      }
     }
   }
 
@@ -150,8 +208,10 @@ function SessionActionModalContent({
     if (sub) {
       setBookSubjectTitle(sub.title)
       setBookLabKey((sub.labId || 'comp') as MasterRoutineItem['labKey'])
-      const teacher = infraFaculty.find((f) => f.id === sub.teacherId)
-      setBookTeacher(teacher ? teacher.name : (sub as any).teacherName || 'Dr. Rajesh Sharma')
+      if (!isTeacher) {
+        const teacher = infraFaculty.find((f) => f.id === sub.teacherId)
+        setBookTeacher(teacher ? teacher.name : (sub as any).teacherName || 'Dr. Rajesh Sharma')
+      }
     }
   }
 
@@ -208,7 +268,7 @@ function SessionActionModalContent({
       ? absentRolls.length
       : Math.max(0, Math.min(totalStudents, absentCountInput))
   const presentStudents = Math.min(totalStudents, Math.max(0, totalStudents - effectiveAbsentCount))
-  const turnoutPercent =
+  const attendancePercent =
     totalStudents > 0
       ? Math.min(100, Math.max(0, Math.round((presentStudents / totalStudents) * 100)))
       : 0
@@ -273,6 +333,8 @@ function SessionActionModalContent({
           ? 'bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 border-emerald-200 dark:border-emerald-700'
           : 'bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 border-amber-200 dark:border-amber-700'
 
+      const assignedTeacher = isTeacher ? (currentUser?.full_name || 'Subject Teacher') : bookTeacher
+
       const newSessionItem: MasterRoutineItem = {
         id: `sess-${Date.now()}`,
         day: dayObj?.label || 'Monday',
@@ -284,7 +346,7 @@ function SessionActionModalContent({
         subjectTitle: bookSubjectTitle,
         grade: bookGrade,
         gradeKey: ('class-' + (bookGrade.replace(/\D/g, '') || '12')) as MasterRoutineItem['gradeKey'],
-        teacher: bookTeacher,
+        teacher: assignedTeacher,
         lab: labObj.name as MasterRoutineItem['lab'],
         labKey: bookLabKey,
         defaultStudents: bookStudents,
@@ -292,20 +354,36 @@ function SessionActionModalContent({
         dotColor,
         badgeColor,
         accentColor,
+        status: isTeacher ? 'requested' : 'confirmed',
+        requestedBy: isTeacher ? (currentUser?.full_name || 'Subject Teacher') : undefined,
       }
 
       onAddSession(newSessionItem)
-      if (onSuccess) onSuccess(`Practical session booked successfully for ${dayObj?.label}!`)
+      if (onSuccess) {
+        if (isTeacher) {
+          onSuccess(`Practical slot booking request submitted for ${dayObj?.label} (${assignedTeacher})!`)
+        } else {
+          onSuccess(`Practical session booked successfully for ${dayObj?.label}!`)
+        }
+      }
       onClose()
       return
     }
 
     if (!session) return
 
-    if (activeTab === 'delete' && onDeleteSession) {
-      onDeleteSession(session.id)
-      if (onSuccess) onSuccess('Schedule slot removed.')
-      onClose()
+    if (activeTab === 'delete') {
+      if (isTeacher) {
+        setSubError('Subject Teachers are not authorized to delete scheduled sessions.')
+        setIsSubmitting(false)
+        return
+      }
+      if (onDeleteSession) {
+        onDeleteSession(session.id)
+        if (onSuccess) onSuccess('Schedule slot removed.')
+        onClose()
+        return
+      }
     } else if (activeTab === 'merge') {
       if (isAlreadyMergedOrExtended && onUnmergeSession) {
         onUnmergeSession(session.id)
@@ -326,6 +404,12 @@ function SessionActionModalContent({
       }
       onClose()
     } else if (activeTab === 'log') {
+      if (isHoliday) {
+        setSubError(`Session logging is locked: Today is an official institutional holiday (${holidayItem?.name || 'Academic Recess'}). Practicals are automatically cancelled and no logs can be created.`)
+        setIsSubmitting(false)
+        return
+      }
+
       const sanitizedRolls = Array.from(
         new Set(
           absentRolls
@@ -383,28 +467,48 @@ function SessionActionModalContent({
 
       if (onSuccess) onSuccess('Practical log recorded successfully.')
       onClose()
-    } else if (activeTab === 'skip' && onSaveLog) {
-      onSaveLog({
-        id: existingLog?.id,
-        sessionId: session.id,
-        date: getNepalDateStr(),
-        dayKey: session.dayKey,
-        slotId: session.slotId,
-        timeSlot: session.timeSlot,
-        subjectCode: session.subjectCode,
-        subjectTitle: session.subjectTitle,
-        grade: session.grade,
-        teacher: selectedTeacher || session.teacher,
-        lab: selectedLab,
-        status: 'skipped',
-        skipReason,
-        remarks,
-        totalStudents: 0,
-        presentStudents: 0,
-        absentStudents: 0,
-      })
-      if (onSuccess) onSuccess('Session marked as skipped.')
+    } else if (activeTab === 'skip') {
+      if (isHoliday) {
+        setSubError(`Sessions on institutional holidays cannot be marked as skipped. They are automatically cancelled due to academic recess.`)
+        setIsSubmitting(false)
+        return
+      }
+
+      if (!isOwnSession) {
+        setSubError(`Subject Teachers can only skip their own assigned sessions. This session belongs to ${session.teacher}.`)
+        setIsSubmitting(false)
+        return
+      }
+
+      const finalSkipReason = skipReason + (remarks ? ` - ${remarks}` : '')
+      if (onSkipSession) {
+        onSkipSession(session.id, finalSkipReason)
+      }
+
+      if (onSaveLog) {
+        onSaveLog({
+          id: existingLog?.id,
+          sessionId: session.id,
+          date: getNepalDateStr(),
+          dayKey: session.dayKey,
+          slotId: session.slotId,
+          timeSlot: session.timeSlot,
+          subjectCode: session.subjectCode,
+          subjectTitle: session.subjectTitle,
+          grade: session.grade,
+          teacher: selectedTeacher || session.teacher,
+          lab: selectedLab,
+          status: 'skipped',
+          skipReason,
+          remarks,
+          totalStudents: 0,
+          presentStudents: 0,
+          absentStudents: 0,
+        })
+      }
+      if (onSuccess) onSuccess(`Session marked as skipped: ${skipReason}`)
       onClose()
+      return
     } else if (activeTab === 'substitute' && session) {
       const subFacultyObj = infraFaculty.find((f) => f.id === subTeacherId)
       const res = await assignProxy({
@@ -420,12 +524,12 @@ function SessionActionModalContent({
       })
 
       if (!res.success) {
-        setSubError(res.error || 'Failed to assign proxy faculty')
+        setSubError(res.error || 'Failed to assign proxy teacher')
         setIsSubmitting(false)
         return
       }
 
-      if (onSuccess) onSuccess(`Proxy faculty assigned: ${subFacultyObj?.name} for ${session.teacher}`)
+      if (onSuccess) onSuccess(`Proxy teacher assigned: ${subFacultyObj?.name} for ${session.teacher}`)
       onClose()
     } else if (activeTab === 'incident' && session) {
       await logIncident({
@@ -538,7 +642,7 @@ function SessionActionModalContent({
               }`}
             >
               <UserCheck className="h-3 w-3" />
-              <span>Proxy</span>
+              <span>Substitute</span>
             </button>
 
             <button
@@ -554,18 +658,21 @@ function SessionActionModalContent({
               <span>Damage</span>
             </button>
 
-            <button
-              type="button"
-              onClick={() => setActiveTab('delete')}
-              className={`py-1.5 px-2 rounded-lg font-bold transition-all flex items-center justify-center gap-1 text-[11px] ${
-                activeTab === 'delete'
-                  ? 'bg-rose-600 text-white shadow-xs'
-                  : 'text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40'
-              }`}
-            >
-              <Trash2 className="h-3 w-3" />
-              <span>Delete</span>
-            </button>
+            {/* Delete Tab Hidden for Teachers */}
+            {!isTeacher && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('delete')}
+                className={`py-1.5 px-2 rounded-lg font-bold transition-all flex items-center justify-center gap-1 text-[11px] ${
+                  activeTab === 'delete'
+                    ? 'bg-rose-600 text-white shadow-xs'
+                    : 'text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40'
+                }`}
+              >
+                <Trash2 className="h-3 w-3" />
+                <span>Delete</span>
+              </button>
+            )}
           </div>
         )}
 
@@ -618,16 +725,23 @@ function SessionActionModalContent({
               {/* Class & Subject Selector (Strictly Filtered by Class) */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1 font-mono">
-                  <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
-                    Target Class / Batch *
-                  </label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+                      Target Class / Batch *
+                    </label>
+                    {isTeacher && userScope.assignedClasses.length > 0 && (
+                      <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold">
+                        {scopedClasses.length} Assigned Classes
+                      </span>
+                    )}
+                  </div>
                   <Select
                     value={bookGrade}
                     onChange={(e) => handleBookGradeChange(e.target.value)}
                   >
-                    {((infraClasses && infraClasses.length > 0) ? infraClasses : DEFAULT_CLASSES).map((c: any) => (
-                      <option key={c.id} value={c.name}>
-                        {c.name} — {c.stream} ({c.capacity || c.strength} Students)
+                    {scopedClasses.map((c: any) => (
+                      <option key={c.id || c.name} value={c.name}>
+                        {c.name} — {c.stream || 'General'} ({c.capacity || c.strength || 36} Students)
                       </option>
                     ))}
                   </Select>
@@ -663,7 +777,7 @@ function SessionActionModalContent({
                 </div>
               </div>
 
-              {/* Facility & Faculty In-Charge (Auto-Assigned from Subject) */}
+              {/* Facility & Subject Teacher In-Charge */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1 font-mono">
                   <div className="flex items-center justify-between">
@@ -689,22 +803,31 @@ function SessionActionModalContent({
                 <div className="space-y-1 font-mono">
                   <div className="flex items-center justify-between">
                     <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
-                      Faculty In-Charge *
+                      Subject Teacher *
                     </label>
                     <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">
-                      Auto-assigned
+                      {isTeacher ? 'Self (Locked)' : 'Auto-assigned'}
                     </span>
                   </div>
-                  <Select
-                    value={bookTeacher}
-                    onChange={(e) => setBookTeacher(e.target.value)}
-                  >
-                    {infraFaculty.map((f) => (
-                      <option key={f.id} value={f.name}>
-                        {f.name} ({f.dept.split(' ')[0]})
-                      </option>
-                    ))}
-                  </Select>
+                  {isTeacher ? (
+                    <div className="p-2 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center justify-between">
+                      <span className="truncate">{currentUser?.full_name}</span>
+                      <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-extrabold bg-indigo-50 dark:bg-indigo-950/60 px-1.5 py-0.5 rounded border border-indigo-200 dark:border-indigo-800 shrink-0">
+                        Self
+                      </span>
+                    </div>
+                  ) : (
+                    <Select
+                      value={bookTeacher}
+                      onChange={(e) => setBookTeacher(e.target.value)}
+                    >
+                      {infraFaculty.map((f) => (
+                        <option key={f.id} value={f.name}>
+                          {f.name} ({f.dept.split(' ')[0]})
+                        </option>
+                      ))}
+                    </Select>
+                  )}
                 </div>
               </div>
 
@@ -802,14 +925,14 @@ function SessionActionModalContent({
 
                   <Badge
                     variant={
-                      turnoutPercent >= 80
+                      attendancePercent >= 80
                         ? 'success'
-                        : turnoutPercent >= 50
+                        : attendancePercent >= 50
                         ? 'warning'
                         : 'destructive'
                     }
                   >
-                    {presentStudents} Present ({turnoutPercent}%)
+                    {presentStudents} Present ({attendancePercent}%)
                   </Badge>
                 </div>
 
@@ -862,10 +985,11 @@ function SessionActionModalContent({
                             key={roll}
                             type="button"
                             onClick={() => toggleRollNumber(roll)}
-                            className={`h-7 rounded text-xs font-mono font-bold transition-all ${
+                            title={isAbsent ? `Roll ${roll}: Absent (click to mark present)` : `Roll ${roll}: Present (click to mark absent)`}
+                            className={`h-7 rounded text-xs font-mono font-bold transition-all cursor-pointer active:scale-95 select-none ${
                               isAbsent
-                                ? 'bg-rose-600 text-white shadow-xs'
-                                : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300'
+                                ? 'bg-rose-600 text-white shadow-xs hover:bg-rose-700'
+                                : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700'
                             }`}
                           >
                             {roll}
@@ -908,38 +1032,81 @@ function SessionActionModalContent({
           {/* C. SKIP TAB */}
           {activeTab === 'skip' && (
             <div className="space-y-4 animate-in fade-in duration-150 font-mono">
-              <div className="p-3.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-xs text-zinc-700 dark:text-zinc-300">
-                Marking this session as skipped records an audit trail for why the lab was not used today.
-              </div>
+              {!isOwnSession ? (
+                <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-800 dark:text-rose-200 space-y-1.5">
+                  <div className="flex items-center gap-1.5 font-bold">
+                    <AlertTriangle className="h-4 w-4 text-rose-600 shrink-0" />
+                    <span>Ownership Guard: Restricted Action</span>
+                  </div>
+                  <p className="text-[11px] text-zinc-600 dark:text-zinc-300">
+                    As a Subject Teacher, you are only authorized to skip your own scheduled practical sessions. This slot is currently assigned to <strong>{session?.teacher}</strong>.
+                  </p>
+                </div>
+              ) : session?.isSkipped || session?.status === 'skipped' ? (
+                <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs space-y-2">
+                  <div className="flex items-center gap-1.5 font-bold text-amber-900 dark:text-amber-200">
+                    <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
+                    <span>This practical session is currently marked as SKIPPED</span>
+                  </div>
+                  <p className="text-[11px] text-zinc-700 dark:text-zinc-300">
+                    Reason: <strong>{session.skippedReason || 'Class Rescheduled / Not Conducted'}</strong>
+                  </p>
+                  {session.skippedBy && (
+                    <p className="text-[10px] text-zinc-500">Flagged by: {session.skippedBy}</p>
+                  )}
+                  {onUnskipSession && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => {
+                        onUnskipSession(session.id)
+                        if (onSuccess) onSuccess('Session unskipped and restored to active timetable.')
+                        onClose()
+                      }}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold mt-2"
+                    >
+                      <RotateCcw className="h-3 w-3 mr-1" />
+                      Unskip / Restore Session
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <div className="p-3.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-xs text-zinc-700 dark:text-zinc-300">
+                    Marking this session as skipped records an institutional audit trail for why the laboratory was not utilized today.
+                  </div>
 
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
-                  Reason for Non-Conduction
-                </label>
-                <Select
-                  value={skipReason}
-                  onChange={(e) => setSkipReason(e.target.value)}
-                >
-                  <option value="Theory Class Conducted in Classroom">Theory Class Conducted in Classroom</option>
-                  <option value="Assigned Teacher on Leave / Absent">Assigned Teacher on Leave / Absent</option>
-                  <option value="Institutional Event / Assembly">Institutional Event / Assembly</option>
-                  <option value="Power Failure / Maintenance">Power Failure / Maintenance</option>
-                  <option value="Examination Period">Examination Period</option>
-                </Select>
-              </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
+                      Reason for Non-Conduction
+                    </label>
+                    <Select
+                      value={skipReason}
+                      onChange={(e) => setSkipReason(e.target.value)}
+                    >
+                      <option value="Theory Class Conducted in Classroom">Theory Class Conducted in Classroom</option>
+                      <option value="Assigned Teacher on Leave / Absent">Assigned Teacher on Leave / Absent</option>
+                      <option value="Institutional Event / Assembly">Institutional Event / Assembly</option>
+                      <option value="Power Failure / Maintenance">Power Failure / Maintenance</option>
+                      <option value="Examination Period">Examination Period</option>
+                      <option value="Other">Other Reason</option>
+                    </Select>
+                  </div>
 
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
-                  Notes (Optional)
-                </label>
-                <textarea
-                  rows={2}
-                  value={remarks}
-                  onChange={(e) => setRemarks(e.target.value)}
-                  placeholder="Additional notes..."
-                  className="flex w-full rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-2 text-xs text-zinc-900 dark:text-zinc-100"
-                />
-              </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
+                      Notes (Optional)
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={remarks}
+                      onChange={(e) => setRemarks(e.target.value)}
+                      placeholder="Additional notes..."
+                      className="flex w-full rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-2 text-xs text-zinc-900 dark:text-zinc-100"
+                    />
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -1001,10 +1168,10 @@ function SessionActionModalContent({
               <div className="p-3.5 rounded-xl bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200/80 dark:border-indigo-800/60 text-xs space-y-1">
                 <div className="flex items-center gap-1.5 font-bold text-indigo-950 dark:text-indigo-200">
                   <UserCheck className="h-4 w-4 text-indigo-600" />
-                  <span>Faculty Proxy / Substitution Assignment</span>
+                  <span>Teacher Substitution Assignment</span>
                 </div>
                 <p className="text-[11px] text-zinc-600 dark:text-zinc-300 font-sans">
-                  Assign an available faculty member to conduct <strong>{session.subjectCode}</strong> ({session.timeSlot}) in place of <strong>{session.teacher}</strong>.
+                  Assign an available substitute teacher to conduct <strong>{session.subjectCode}</strong> ({session.timeSlot}) in place of <strong>{session.teacher}</strong>.
                 </p>
               </div>
 
@@ -1018,7 +1185,7 @@ function SessionActionModalContent({
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
-                    Original Faculty
+                    Original Subject Teacher
                   </label>
                   <Input
                     type="text"
@@ -1043,7 +1210,7 @@ function SessionActionModalContent({
 
               <div className="space-y-1">
                 <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
-                  Select Substitute Faculty *
+                  Select Substitute Subject Teacher *
                 </label>
                 <Select
                   value={subTeacherId}
@@ -1056,7 +1223,7 @@ function SessionActionModalContent({
                     .filter((f) => f.name.toLowerCase() !== session.teacher.toLowerCase())
                     .map((f) => (
                       <option key={f.id} value={f.id}>
-                        {f.name} ({f.dept || f.role || 'Faculty'})
+                        {f.name} ({f.dept || f.role || 'Teacher'})
                       </option>
                     ))}
                 </Select>
@@ -1182,7 +1349,10 @@ function SessionActionModalContent({
             <Button
               type="submit"
               size="sm"
-              disabled={isSubmitting}
+              disabled={
+                isSubmitting ||
+                (activeTab === 'skip' && (!isOwnSession || Boolean(session?.isSkipped || session?.status === 'skipped')))
+              }
               className={`gap-1.5 font-bold text-white shadow-xs ${
                 activeTab === 'book'
                   ? 'bg-indigo-600 hover:bg-indigo-700'
@@ -1202,7 +1372,7 @@ function SessionActionModalContent({
               ) : activeTab === 'book' ? (
                 <>
                   <CalendarPlus className="h-3.5 w-3.5" />
-                  <span>Allocate & Save Schedule</span>
+                  <span>{isTeacher ? 'Submit Slot Booking Request' : 'Allocate & Save Schedule'}</span>
                 </>
               ) : activeTab === 'log' ? (
                 <>
@@ -1212,7 +1382,13 @@ function SessionActionModalContent({
               ) : activeTab === 'skip' ? (
                 <>
                   <AlertCircle className="h-3.5 w-3.5" />
-                  <span>Confirm Skip Flag</span>
+                  <span>
+                    {!isOwnSession
+                      ? 'Skip Restricted (Other Teacher)'
+                      : session?.isSkipped || session?.status === 'skipped'
+                      ? 'Already Skipped'
+                      : 'Confirm Skip Flag'}
+                  </span>
                 </>
               ) : activeTab === 'merge' ? (
                 isAlreadyMergedOrExtended ? (
@@ -1229,7 +1405,7 @@ function SessionActionModalContent({
               ) : activeTab === 'substitute' ? (
                 <>
                   <UserCheck className="h-3.5 w-3.5" />
-                  <span>Assign Proxy Faculty</span>
+                  <span>Assign Proxy Teacher</span>
                 </>
               ) : activeTab === 'incident' ? (
                 <>

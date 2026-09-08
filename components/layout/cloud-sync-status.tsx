@@ -7,7 +7,7 @@ import { isSupabaseConfigured } from '@/lib/supabase/config'
 
 const LOGS_OUTBOX_KEY = 'lab_pending_logs_outbox_v1'
 const ROUTINE_OUTBOX_KEY = 'lab_pending_schedules_outbox_v1'
-const SUB_OUTBOX_KEY = 'lab_pending_substitutions_outbox_v1'
+const SUB_OUTBOX_KEY = 'lab_pending_teacher_substitutions_outbox_v1'
 const INC_OUTBOX_KEY = 'lab_pending_incidents_outbox_v1'
 
 export default function CloudSyncStatus() {
@@ -58,13 +58,15 @@ export default function CloudSyncStatus() {
     checkPending()
 
     const handleSyncChange = (e: any) => {
-      if (e.detail) {
-        if (typeof e.detail.pendingCount === 'number') setPendingLogs(e.detail.pendingCount)
-        if (typeof e.detail.pendingSchedulesCount === 'number') setPendingSchedules(e.detail.pendingSchedulesCount)
-        if (typeof e.detail.pendingSubstitutionsCount === 'number') setPendingSubs(e.detail.pendingSubstitutionsCount)
-        if (typeof e.detail.pendingIncidentsCount === 'number') setPendingIncidents(e.detail.pendingIncidentsCount)
-      }
-      checkPending()
+      queueMicrotask(() => {
+        if (e.detail) {
+          if (typeof e.detail.pendingCount === 'number') setPendingLogs(e.detail.pendingCount)
+          if (typeof e.detail.pendingSchedulesCount === 'number') setPendingSchedules(e.detail.pendingSchedulesCount)
+          if (typeof e.detail.pendingSubstitutionsCount === 'number') setPendingSubs(e.detail.pendingSubstitutionsCount)
+          if (typeof e.detail.pendingIncidentsCount === 'number') setPendingIncidents(e.detail.pendingIncidentsCount)
+        }
+        checkPending()
+      })
     }
 
     window.addEventListener('sync-status-changed', handleSyncChange)
@@ -194,6 +196,32 @@ export default function CloudSyncStatus() {
               ? `Reconnected. Flushing ${totalPending} action(s) to Supabase...`
               : `${totalPending} action(s) queued locally (${pendingLogs} logs, ${pendingSchedules} schedule slots, ${pendingSubs} proxies, ${pendingIncidents} incidents). Changes will automatically synchronize when you reconnect.`}
           </p>
+
+          {totalPending > 0 && (
+            <div className="mt-2.5 pt-2 border-t border-zinc-800 flex items-center justify-between">
+              <span className="text-[10px] text-zinc-500">Stuck or unhandled queue?</span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  try {
+                    localStorage.removeItem(LOGS_OUTBOX_KEY)
+                    localStorage.removeItem(ROUTINE_OUTBOX_KEY)
+                    localStorage.removeItem(SUB_OUTBOX_KEY)
+                    localStorage.removeItem(INC_OUTBOX_KEY)
+                    setPendingLogs(0)
+                    setPendingSchedules(0)
+                    setPendingSubs(0)
+                    setPendingIncidents(0)
+                    window.dispatchEvent(new CustomEvent('sync-status-changed', { detail: { pendingCount: 0, pendingSchedulesCount: 0 } }))
+                  } catch {}
+                }}
+                className="text-[10px] font-bold font-mono text-amber-400 hover:text-amber-300 underline cursor-pointer"
+              >
+                Dismiss Queue ✕
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

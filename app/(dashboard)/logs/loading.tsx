@@ -5,7 +5,7 @@ import { Card } from '@/components/ui/card'
 
 export default function LogsLoading() {
   return (
-    <div className="space-y-6 max-w-7xl mx-auto select-none animate-in fade-in duration-200">
+    <div className="space-y-6 w-full select-none animate-in fade-in duration-200">
       {/* 1. TOP EXECUTIVE AUDIT METRICS (Exact duplicate of logs/page.tsx) */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {/* Metric 1 */}
@@ -40,7 +40,7 @@ export default function LogsLoading() {
                 <Users className="h-4 w-4" />
               </div>
               <span className="text-[11px] font-mono font-bold tracking-wider uppercase text-zinc-500 dark:text-zinc-400">
-                Turnout Tally
+                Student Attendance
               </span>
             </div>
             <Skeleton className="h-5 w-16 rounded-full" />

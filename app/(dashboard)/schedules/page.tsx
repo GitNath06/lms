@@ -1,137 +1,303 @@
 'use client'
 
-import React, { useState } from 'react'
-import { Calendar, Printer, Plus, Filter, Sparkles, BookOpen, Layers, Terminal, Atom, FlaskRound, Dna } from 'lucide-react'
+import React, { useState, useEffect, useMemo } from 'react'
+import {
+  Calendar,
+  Printer,
+  Plus,
+  Filter,
+  User,
+  ChevronLeft,
+  ChevronRight,
+  CalendarDays,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import AdvancedCalendar from './advanced-calendar'
 import SessionActionModal from '@/components/schedules/session-action-modal'
+import { getCurrentUserProfile, UserProfile } from '@/app/actions/auth'
+import { useRoutineState } from '@/hooks/use-routine-state'
+import { useInfrastructureState } from '@/hooks/use-infrastructure-state'
+import { useCalendarSettings } from '@/hooks/use-calendar-settings'
+import { getWeekDates } from '@/lib/master-data'
 
 export default function SchedulesPage() {
   const [labFilter, setLabFilter] = useState('all')
+  const [teacherFilter, setTeacherFilter] = useState('all')
+  const [weekOffset, setWeekOffset] = useState<number>(0)
   const [isAdhocOpen, setIsAdhocOpen] = useState(false)
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null)
+  const [mounted, setMounted] = useState(false)
+
+  const { routines, addSession, requestSlotBooking } = useRoutineState()
+  const { faculty: infraFaculty } = useInfrastructureState()
+  const { startDay } = useCalendarSettings()
+
+  // Fetch Current User Profile
+  useEffect(() => {
+    setMounted(true)
+    getCurrentUserProfile().then((user) => {
+      setCurrentUser(user)
+      // If user is a practical subject teacher, default to viewing their own sessions
+      if (user?.role === 'teacher') {
+        setTeacherFilter('my_sessions')
+      }
+    })
+  }, [])
+
+  // Teacher List for Filters (Only distinct subject teachers)
+  const teacherList = useMemo(() => {
+    const set = new Set<string>()
+    infraFaculty.forEach((f) => {
+      if (f.name) set.add(f.name)
+    })
+    routines.forEach((r) => {
+      if (r.teacher) set.add(r.teacher)
+    })
+    return Array.from(set).sort()
+  }, [infraFaculty, routines])
+
+  // Week Dates calculation for header navigation
+  const baseDate = useMemo(() => {
+    const d = new Date()
+    d.setDate(d.getDate() + weekOffset * 7)
+    return d
+  }, [weekOffset])
+
+  const weekDates = useMemo(() => getWeekDates(baseDate, startDay), [baseDate, startDay])
+  const startDayInfo = weekDates[0]
+  const endDayInfo = weekDates[weekDates.length - 1]
+
+  const isTeacher = currentUser?.role === 'teacher'
 
   return (
-    <div className="flex flex-col h-[calc(100vh-84px)] -m-4 md:-m-6 p-3 md:p-4 space-y-3 animate-in fade-in duration-300 select-none overflow-hidden">
-      {/* Sleek, Single-Line Ultra-Compact Command Toolbar (No Bulky KPI Blocks) */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-white/90 dark:bg-zinc-900/90 p-3 px-4 rounded-xl border border-zinc-200/90 dark:border-zinc-800 shadow-xs backdrop-blur-md shrink-0 print:hidden">
-        {/* Left: Title & Session Tag */}
-        <div className="flex items-center gap-2.5">
-          <div className="h-8 w-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center border border-indigo-200/60 dark:border-indigo-800/50 shadow-2xs">
-            <Calendar className="h-4 w-4" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-bold tracking-tight text-zinc-950 dark:text-white font-mono">
-                Laboratory Timetable Matrix
+    <div className="flex flex-col h-[calc(100vh-84px)] -m-4 md:-m-6 p-3 md:p-4 space-y-2.5 animate-in fade-in duration-300 select-none overflow-hidden">
+      {/* Sleek Command Toolbar: Lab Filter, Teacher Filter, Week Nav, Actions (Rigid Single Row) */}
+      <div className="flex items-center justify-between gap-2 bg-white/95 dark:bg-zinc-900/95 p-2 px-3 rounded-xl border border-zinc-200/90 dark:border-zinc-800 shadow-xs backdrop-blur-md shrink-0 print:hidden overflow-x-auto no-scrollbar">
+        {/* Left Section: Title + Lab Switcher + Teacher Filter */}
+        <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1.5">
+            <div className="h-7 w-7 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center border border-indigo-200/60 dark:border-indigo-800/50 shadow-2xs shrink-0">
+              <Calendar className="h-3.5 w-3.5" />
+            </div>
+            <div className="flex items-center gap-1.5">
+              <h2 className="text-xs sm:text-sm font-bold tracking-tight text-zinc-950 dark:text-white font-mono whitespace-nowrap">
+                Lab Timetable
               </h2>
-              <span className="px-2 py-0.5 text-[10px] font-mono font-bold rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/60 flex items-center gap-1">
+              <span className="px-1.5 py-0.2 text-[9px] font-mono font-bold rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/60 flex items-center gap-1 shrink-0">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-ping" />
-                Session 2083
+                2083
               </span>
             </div>
           </div>
+
+          {/* Segmented Lab Switcher */}
+          <div className="flex items-center gap-0.5 p-0.5 bg-zinc-100 dark:bg-zinc-800/80 rounded-lg text-xs font-mono border border-zinc-200/60 dark:border-zinc-700/60 shrink-0">
+            <button
+              type="button"
+              onClick={() => setLabFilter('all')}
+              className={`px-2 py-1 rounded-md transition-all font-bold text-[11px] ${
+                labFilter === 'all'
+                  ? 'bg-white dark:bg-zinc-900 text-zinc-950 dark:text-white shadow-xs'
+                  : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
+              }`}
+            >
+              All Labs
+            </button>
+            <button
+              type="button"
+              onClick={() => setLabFilter('comp')}
+              className={`px-2 py-1 rounded-md transition-all flex items-center gap-1 text-[11px] ${
+                labFilter === 'comp'
+                  ? 'bg-white dark:bg-zinc-900 text-indigo-600 dark:text-indigo-400 font-bold shadow-xs'
+                  : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
+              }`}
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
+              <span>Computer</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setLabFilter('phys')}
+              className={`px-2 py-1 rounded-md transition-all flex items-center gap-1 text-[11px] ${
+                labFilter === 'phys'
+                  ? 'bg-white dark:bg-zinc-900 text-cyan-600 dark:text-cyan-400 font-bold shadow-xs'
+                  : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
+              }`}
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-cyan-500" />
+              <span>Physics</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setLabFilter('chem')}
+              className={`px-2 py-1 rounded-md transition-all flex items-center gap-1 text-[11px] ${
+                labFilter === 'chem'
+                  ? 'bg-white dark:bg-zinc-900 text-rose-600 dark:text-rose-400 font-bold shadow-xs'
+                  : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
+              }`}
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
+              <span>Chemistry</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setLabFilter('bio')}
+              className={`px-2 py-1 rounded-md transition-all flex items-center gap-1 text-[11px] ${
+                labFilter === 'bio'
+                  ? 'bg-white dark:bg-zinc-900 text-emerald-600 dark:text-emerald-400 font-bold shadow-xs'
+                  : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
+              }`}
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              <span>Biology</span>
+            </button>
+          </div>
+
+          {/* 1. Subject Teacher Filter */}
+          <div className="flex items-center gap-1 font-mono shrink-0">
+            {isTeacher ? (
+              <div className="flex items-center gap-0.5 p-0.5 bg-zinc-100 dark:bg-zinc-800/80 rounded-lg text-xs border border-zinc-200/60 dark:border-zinc-700/60">
+                <button
+                  type="button"
+                  onClick={() => setTeacherFilter('my_sessions')}
+                  className={`px-2 py-1 rounded-md transition-all flex items-center gap-1 font-bold text-[11px] ${
+                    teacherFilter === 'my_sessions'
+                      ? 'bg-indigo-600 text-white shadow-xs'
+                      : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
+                  }`}
+                  title="Show only your assigned practical sessions"
+                >
+                  <User className="h-3 w-3" />
+                  <span>My Sessions</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTeacherFilter('all')}
+                  className={`px-2 py-1 rounded-md transition-all font-bold text-[11px] ${
+                    teacherFilter === 'all'
+                      ? 'bg-white dark:bg-zinc-900 text-zinc-950 dark:text-white shadow-xs'
+                      : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
+                  }`}
+                  title="Show all subject teachers"
+                >
+                  All Teachers
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 px-2 py-1 bg-zinc-100 dark:bg-zinc-800/80 rounded-lg border border-zinc-200/60 dark:border-zinc-700/60 text-xs">
+                <Filter className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
+                <span className="text-[11px] font-bold text-zinc-600 dark:text-zinc-400 hidden 2xl:inline whitespace-nowrap">
+                  Subject Teacher:
+                </span>
+                <select
+                  suppressHydrationWarning
+                  value={teacherFilter}
+                  onChange={(e) => setTeacherFilter(e.target.value)}
+                  className="bg-transparent font-bold text-zinc-900 dark:text-zinc-100 focus:outline-none cursor-pointer max-w-[130px] sm:max-w-[145px] truncate text-[11px]"
+                >
+                  <option value="all">All Subject Teachers</option>
+                  {mounted &&
+                    teacherList.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Center: High-Contrast Segmented Lab Switcher */}
-        <div className="flex items-center gap-1 p-1 bg-zinc-100 dark:bg-zinc-800/80 rounded-lg text-xs font-mono border border-zinc-200/60 dark:border-zinc-700/60">
-          <button
-            type="button"
-            onClick={() => setLabFilter('all')}
-            className={`px-3 py-1 rounded-md transition-all font-bold ${
-              labFilter === 'all'
-                ? 'bg-white dark:bg-zinc-900 text-zinc-950 dark:text-white shadow-xs'
-                : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
-            }`}
-          >
-            All Labs
-          </button>
-          <button
-            type="button"
-            onClick={() => setLabFilter('comp')}
-            className={`px-3 py-1 rounded-md transition-all flex items-center gap-1.5 ${
-              labFilter === 'comp'
-                ? 'bg-white dark:bg-zinc-900 text-indigo-600 dark:text-indigo-400 font-bold shadow-xs'
-                : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
-            }`}
-          >
-            <span className="h-2 w-2 rounded-full bg-indigo-500" />
-            <span>Computer Lab</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setLabFilter('phys')}
-            className={`px-3 py-1 rounded-md transition-all flex items-center gap-1.5 ${
-              labFilter === 'phys'
-                ? 'bg-white dark:bg-zinc-900 text-cyan-600 dark:text-cyan-400 font-bold shadow-xs'
-                : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
-            }`}
-          >
-            <span className="h-2 w-2 rounded-full bg-cyan-500" />
-            <span>Physics Lab</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setLabFilter('chem')}
-            className={`px-3 py-1 rounded-md transition-all flex items-center gap-1.5 ${
-              labFilter === 'chem'
-                ? 'bg-white dark:bg-zinc-900 text-rose-600 dark:text-rose-400 font-bold shadow-xs'
-                : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
-            }`}
-          >
-            <span className="h-2 w-2 rounded-full bg-rose-500" />
-            <span>Chemistry Lab</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setLabFilter('bio')}
-            className={`px-3 py-1 rounded-md transition-all flex items-center gap-1.5 ${
-              labFilter === 'bio'
-                ? 'bg-white dark:bg-zinc-900 text-emerald-600 dark:text-emerald-400 font-bold shadow-xs'
-                : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
-            }`}
-          >
-            <span className="h-2 w-2 rounded-full bg-emerald-500" />
-            <span>Biology Lab</span>
-          </button>
-        </div>
+        {/* Right Section: Week Navigation & Action Buttons */}
+        <div className="flex items-center gap-2 shrink-0">
+          {/* Week Navigation Controls (Rigid Fixed Width) */}
+          <div className="flex items-center bg-zinc-100/90 dark:bg-zinc-800/90 p-0.5 rounded-lg border border-zinc-200/70 dark:border-zinc-700/70 font-mono text-xs shrink-0">
+            <button
+              type="button"
+              onClick={() => setWeekOffset((w) => w - 1)}
+              className="h-7 w-7 rounded-md hover:bg-white dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-300 transition-colors cursor-pointer flex items-center justify-center shrink-0"
+              title="Previous Week"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </button>
 
-        {/* Right: Actions */}
-        <div className="flex items-center gap-2">
+            {/* Rigid container: exactly 315px wide so all English + Nepali dates and badges fit without any overflow */}
+            <div suppressHydrationWarning className="flex items-center justify-center gap-1.5 px-2 py-0.5 text-[11px] font-bold w-[315px] shrink-0 text-center select-none">
+              <CalendarDays className="h-3 w-3 text-indigo-500 shrink-0" />
+              <span suppressHydrationWarning className="text-zinc-800 dark:text-zinc-200 whitespace-nowrap">
+                {startDayInfo?.formattedEng} – {endDayInfo?.formattedEng}
+              </span>
+              <span className="text-zinc-400 shrink-0">•</span>
+              <span suppressHydrationWarning className="text-amber-700 dark:text-amber-400 whitespace-nowrap">
+                {startDayInfo?.formattedNp} – {endDayInfo?.formattedNp}
+              </span>
+              {weekOffset === 0 ? (
+                <span className="px-1.5 py-0.2 rounded text-[9px] bg-emerald-100 text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-300 font-extrabold uppercase shrink-0">
+                  Current
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setWeekOffset(0)}
+                  title="Reset to current week"
+                  className="px-1.5 py-0.2 rounded text-[9px] bg-indigo-100 hover:bg-indigo-200 text-indigo-800 dark:bg-indigo-950/80 dark:text-indigo-300 font-extrabold cursor-pointer transition-colors shrink-0 flex items-center gap-0.5"
+                >
+                  <span>{weekOffset > 0 ? `+${weekOffset}w` : `${weekOffset}w`}</span>
+                  <span className="font-normal opacity-70">(reset)</span>
+                </button>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setWeekOffset((w) => w + 1)}
+              className="h-7 w-7 rounded-md hover:bg-white dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-300 transition-colors cursor-pointer flex items-center justify-center shrink-0"
+              title="Next Week"
+            >
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
           <Button
             variant="outline"
             size="sm"
-            className="h-8 text-xs font-semibold gap-1.5 border-zinc-200 dark:border-zinc-800 font-mono"
+            className="h-8 px-2.5 text-xs font-semibold gap-1.5 border-zinc-200 dark:border-zinc-800 font-mono shrink-0"
             onClick={() => {
               if (typeof window !== 'undefined') window.print()
             }}
           >
             <Printer className="h-3.5 w-3.5 text-zinc-500" />
-            <span>Print Routine</span>
+            <span className="hidden sm:inline">Print Routine</span>
           </Button>
 
           <Button
             size="sm"
-            className="h-8 text-xs font-semibold gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-mono shadow-xs"
+            className="h-8 px-3 text-xs font-semibold gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-mono shadow-xs shrink-0 whitespace-nowrap"
             onClick={() => setIsAdhocOpen(true)}
           >
             <Plus className="h-3.5 w-3.5" />
-            <span>+ Book Slot</span>
+            <span>{isTeacher ? 'Request Slot' : 'Book Slot'}</span>
           </Button>
         </div>
       </div>
 
       {/* Main Expansive Calendar Canvas (Takes 100% Remaining Height) */}
       <div className="flex-1 w-full overflow-hidden min-h-0">
-        <AdvancedCalendar labFilter={labFilter} />
+        <AdvancedCalendar
+          labFilter={labFilter}
+          teacherFilter={teacherFilter}
+          currentUser={currentUser}
+          weekOffset={weekOffset}
+        />
       </div>
 
-      {/* Ad-hoc / New Slot Booking Modal */}
+      {/* Ad-hoc / New Slot Booking or Request Modal */}
       <SessionActionModal
         isOpen={isAdhocOpen}
         onClose={() => setIsAdhocOpen(false)}
+        currentUser={currentUser}
         session={{
-          id: 'adhoc-new',
+          id: `adhoc-${Date.now()}`,
           day: 'Monday',
           dayKey: 'mon',
           timeSlot: '10:10 - 11:00',
@@ -141,7 +307,7 @@ export default function SchedulesPage() {
           subjectTitle: 'Data Structures & Algorithms Lab',
           grade: 'Class 12',
           gradeKey: 'class-12',
-          teacher: 'Assigned Faculty',
+          teacher: isTeacher ? (currentUser?.full_name || 'Practical Subject Teacher') : 'Assigned Subject Teacher',
           lab: 'Computer Lab',
           labKey: 'comp',
           defaultStudents: 38,
@@ -151,7 +317,9 @@ export default function SchedulesPage() {
           accentColor: 'border-l-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/20 text-zinc-950 dark:text-white',
         }}
         initialMode="book"
+        onAddSession={isTeacher ? (s) => requestSlotBooking(s, currentUser?.full_name || 'Subject Teacher') : addSession}
       />
     </div>
   )
 }
+

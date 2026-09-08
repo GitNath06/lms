@@ -1,6 +1,7 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import {
   AlertTriangle,
   AlertCircle,
@@ -26,7 +27,7 @@ interface IncidentDrawerProps {
   incident: LabIncidentRecord | null
   isOpen: boolean
   onClose: () => void
-  userRole?: 'super_admin' | 'lab_incharge' | 'hod' | 'faculty'
+  userRole?: 'super_admin' | 'lab_incharge' | 'hod' | 'teacher' | 'faculty'
 }
 
 export default function IncidentDrawer({
@@ -41,8 +42,13 @@ export default function IncidentDrawer({
   const [escalationReason, setEscalationReason] = useState('')
   const [resolutionNotes, setResolutionNotes] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [mounted, setMounted] = useState(false)
 
-  if (!isOpen || !incident) return null
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  if (!isOpen || !incident || !mounted) return null
 
   const isCritical = incident.severity === 'major_critical'
   const isModerate = incident.severity === 'moderate'
@@ -86,9 +92,9 @@ export default function IncidentDrawer({
     }
   }
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150 select-none">
-      <div className="relative w-full max-w-2xl bg-white dark:bg-zinc-900 rounded-3xl shadow-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden flex flex-col max-h-[90vh]">
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 sm:p-6 bg-black/70 backdrop-blur-md animate-in fade-in duration-200 select-none overflow-y-auto">
+      <div className="relative w-full max-w-2xl bg-white dark:bg-zinc-900 rounded-3xl shadow-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden flex flex-col max-h-[85vh] my-auto">
         {/* Header */}
         <div
           className={`p-5 px-6 border-b flex items-center justify-between ${
@@ -117,13 +123,8 @@ export default function IncidentDrawer({
                   Case #{incident.id}
                 </span>
                 <Badge
-                  className={`text-[10px] uppercase font-mono ${
-                    isCritical
-                      ? 'bg-rose-500/20 text-rose-700 dark:text-rose-300 border-rose-500/30'
-                      : isModerate
-                      ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-500/30'
-                      : 'bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border-indigo-500/30'
-                  }`}
+                  variant={isCritical ? 'destructive' : isModerate ? 'warning' : 'indigo'}
+                  className="text-[10px] uppercase font-bold"
                 >
                   {incident.severity.replace('_', ' ')}
                 </Badge>
@@ -143,27 +144,28 @@ export default function IncidentDrawer({
         </div>
 
         {/* Content Body */}
-        <div className="p-6 overflow-y-auto space-y-4 font-mono text-xs">
+        <div className="p-6 overflow-y-auto space-y-4 font-sans text-xs">
           {/* Status Progression Banner */}
-          <div className="p-3 px-4 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-950/40 flex items-center justify-between">
+          <div className="p-3 px-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-950/40 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Clock className="h-4 w-4 text-zinc-400" />
               <span className="text-zinc-600 dark:text-zinc-400">Current Status:</span>
-              <span
-                className={`font-bold uppercase px-2 py-0.5 rounded-md ${
+              <Badge
+                variant={
                   isResolved
-                    ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20'
+                    ? 'success'
                     : isEscalated
-                    ? 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/20'
+                    ? 'destructive'
                     : incident.status === 'under_repair'
-                    ? 'bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20'
+                    ? 'info'
                     : incident.status === 'replaced'
-                    ? 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-500/20'
-                    : 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20'
-                }`}
+                    ? 'indigo'
+                    : 'warning'
+                }
+                className="font-bold uppercase text-[10px]"
               >
                 {incident.status.replace('_', ' ')}
-              </span>
+              </Badge>
             </div>
 
             {incident.resolved_by && (
@@ -375,6 +377,7 @@ export default function IncidentDrawer({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

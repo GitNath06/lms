@@ -1,0 +1,335 @@
+{
+  "tables": [
+    "academic_holidays",
+    "calendar_settings",
+    "email_otps",
+    "faculty_substitutions",
+    "lab_incidents",
+    "lab_notifications",
+    "labs",
+    "practical_logs",
+    "profiles",
+    "schedules"
+  ],
+  "profiles": [
+    {
+      "id": "8f5fdefd-4f64-4bbd-a40e-9b8c998bb48b",
+      "full_name": "Class Teacher",
+      "email": "teacher@rrl.edu.np",
+      "role": "teacher",
+      "department": "Science Department",
+      "permissions": {
+        "can_view_logs": true,
+        "can_create_logs": true,
+        "can_delete_logs": false,
+        "can_access_admin": false,
+        "can_manage_users": false,
+        "can_view_incidents": true,
+        "can_manage_incidents": false,
+        "can_manage_schedules": false,
+        "can_report_incidents": true,
+        "can_resolve_incidents": false
+      }
+    },
+    {
+      "id": "93275434-623e-4b6a-8767-536404cda7d5",
+      "full_name": "Dinanath Shah",
+      "email": "suraj.dinsu@gmail.com",
+      "role": "teacher",
+      "department": "Science Department",
+      "permissions": {}
+    },
+    {
+      "id": "32a8cfd6-f266-4db4-b4dc-5db0a6fa86b8",
+      "full_name": "Dinanath Shah",
+      "email": "dnathshah11@gmail.com",
+      "role": "lab_incharge",
+      "department": "Computer Lab",
+      "permissions": {}
+    },
+    {
+      "id": "5b110f61-8a6d-4bdd-98d4-9c2c2f4c628c",
+      "full_name": "dinanth-2",
+      "email": "suraj@1234",
+      "role": "teacher",
+      "department": "Computer",
+      "permissions": {}
+    },
+    {
+      "id": "0a8ee514-a58a-41a1-a6a5-c444447b1db9",
+      "full_name": "Dr. Nirmala Poudel",
+      "email": "n.poudel@rrl.edu.np",
+      "role": "teacher",
+      "department": "Biology & Life Sciences",
+      "permissions": {
+        "can_view_logs": true,
+        "can_create_logs": true,
+        "can_delete_logs": false,
+        "can_access_admin": false,
+        "can_manage_users": false,
+        "can_view_incidents": true,
+        "can_manage_incidents": false,
+        "can_manage_schedules": false,
+        "can_report_incidents": true,
+        "can_resolve_incidents": false
+      }
+    },
+    {
+      "id": "a0110dea-ef2a-4fc1-b60a-6415fcc36bd1",
+      "full_name": "Dr. Prakash Adhikari",
+      "email": "p.adhikari@rrl.edu.np",
+      "role": "teacher",
+      "department": "Physics Department",
+      "permissions": {
+        "can_view_logs": true,
+        "can_create_logs": true,
+        "can_delete_logs": false,
+        "can_access_admin": false,
+        "can_manage_users": false,
+        "can_view_incidents": true,
+        "can_manage_incidents": false,
+        "can_manage_schedules": false,
+        "can_report_incidents": true,
+        "can_resolve_incidents": false
+      }
+    },
+    {
+      "id": "e094a954-b7ec-4e42-ae36-b41019c0ce81",
+      "full_name": "Dr. Rajesh Sharma",
+      "email": "incharge@rrl.edu.np",
+      "role": "lab_incharge",
+      "department": "Science & Technology Laboratories",
+      "permissions": {
+        "can_view_logs": true,
+        "can_create_logs": true,
+        "can_delete_logs": false,
+        "can_access_admin": false,
+        "can_manage_users": false,
+        "can_view_incidents": true,
+        "can_manage_incidents": true,
+        "can_manage_schedules": true,
+        "can_report_incidents": true,
+        "can_resolve_incidents": true
+      }
+    },
+    {
+      "id": "f3ad9570-a56c-4727-82b7-b3edd942896c",
+      "full_name": "Er. Anish Karki",
+      "email": "a.karki@rrl.edu.np",
+      "role": "teacher",
+      "department": "Electronics & Computer",
+      "permissions": {
+        "can_view_logs": true,
+        "can_create_logs": true,
+        "can_delete_logs": false,
+        "can_access_admin": false,
+        "can_manage_users": false,
+        "can_view_incidents": true,
+        "can_manage_incidents": false,
+        "can_manage_schedules": false,
+        "can_report_incidents": true,
+        "can_resolve_incidents": false
+      }
+    },
+    {
+      "id": "1e539df6-6e0b-4b29-b695-5655f82fe4d7",
+      "full_name": "Head of Department",
+      "email": "hod@rrl.edu.np",
+      "role": "hod",
+      "department": "Department of Science & Tech",
+      "permissions": {
+        "can_view_logs": true,
+        "can_create_logs": false,
+        "can_delete_logs": false,
+        "can_access_admin": false,
+        "can_manage_users": false,
+        "can_view_incidents": true,
+        "can_manage_incidents": true,
+        "can_manage_schedules": false,
+        "can_report_incidents": true,
+        "can_resolve_incidents": true
+      }
+    },
+    {
+      "id": "1cb09b62-8dd2-445f-b5ae-a186df967cf5",
+      "full_name": "System Administrator",
+      "email": "admin@rrl.edu.np",
+      "role": "super_admin",
+      "department": "Central Administration",
+      "permissions": {
+        "can_view_logs": true,
+        "can_create_logs": true,
+        "can_delete_logs": true,
+        "can_access_admin": true,
+        "can_manage_users": true,
+        "can_view_incidents": true,
+        "can_manage_incidents": true,
+        "can_manage_schedules": true,
+        "can_report_incidents": true,
+        "can_resolve_incidents": true
+      }
+    }
+  ],
+  "labs": [
+    {
+      "id": "bio",
+      "name": "Biology & Life Sciences Lab",
+      "type": "biology_lab",
+      "capacity": 35,
+      "is_active": true
+    },
+    {
+      "id": "chem",
+      "name": "Chemistry Laboratory",
+      "type": "chemistry_lab",
+      "capacity": 40,
+      "is_active": true
+    },
+    {
+      "id": "comp",
+      "name": "Computer Engineering Lab 01",
+      "type": "computer_lab",
+      "capacity": 40,
+      "is_active": true
+    },
+    {
+      "id": "elec",
+      "name": "Electronics & Hardware Lab",
+      "type": "electronics_lab",
+      "capacity": 30,
+      "is_active": true
+    },
+    {
+      "id": "phys",
+      "name": "Physics Laboratory",
+      "type": "physics_lab",
+      "capacity": 38,
+      "is_active": true
+    }
+  ],
+  "schedulesCount": 0,
+  "teacherAssignments": [],
+  "sampleSchedules": [],
+  "practicalLogs": [
+    {
+      "id": "log-1788610025256-hhl5",
+      "lab_id": "comp",
+      "teacher_id": "f3ad9570-a56c-4727-82b7-b3edd942896c",
+      "date": "2026-09-04T18:15:00.000Z",
+      "period_label": "Period 1 & Period 2 (10:10 - 11:45)",
+      "subject_name": "COMP-12 - COMP-12 — Data Structures & Algorithms Lab",
+      "batch_group": "12C",
+      "practical_title": "Verification of Binary Search Tree Operations & Node Insertion",
+      "total_students": 38,
+      "present_students": 36,
+      "absent_students": 2,
+      "topic_learned": "Verification of Binary Search Tree Operations & Node Insertion",
+      "status": "conducted"
+    },
+    {
+      "id": "log-1788449297528-syv4",
+      "lab_id": "comp",
+      "teacher_id": "f3ad9570-a56c-4727-82b7-b3edd942896c",
+      "date": "2026-09-02T18:15:00.000Z",
+      "period_label": "09:15 - 10:00",
+      "subject_name": "WPD-9 - Web Page Design",
+      "batch_group": "Class 9",
+      "practical_title": "Web Page Design",
+      "total_students": 0,
+      "present_students": 0,
+      "absent_students": 0,
+      "topic_learned": null,
+      "status": "skipped"
+    },
+    {
+      "id": "log-1788449304408-nx0e",
+      "lab_id": "comp",
+      "teacher_id": "f3ad9570-a56c-4727-82b7-b3edd942896c",
+      "date": "2026-09-02T18:15:00.000Z",
+      "period_label": "02:30 - 03:15",
+      "subject_name": "SEP-12 - Software Eng & Proj",
+      "batch_group": "Class 12",
+      "practical_title": "Software Eng & Proj",
+      "total_students": 0,
+      "present_students": 0,
+      "absent_students": 0,
+      "topic_learned": null,
+      "status": "skipped"
+    },
+    {
+      "id": "log-seed-1",
+      "lab_id": "comp",
+      "teacher_id": "f3ad9570-a56c-4727-82b7-b3edd942896c",
+      "date": "2026-09-02T18:15:00.000Z",
+      "period_label": "Period 1 & 2 (10:10 - 11:45)",
+      "subject_name": "COMP-12 - Data Structures & Algorithms Lab",
+      "batch_group": "12C - Tech Stream Sec A",
+      "practical_title": "Implementation of Binary Search Trees in C++",
+      "total_students": 38,
+      "present_students": 36,
+      "absent_students": 2,
+      "topic_learned": "Binary Search Trees & Traversal",
+      "status": "conducted"
+    },
+    {
+      "id": "log-seed-2",
+      "lab_id": "phys",
+      "teacher_id": "a0110dea-ef2a-4fc1-b60a-6415fcc36bd1",
+      "date": "2026-09-02T18:15:00.000Z",
+      "period_label": "Period 3 & 4 (11:45 - 01:15)",
+      "subject_name": "PHY-11 - Optics & Wave Mechanics",
+      "batch_group": "11 Sc - Science Stream Sec B",
+      "practical_title": "Verification of Hookes Law and Spring Constant Calculation",
+      "total_students": 40,
+      "present_students": 38,
+      "absent_students": 2,
+      "topic_learned": "Hookes Law & Spring Oscillations",
+      "status": "conducted"
+    },
+    {
+      "id": "log-1788449301827-39tl",
+      "lab_id": "chem",
+      "teacher_id": "0a8ee514-a58a-41a1-a6a5-c444447b1db9",
+      "date": "2026-09-02T18:15:00.000Z",
+      "period_label": "10:10 - 11:00",
+      "subject_name": "CHEM-11 - Chemistry Lab",
+      "batch_group": "Class 11",
+      "practical_title": "Chemistry Lab",
+      "total_students": 0,
+      "present_students": 0,
+      "absent_students": 0,
+      "topic_learned": null,
+      "status": "skipped"
+    },
+    {
+      "id": "log-1788449325603-5w4o",
+      "lab_id": "comp",
+      "teacher_id": "f3ad9570-a56c-4727-82b7-b3edd942896c",
+      "date": "2026-09-02T18:15:00.000Z",
+      "period_label": "03:15 - 04:05",
+      "subject_name": "CRM-10 - Computer Repair",
+      "batch_group": "Class 10",
+      "practical_title": "rfgsrfh",
+      "total_students": 35,
+      "present_students": 30,
+      "absent_students": 5,
+      "topic_learned": "rfgsrfh",
+      "status": "conducted"
+    }
+  ],
+  "incidents": [
+    {
+      "id": "inc-1788458854798-fumr",
+      "lab_id": "phys",
+      "subject_name": "PHYS Practical Session",
+      "subject_teacher_name": "Ms. Sunita Thapa",
+      "batch_name": "Class 12C",
+      "title": "xyg",
+      "status": "resolved",
+      "severity": "moderate",
+      "reported_by": "Ms. Sunita Thapa",
+      "reported_by_id": null,
+      "resolved_by_id": null
+    }
+  ]
+}

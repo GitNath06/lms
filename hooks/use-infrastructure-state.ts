@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { isSupabaseConfigured } from '@/lib/supabase/config'
+import { broadcastSync, subscribeToSync } from '@/lib/sync-bus'
 import {
   MASTER_TIME_SLOTS,
   LAB_ROOMS,
@@ -12,6 +13,21 @@ import {
   HolidayItem,
   isDateWithinHoliday
 } from '@/lib/master-data'
+import {
+  getAcademicHolidays,
+  addAcademicHoliday,
+  updateAcademicHoliday,
+  deleteAcademicHoliday,
+} from '@/app/actions/holidays'
+import {
+  getInstitutionSetting,
+  updateInstitutionSetting,
+} from '@/app/actions/settings'
+import {
+  updateLabFacility,
+  createLabFacility,
+  deleteLabFacility,
+} from '@/app/actions/labs'
 
 export interface PeriodSlotItem {
   id: string
@@ -188,91 +204,87 @@ const INITIAL_SUBJECTS: SubjectCurriculumItem[] = DEFAULT_SUBJECTS.map((s) => {
   }
 })
 
+// Module-level deduplication cache
+let cachedLabsPromise: Promise<LabFacilityItem[] | null> | null = null
+let cachedFacultyPromise: Promise<FacultyMemberItem[] | null> | null = null
+let cachedHolidaysPromise: Promise<HolidayItem[] | null> | null = null
+let cachedPeriodsPromise: Promise<PeriodSlotItem[] | null> | null = null
+let cachedClassesPromise: Promise<ClassEnrollmentItem[] | null> | null = null
+let cachedSubjectsPromise: Promise<SubjectCurriculumItem[] | null> | null = null
+let cachedIncidentCategoriesPromise: Promise<IncidentCategoryItem[] | null> | null = null
+let cachedIncidentSettingsPromise: Promise<IncidentGovernanceSettings | null> | null = null
+let lastInfraFetchTime = 0
+const INFRA_CACHE_TTL = 30000 // 30 seconds
+
+// Singleton realtime subscription & subscriber registry
+let sharedInfraChannel: any = null
+let infraRefCount = 0
+const infraSubscribers = new Set<{
+  setLabs: React.Dispatch<React.SetStateAction<LabFacilityItem[]>>
+  setHolidays: React.Dispatch<React.SetStateAction<HolidayItem[]>>
+  setPeriods: React.Dispatch<React.SetStateAction<PeriodSlotItem[]>>
+  setClasses: React.Dispatch<React.SetStateAction<ClassEnrollmentItem[]>>
+  setSubjects: React.Dispatch<React.SetStateAction<SubjectCurriculumItem[]>>
+  setIncidentCategories: React.Dispatch<React.SetStateAction<IncidentCategoryItem[]>>
+  setIncidentSettings: React.Dispatch<React.SetStateAction<IncidentGovernanceSettings>>
+}>()
+
 export function useInfrastructureState() {
-  const [periods, setPeriods] = useState<PeriodSlotItem[]>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem(STORAGE_KEYS.PERIODS)
-        if (saved) return JSON.parse(saved)
-      } catch (e) {}
-    }
-    return [...MASTER_TIME_SLOTS]
-  })
+  const [periods, setPeriods] = useState<PeriodSlotItem[]>([...MASTER_TIME_SLOTS])
+  const [labs, setLabs] = useState<LabFacilityItem[]>(INITIAL_LABS)
+  const [classes, setClasses] = useState<ClassEnrollmentItem[]>(INITIAL_CLASSES)
+  const [faculty, setFaculty] = useState<FacultyMemberItem[]>(INITIAL_FACULTY)
+  const [subjects, setSubjects] = useState<SubjectCurriculumItem[]>(INITIAL_SUBJECTS)
+  const [holidays, setHolidays] = useState<HolidayItem[]>(DEFAULT_HOLIDAYS)
+  const [incidentCategories, setIncidentCategories] = useState<IncidentCategoryItem[]>(DEFAULT_INCIDENT_CATEGORIES)
+  const [incidentSettings, setIncidentSettings] = useState<IncidentGovernanceSettings>(DEFAULT_INCIDENT_SETTINGS)
 
-  const [labs, setLabs] = useState<LabFacilityItem[]>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem(STORAGE_KEYS.LABS)
-        if (saved) return JSON.parse(saved)
-      } catch (e) {}
-    }
-    return INITIAL_LABS
-  })
+  // Load from localStorage on mount (prevents SSR hydration mismatch)
+  useEffect(() => {
+    try {
+      const p = localStorage.getItem(STORAGE_KEYS.PERIODS)
+      if (p) setPeriods(JSON.parse(p))
+      const l = localStorage.getItem(STORAGE_KEYS.LABS)
+      if (l) setLabs(JSON.parse(l))
+      const c = localStorage.getItem(STORAGE_KEYS.CLASSES)
+      if (c) setClasses(JSON.parse(c))
+      const f = localStorage.getItem(STORAGE_KEYS.FACULTY)
+      if (f) setFaculty(JSON.parse(f))
+      const s = localStorage.getItem(STORAGE_KEYS.SUBJECTS)
+      if (s) setSubjects(JSON.parse(s))
+      const h = localStorage.getItem(STORAGE_KEYS.HOLIDAYS)
+      if (h) {
+        try {
+          const parsed = JSON.parse(h)
+          if (Array.isArray(parsed)) {
+            const uniqueHolidaysMap = new Map<string, HolidayItem>()
+            parsed.forEach((item: any) => {
+              if (item && item.id) uniqueHolidaysMap.set(item.id, item)
+            })
+            DEFAULT_HOLIDAYS.forEach((dh) => {
+              if (!uniqueHolidaysMap.has(dh.id)) {
+                uniqueHolidaysMap.set(dh.id, dh)
+              }
+            })
+            const merged = Array.from(uniqueHolidaysMap.values())
+            setHolidays(merged)
+            localStorage.setItem(STORAGE_KEYS.HOLIDAYS, JSON.stringify(merged))
+          }
+        } catch (e) {}
+      }
+      const ic = localStorage.getItem(STORAGE_KEYS.INCIDENT_CATEGORIES)
+      if (ic) setIncidentCategories(JSON.parse(ic))
+      const is = localStorage.getItem(STORAGE_KEYS.INCIDENT_SETTINGS)
+      if (is) setIncidentSettings(JSON.parse(is))
+    } catch (e) {}
+  }, [])
 
-  const [classes, setClasses] = useState<ClassEnrollmentItem[]>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem(STORAGE_KEYS.CLASSES)
-        if (saved) return JSON.parse(saved)
-      } catch (e) {}
-    }
-    return INITIAL_CLASSES
-  })
-
-  const [faculty, setFaculty] = useState<FacultyMemberItem[]>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem(STORAGE_KEYS.FACULTY)
-        if (saved) return JSON.parse(saved)
-      } catch (e) {}
-    }
-    return INITIAL_FACULTY
-  })
-
-  const [subjects, setSubjects] = useState<SubjectCurriculumItem[]>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem(STORAGE_KEYS.SUBJECTS)
-        if (saved) return JSON.parse(saved)
-      } catch (e) {}
-    }
-    return INITIAL_SUBJECTS
-  })
-
-  const [holidays, setHolidays] = useState<HolidayItem[]>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem(STORAGE_KEYS.HOLIDAYS)
-        if (saved) return JSON.parse(saved)
-      } catch (e) {}
-    }
-    return DEFAULT_HOLIDAYS
-  })
-
-  const [incidentCategories, setIncidentCategories] = useState<IncidentCategoryItem[]>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem(STORAGE_KEYS.INCIDENT_CATEGORIES)
-        if (saved) return JSON.parse(saved)
-      } catch (e) {}
-    }
-    return DEFAULT_INCIDENT_CATEGORIES
-  })
-
-  const [incidentSettings, setIncidentSettings] = useState<IncidentGovernanceSettings>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem(STORAGE_KEYS.INCIDENT_SETTINGS)
-        if (saved) return JSON.parse(saved)
-      } catch (e) {}
-    }
-    return DEFAULT_INCIDENT_SETTINGS
-  })
-
-  // Broadcast helper
+  // Broadcast helper (asynchronous to prevent React setState-in-render collisions)
   const notifyUpdated = () => {
     if (typeof window !== 'undefined') {
-      window.dispatchEvent(new Event('infrastructure-updated'))
+      queueMicrotask(() => {
+        window.dispatchEvent(new Event('infrastructure-updated'))
+      })
     }
   }
 
@@ -282,76 +294,76 @@ export function useInfrastructureState() {
       try {
         localStorage.setItem(key, JSON.stringify(data))
         notifyUpdated()
+        if (key === STORAGE_KEYS.HOLIDAYS) {
+          cachedHolidaysPromise = Promise.resolve(data)
+          infraSubscribers.forEach((sub) => sub.setHolidays(data))
+          broadcastSync('holidays', data)
+        } else if (key === STORAGE_KEYS.LABS) {
+          cachedLabsPromise = Promise.resolve(data)
+          infraSubscribers.forEach((sub) => sub.setLabs(data))
+          broadcastSync('infrastructure', { key, data })
+        } else if (key === STORAGE_KEYS.PERIODS) {
+          cachedPeriodsPromise = Promise.resolve(data)
+          infraSubscribers.forEach((sub) => sub.setPeriods(data))
+          broadcastSync('infrastructure', { key, data })
+        } else if (key === STORAGE_KEYS.CLASSES) {
+          cachedClassesPromise = Promise.resolve(data)
+          infraSubscribers.forEach((sub) => sub.setClasses(data))
+          broadcastSync('infrastructure', { key, data })
+        } else if (key === STORAGE_KEYS.SUBJECTS) {
+          cachedSubjectsPromise = Promise.resolve(data)
+          infraSubscribers.forEach((sub) => sub.setSubjects(data))
+          broadcastSync('infrastructure', { key, data })
+        } else if (key === STORAGE_KEYS.INCIDENT_CATEGORIES) {
+          cachedIncidentCategoriesPromise = Promise.resolve(data)
+          infraSubscribers.forEach((sub) => sub.setIncidentCategories(data))
+          broadcastSync('infrastructure', { key, data })
+        } else if (key === STORAGE_KEYS.INCIDENT_SETTINGS) {
+          cachedIncidentSettingsPromise = Promise.resolve(data)
+          infraSubscribers.forEach((sub) => sub.setIncidentSettings(data))
+          broadcastSync('infrastructure', { key, data })
+        } else {
+          broadcastSync('infrastructure', { key, data })
+        }
       } catch (e) {
         console.error('Failed to persist infrastructure state', e)
       }
     }
   }
 
-  // Two-way remote synchronization with Supabase
+  // Two-way remote synchronization with Supabase (deduplicated across instances)
   useEffect(() => {
     let isMounted = true
     if (!isSupabaseConfigured()) return
 
+    const subscriber = {
+      setLabs,
+      setHolidays,
+      setPeriods,
+      setClasses,
+      setSubjects,
+      setIncidentCategories,
+      setIncidentSettings,
+    }
+    infraSubscribers.add(subscriber)
+    infraRefCount++
+
     const supabase = createClient()
+    const now = Date.now()
+    const isCacheStale = now - lastInfraFetchTime > INFRA_CACHE_TTL
 
-    // 1. Fetch remote labs
-    supabase
-      .from('labs')
-      .select('*')
-      .eq('is_active', true)
-      .order('name')
-      .then(({ data: dbLabs, error }) => {
-        if (!error && dbLabs && dbLabs.length > 0 && isMounted) {
-          const mappedLabs: LabFacilityItem[] = dbLabs.map((l: any) => ({
-            id: l.id,
-            name: l.name,
-            code: l.code || l.id.toUpperCase(),
-            capacity: l.capacity || 40,
-            type: l.type || 'computer_lab',
-            status: l.is_active ? 'Operational' : 'Maintenance',
-          }))
-          setLabs(mappedLabs)
-          try {
-            localStorage.setItem(STORAGE_KEYS.LABS, JSON.stringify(mappedLabs))
-          } catch (e) {}
-        }
-      })
-
-    // 2. Fetch remote faculty/profiles
-    supabase
-      .from('profiles')
-      .select('*')
-      .order('full_name')
-      .then(({ data: dbProfiles, error }) => {
-        if (!error && dbProfiles && dbProfiles.length > 0 && isMounted) {
-          const mappedFaculty: FacultyMemberItem[] = dbProfiles.map((p: any) => ({
-            id: p.id,
-            name: p.full_name || 'Faculty Member',
-            dept: p.department || 'Academic Department',
-            role: p.role === 'admin' ? 'Lab In-Charge' : 'Senior Faculty',
-            email: p.email || '',
-            assignedSubjectCodes: [],
-          }))
-          setFaculty(mappedFaculty)
-          try {
-            localStorage.setItem(STORAGE_KEYS.FACULTY, JSON.stringify(mappedFaculty))
-          } catch (e) {}
-        }
-      })
-
-    // 3. Realtime subscription on labs and profiles
-    const channelName = `infra-changes-${Math.random().toString(36).substring(2, 8)}`
-    const channel = supabase
-      .channel(channelName)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'labs' }, () => {
+    // 1. Fetch remote labs (deduplicated)
+    if (isCacheStale || !cachedLabsPromise) {
+      lastInfraFetchTime = now
+      cachedLabsPromise = Promise.resolve(
         supabase
           .from('labs')
           .select('*')
           .eq('is_active', true)
-          .then(({ data: updatedLabs }) => {
-            if (updatedLabs && isMounted) {
-              const mapped: LabFacilityItem[] = updatedLabs.map((l: any) => ({
+          .order('name')
+          .then(({ data: dbLabs, error }) => {
+            if (!error && dbLabs && dbLabs.length > 0) {
+              const mappedLabs: LabFacilityItem[] = dbLabs.map((l: any) => ({
                 id: l.id,
                 name: l.name,
                 code: l.code || l.id.toUpperCase(),
@@ -359,18 +371,269 @@ export function useInfrastructureState() {
                 type: l.type || 'computer_lab',
                 status: l.is_active ? 'Operational' : 'Maintenance',
               }))
-              setLabs(mapped)
               try {
-                localStorage.setItem(STORAGE_KEYS.LABS, JSON.stringify(mapped))
+                localStorage.setItem(STORAGE_KEYS.LABS, JSON.stringify(mappedLabs))
               } catch (e) {}
+              return mappedLabs
+            }
+            return null
+          })
+      )
+    }
+
+    cachedLabsPromise?.then((labsData) => {
+      if (labsData && isMounted) setLabs(labsData)
+    })
+
+    // 2. Fetch remote faculty/profiles (deduplicated)
+    if (isCacheStale || !cachedFacultyPromise) {
+      cachedFacultyPromise = Promise.resolve(
+        supabase
+          .from('profiles')
+          .select('*')
+          .order('full_name')
+          .then(({ data: dbProfiles, error }) => {
+            if (!error && dbProfiles && dbProfiles.length > 0) {
+              const mappedFaculty: FacultyMemberItem[] = dbProfiles.map((p: any) => ({
+                id: p.id,
+                name: p.full_name || 'Faculty Member',
+                dept: p.department || 'Academic Department',
+                role: p.role === 'admin' ? 'Lab In-Charge' : 'Senior Faculty',
+                email: p.email || '',
+                assignedSubjectCodes: [],
+              }))
+              try {
+                localStorage.setItem(STORAGE_KEYS.FACULTY, JSON.stringify(mappedFaculty))
+              } catch (e) {}
+              return mappedFaculty
+            }
+            return null
+          })
+      )
+    }
+
+    cachedFacultyPromise?.then((facultyData) => {
+      if (facultyData && isMounted) setFaculty(facultyData)
+    })
+
+    // 3. Fetch remote academic holidays (deduplicated)
+    if (isCacheStale || !cachedHolidaysPromise) {
+      cachedHolidaysPromise = getAcademicHolidays().then((dbHolidays) => {
+        if (dbHolidays && dbHolidays.length > 0) {
+          const uniqueHolsMap = new Map<string, HolidayItem>()
+          dbHolidays.forEach((item) => {
+            if (item && item.id) uniqueHolsMap.set(item.id, item)
+          })
+          const dedupedHolidays = Array.from(uniqueHolsMap.values())
+          try {
+            localStorage.setItem(STORAGE_KEYS.HOLIDAYS, JSON.stringify(dedupedHolidays))
+          } catch (e) {}
+          return dedupedHolidays
+        }
+        return null
+      })
+    }
+
+    cachedHolidaysPromise?.then((holsData) => {
+      if (holsData && isMounted) setHolidays(holsData)
+    })
+
+    // 4. Fetch remote periods (deduplicated)
+    if (isCacheStale || !cachedPeriodsPromise) {
+      cachedPeriodsPromise = getInstitutionSetting<PeriodSlotItem[]>(
+        'infrastructure_periods',
+        MASTER_TIME_SLOTS
+      ).then((res) => {
+        if (res && res.length > 0) {
+          try {
+            localStorage.setItem(STORAGE_KEYS.PERIODS, JSON.stringify(res))
+          } catch (e) {}
+          return res
+        }
+        return null
+      })
+    }
+
+    cachedPeriodsPromise?.then((periodsData) => {
+      if (periodsData && isMounted) setPeriods(periodsData)
+    })
+
+    // 5. Fetch remote classes (deduplicated)
+    if (isCacheStale || !cachedClassesPromise) {
+      cachedClassesPromise = getInstitutionSetting<ClassEnrollmentItem[]>(
+        'infrastructure_classes',
+        INITIAL_CLASSES
+      ).then((res) => {
+        if (res && res.length > 0) {
+          try {
+            localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(res))
+          } catch (e) {}
+          return res
+        }
+        return null
+      })
+    }
+
+    cachedClassesPromise?.then((classesData) => {
+      if (classesData && isMounted) setClasses(classesData)
+    })
+
+    // 6. Fetch remote subjects (deduplicated)
+    if (isCacheStale || !cachedSubjectsPromise) {
+      cachedSubjectsPromise = getInstitutionSetting<SubjectCurriculumItem[]>(
+        'infrastructure_subjects',
+        INITIAL_SUBJECTS
+      ).then((res) => {
+        if (res && res.length > 0) {
+          try {
+            localStorage.setItem(STORAGE_KEYS.SUBJECTS, JSON.stringify(res))
+          } catch (e) {}
+          return res
+        }
+        return null
+      })
+    }
+
+    cachedSubjectsPromise?.then((subjectsData) => {
+      if (subjectsData && isMounted) setSubjects(subjectsData)
+    })
+
+    // 7. Fetch remote incident categories (deduplicated)
+    if (isCacheStale || !cachedIncidentCategoriesPromise) {
+      cachedIncidentCategoriesPromise = getInstitutionSetting<IncidentCategoryItem[]>(
+        'infrastructure_incident_categories',
+        DEFAULT_INCIDENT_CATEGORIES
+      ).then((res) => {
+        if (res && res.length > 0) {
+          try {
+            localStorage.setItem(STORAGE_KEYS.INCIDENT_CATEGORIES, JSON.stringify(res))
+          } catch (e) {}
+          return res
+        }
+        return null
+      })
+    }
+
+    cachedIncidentCategoriesPromise?.then((catsData) => {
+      if (catsData && isMounted) setIncidentCategories(catsData)
+    })
+
+    // 8. Fetch remote incident settings (deduplicated)
+    if (isCacheStale || !cachedIncidentSettingsPromise) {
+      cachedIncidentSettingsPromise = getInstitutionSetting<IncidentGovernanceSettings>(
+        'infrastructure_incident_settings',
+        DEFAULT_INCIDENT_SETTINGS
+      ).then((res) => {
+        if (res) {
+          try {
+            localStorage.setItem(STORAGE_KEYS.INCIDENT_SETTINGS, JSON.stringify(res))
+          } catch (e) {}
+          return res
+        }
+        return null
+      })
+    }
+
+    cachedIncidentSettingsPromise?.then((settingsData) => {
+      if (settingsData && isMounted) setIncidentSettings(settingsData)
+    })
+
+    // 9. Shared Singleton Realtime subscription
+    if (!sharedInfraChannel) {
+      try {
+        const existing = supabase.getChannels().find((c: any) => c.topic === 'realtime:shared-infra-changes')
+        if (existing) {
+          supabase.removeChannel(existing)
+        }
+      } catch (e) {}
+
+      sharedInfraChannel = supabase
+        .channel('shared-infra-changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'labs' }, () => {
+          cachedLabsPromise = null
+          supabase
+            .from('labs')
+            .select('*')
+            .eq('is_active', true)
+            .then(({ data: updatedLabs }) => {
+              if (updatedLabs) {
+                const mapped: LabFacilityItem[] = updatedLabs.map((l: any) => ({
+                  id: l.id,
+                  name: l.name,
+                  code: l.code || l.id.toUpperCase(),
+                  capacity: l.capacity || 40,
+                  type: l.type || 'computer_lab',
+                  status: l.is_active ? 'Operational' : 'Maintenance',
+                }))
+                try {
+                  localStorage.setItem(STORAGE_KEYS.LABS, JSON.stringify(mapped))
+                } catch (e) {}
+                infraSubscribers.forEach((sub) => sub.setLabs(mapped))
+              }
+            })
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'academic_holidays' }, () => {
+          cachedHolidaysPromise = null
+          getAcademicHolidays().then((updatedHolidays) => {
+            if (updatedHolidays) {
+              try {
+                localStorage.setItem(STORAGE_KEYS.HOLIDAYS, JSON.stringify(updatedHolidays))
+              } catch (e) {}
+              infraSubscribers.forEach((sub) => sub.setHolidays(updatedHolidays))
             }
           })
-      })
-      .subscribe()
+        })
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'institution_settings' },
+          (payload: any) => {
+            const row = payload.new
+            if (!row || !row.key || !row.value) return
+            if (row.key === 'infrastructure_periods') {
+              cachedPeriodsPromise = Promise.resolve(row.value)
+              try {
+                localStorage.setItem(STORAGE_KEYS.PERIODS, JSON.stringify(row.value))
+              } catch (e) {}
+              infraSubscribers.forEach((sub) => sub.setPeriods(row.value))
+            } else if (row.key === 'infrastructure_classes') {
+              cachedClassesPromise = Promise.resolve(row.value)
+              try {
+                localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(row.value))
+              } catch (e) {}
+              infraSubscribers.forEach((sub) => sub.setClasses(row.value))
+            } else if (row.key === 'infrastructure_subjects') {
+              cachedSubjectsPromise = Promise.resolve(row.value)
+              try {
+                localStorage.setItem(STORAGE_KEYS.SUBJECTS, JSON.stringify(row.value))
+              } catch (e) {}
+              infraSubscribers.forEach((sub) => sub.setSubjects(row.value))
+            } else if (row.key === 'infrastructure_incident_categories') {
+              cachedIncidentCategoriesPromise = Promise.resolve(row.value)
+              try {
+                localStorage.setItem(STORAGE_KEYS.INCIDENT_CATEGORIES, JSON.stringify(row.value))
+              } catch (e) {}
+              infraSubscribers.forEach((sub) => sub.setIncidentCategories(row.value))
+            } else if (row.key === 'infrastructure_incident_settings') {
+              cachedIncidentSettingsPromise = Promise.resolve(row.value)
+              try {
+                localStorage.setItem(STORAGE_KEYS.INCIDENT_SETTINGS, JSON.stringify(row.value))
+              } catch (e) {}
+              infraSubscribers.forEach((sub) => sub.setIncidentSettings(row.value))
+            }
+          }
+        )
+        .subscribe()
+    }
 
     return () => {
       isMounted = false
-      supabase.removeChannel(channel)
+      infraSubscribers.delete(subscriber)
+      infraRefCount--
+      if (infraRefCount <= 0 && sharedInfraChannel) {
+        supabase.removeChannel(sharedInfraChannel)
+        sharedInfraChannel = null
+        infraRefCount = 0
+      }
     }
   }, [])
 
@@ -379,26 +642,39 @@ export function useInfrastructureState() {
     const handleSync = () => {
       try {
         const p = localStorage.getItem(STORAGE_KEYS.PERIODS)
-        if (p) setPeriods(JSON.parse(p))
+        if (p) setPeriods((prev) => (JSON.stringify(prev) === p ? prev : JSON.parse(p)))
         const l = localStorage.getItem(STORAGE_KEYS.LABS)
-        if (l) setLabs(JSON.parse(l))
+        if (l) setLabs((prev) => (JSON.stringify(prev) === l ? prev : JSON.parse(l)))
         const c = localStorage.getItem(STORAGE_KEYS.CLASSES)
-        if (c) setClasses(JSON.parse(c))
+        if (c) setClasses((prev) => (JSON.stringify(prev) === c ? prev : JSON.parse(c)))
         const f = localStorage.getItem(STORAGE_KEYS.FACULTY)
-        if (f) setFaculty(JSON.parse(f))
+        if (f) setFaculty((prev) => (JSON.stringify(prev) === f ? prev : JSON.parse(f)))
         const s = localStorage.getItem(STORAGE_KEYS.SUBJECTS)
-        if (s) setSubjects(JSON.parse(s))
+        if (s) setSubjects((prev) => (JSON.stringify(prev) === s ? prev : JSON.parse(s)))
         const h = localStorage.getItem(STORAGE_KEYS.HOLIDAYS)
-        if (h) setHolidays(JSON.parse(h))
+        if (h) setHolidays((prev) => (JSON.stringify(prev) === h ? prev : JSON.parse(h)))
         const ic = localStorage.getItem(STORAGE_KEYS.INCIDENT_CATEGORIES)
-        if (ic) setIncidentCategories(JSON.parse(ic))
+        if (ic) setIncidentCategories((prev) => (JSON.stringify(prev) === ic ? prev : JSON.parse(ic)))
         const is = localStorage.getItem(STORAGE_KEYS.INCIDENT_SETTINGS)
-        if (is) setIncidentSettings(JSON.parse(is))
+        if (is) setIncidentSettings((prev) => (JSON.stringify(prev) === is ? prev : JSON.parse(is)))
       } catch (e) {}
     }
 
     window.addEventListener('infrastructure-updated', handleSync)
-    return () => window.removeEventListener('infrastructure-updated', handleSync)
+    window.addEventListener('storage', (e) => {
+      if (e.key && Object.values(STORAGE_KEYS).includes(e.key)) {
+        handleSync()
+      }
+    })
+    const unsubInfra = subscribeToSync('infrastructure', () => handleSync())
+    const unsubHolidays = subscribeToSync('holidays', () => handleSync())
+
+    return () => {
+      window.removeEventListener('infrastructure-updated', handleSync)
+      window.removeEventListener('storage', handleSync as any)
+      unsubInfra()
+      unsubHolidays()
+    }
   }, [])
 
   // 1. Periods Management
@@ -406,6 +682,7 @@ export function useInfrastructureState() {
     setPeriods((prev) => {
       const updated = [...prev, period]
       saveToStorage(STORAGE_KEYS.PERIODS, updated)
+      updateInstitutionSetting('infrastructure_periods', updated).catch(() => {})
       return updated
     })
   }, [])
@@ -414,6 +691,7 @@ export function useInfrastructureState() {
     setPeriods((prev) => {
       const updated = prev.map((p) => (p.id === id ? { ...p, ...updates } : p))
       saveToStorage(STORAGE_KEYS.PERIODS, updated)
+      updateInstitutionSetting('infrastructure_periods', updated).catch(() => {})
       return updated
     })
   }, [])
@@ -422,6 +700,7 @@ export function useInfrastructureState() {
     setPeriods((prev) => {
       const updated = prev.filter((p) => p.id !== id)
       saveToStorage(STORAGE_KEYS.PERIODS, updated)
+      updateInstitutionSetting('infrastructure_periods', updated).catch(() => {})
       return updated
     })
   }, [])
@@ -429,6 +708,7 @@ export function useInfrastructureState() {
   const resetPeriods = useCallback(() => {
     setPeriods([...MASTER_TIME_SLOTS])
     saveToStorage(STORAGE_KEYS.PERIODS, [...MASTER_TIME_SLOTS])
+    updateInstitutionSetting('infrastructure_periods', [...MASTER_TIME_SLOTS]).catch(() => {})
   }, [])
 
   // 2. Labs Management
@@ -438,6 +718,24 @@ export function useInfrastructureState() {
       saveToStorage(STORAGE_KEYS.LABS, updated)
       return updated
     })
+    cachedLabsPromise = null
+    lastInfraFetchTime = 0
+    createLabFacility(lab).catch((err) => {
+      console.error('[LMR] Remote createLabFacility failed:', err)
+    })
+  }, [])
+
+  const updateLab = useCallback((id: string, updates: Partial<LabFacilityItem>) => {
+    setLabs((prev) => {
+      const updated = prev.map((l) => (l.id === id ? { ...l, ...updates } : l))
+      saveToStorage(STORAGE_KEYS.LABS, updated)
+      return updated
+    })
+    cachedLabsPromise = null
+    lastInfraFetchTime = 0
+    updateLabFacility(id, updates).catch((err) => {
+      console.error('[LMR] Remote updateLabFacility failed:', err)
+    })
   }, [])
 
   const deleteLab = useCallback((id: string) => {
@@ -446,6 +744,11 @@ export function useInfrastructureState() {
       saveToStorage(STORAGE_KEYS.LABS, updated)
       return updated
     })
+    cachedLabsPromise = null
+    lastInfraFetchTime = 0
+    deleteLabFacility(id).catch((err) => {
+      console.error('[LMR] Remote deleteLabFacility failed:', err)
+    })
   }, [])
 
   // 3. Classes Management
@@ -453,6 +756,16 @@ export function useInfrastructureState() {
     setClasses((prev) => {
       const updated = [...prev, cls]
       saveToStorage(STORAGE_KEYS.CLASSES, updated)
+      updateInstitutionSetting('infrastructure_classes', updated).catch(() => {})
+      return updated
+    })
+  }, [])
+
+  const updateClass = useCallback((id: string, updates: Partial<ClassEnrollmentItem>) => {
+    setClasses((prev) => {
+      const updated = prev.map((c) => (c.id === id ? { ...c, ...updates } : c))
+      saveToStorage(STORAGE_KEYS.CLASSES, updated)
+      updateInstitutionSetting('infrastructure_classes', updated).catch(() => {})
       return updated
     })
   }, [])
@@ -461,6 +774,7 @@ export function useInfrastructureState() {
     setClasses((prev) => {
       const updated = prev.filter((c) => c.id !== id)
       saveToStorage(STORAGE_KEYS.CLASSES, updated)
+      updateInstitutionSetting('infrastructure_classes', updated).catch(() => {})
       return updated
     })
   }, [])
@@ -495,6 +809,16 @@ export function useInfrastructureState() {
     setSubjects((prev) => {
       const updated = [...prev, sub]
       saveToStorage(STORAGE_KEYS.SUBJECTS, updated)
+      updateInstitutionSetting('infrastructure_subjects', updated).catch(() => {})
+      return updated
+    })
+  }, [])
+
+  const updateSubject = useCallback((code: string, updates: Partial<SubjectCurriculumItem>) => {
+    setSubjects((prev) => {
+      const updated = prev.map((s) => (s.code === code ? { ...s, ...updates } : s))
+      saveToStorage(STORAGE_KEYS.SUBJECTS, updated)
+      updateInstitutionSetting('infrastructure_subjects', updated).catch(() => {})
       return updated
     })
   }, [])
@@ -503,6 +827,7 @@ export function useInfrastructureState() {
     setSubjects((prev) => {
       const updated = prev.filter((s) => s.code !== code)
       saveToStorage(STORAGE_KEYS.SUBJECTS, updated)
+      updateInstitutionSetting('infrastructure_subjects', updated).catch(() => {})
       return updated
     })
   }, [])
@@ -532,6 +857,7 @@ export function useInfrastructureState() {
         s.code === subjectCode ? { ...s, teacherId, teacherName } : s
       )
       saveToStorage(STORAGE_KEYS.SUBJECTS, updatedSubjects)
+      updateInstitutionSetting('infrastructure_subjects', updatedSubjects).catch(() => {})
       return updatedSubjects
     })
   }, [])
@@ -539,8 +865,23 @@ export function useInfrastructureState() {
   // 6. Holidays & Calendar Management
   const addHoliday = useCallback((hol: HolidayItem) => {
     setHolidays((prev) => {
-      const updated = [hol, ...prev]
+      const filtered = prev.filter((h) => h.id !== hol.id)
+      const updated = [hol, ...filtered]
       saveToStorage(STORAGE_KEYS.HOLIDAYS, updated)
+      addAcademicHoliday(hol).catch((err) => {
+        console.error('Failed to save academic holiday remotely:', err)
+      })
+      return updated
+    })
+  }, [])
+
+  const updateHoliday = useCallback((id: string, updates: Partial<HolidayItem>) => {
+    setHolidays((prev) => {
+      const updated = prev.map((h) => (h.id === id ? { ...h, ...updates } : h))
+      saveToStorage(STORAGE_KEYS.HOLIDAYS, updated)
+      updateAcademicHoliday(id, updates).catch((err) => {
+        console.error('Failed to update academic holiday remotely:', err)
+      })
       return updated
     })
   }, [])
@@ -549,6 +890,9 @@ export function useInfrastructureState() {
     setHolidays((prev) => {
       const updated = prev.filter((h) => h.id !== id)
       saveToStorage(STORAGE_KEYS.HOLIDAYS, updated)
+      deleteAcademicHoliday(id).catch((err) => {
+        console.error('Failed to delete academic holiday remotely:', err)
+      })
       return updated
     })
   }, [])
@@ -561,11 +905,20 @@ export function useInfrastructureState() {
     return holidays.find((h) => isDateWithinHoliday(dateStr, h))
   }, [holidays])
 
+  const resetHolidaysToOfficialGazette = useCallback(() => {
+    setHolidays(DEFAULT_HOLIDAYS)
+    saveToStorage(STORAGE_KEYS.HOLIDAYS, DEFAULT_HOLIDAYS)
+    DEFAULT_HOLIDAYS.forEach((dh) => {
+      addAcademicHoliday(dh).catch(() => {})
+    })
+  }, [])
+
   // 7. Incident Categories & Governance Settings Management
   const addIncidentCategory = useCallback((cat: IncidentCategoryItem) => {
     setIncidentCategories((prev) => {
       const updated = [...prev, cat]
       saveToStorage(STORAGE_KEYS.INCIDENT_CATEGORIES, updated)
+      updateInstitutionSetting('infrastructure_incident_categories', updated).catch(() => {})
       return updated
     })
   }, [])
@@ -574,6 +927,7 @@ export function useInfrastructureState() {
     setIncidentCategories((prev) => {
       const updated = prev.map((c) => (c.id === id ? { ...c, ...updates } : c))
       saveToStorage(STORAGE_KEYS.INCIDENT_CATEGORIES, updated)
+      updateInstitutionSetting('infrastructure_incident_categories', updated).catch(() => {})
       return updated
     })
   }, [])
@@ -582,6 +936,7 @@ export function useInfrastructureState() {
     setIncidentCategories((prev) => {
       const updated = prev.filter((c) => c.id !== id)
       saveToStorage(STORAGE_KEYS.INCIDENT_CATEGORIES, updated)
+      updateInstitutionSetting('infrastructure_incident_categories', updated).catch(() => {})
       return updated
     })
   }, [])
@@ -589,6 +944,7 @@ export function useInfrastructureState() {
   const resetIncidentCategories = useCallback(() => {
     setIncidentCategories(DEFAULT_INCIDENT_CATEGORIES)
     saveToStorage(STORAGE_KEYS.INCIDENT_CATEGORIES, DEFAULT_INCIDENT_CATEGORIES)
+    updateInstitutionSetting('infrastructure_incident_categories', DEFAULT_INCIDENT_CATEGORIES).catch(() => {})
   }, [])
 
   const updateIncidentSettings = useCallback((updates: Partial<IncidentGovernanceSettings>) => {
@@ -602,6 +958,7 @@ export function useInfrastructureState() {
         },
       }
       saveToStorage(STORAGE_KEYS.INCIDENT_SETTINGS, updated)
+      updateInstitutionSetting('infrastructure_incident_settings', updated).catch(() => {})
       return updated
     })
   }, [])
@@ -620,17 +977,22 @@ export function useInfrastructureState() {
     deletePeriod,
     resetPeriods,
     addLab,
+    updateLab,
     deleteLab,
     addClass,
+    updateClass,
     deleteClass,
     addFaculty,
     updateFaculty,
     deleteFaculty,
     addSubject,
+    updateSubject,
     deleteSubject,
     assignTeacherToSubject,
     addHoliday,
+    updateHoliday,
     deleteHoliday,
+    resetHolidaysToOfficialGazette,
     checkIsHoliday,
     getHolidayForDate,
     addIncidentCategory,

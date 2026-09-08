@@ -3,25 +3,169 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme inline {
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-heading);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --color-canvas: var(--canvas);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-border-subtle: var(--border-subtle);
+  --color-border-card: var(--border-card);
 }
 
 :root {
+  --font-heading: var(--font-heading-source), var(--font-devanagari), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-sans: var(--font-sans-source), var(--font-devanagari), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: var(--font-mono-source), 'JetBrains Mono', monospace;
+
   --background: #f8fafc;
   --foreground: #09090b;
+
+  /* Semantic Light Palette */
+  --canvas: #f8fafc;
+  --surface-1: #ffffff;
+  --surface-2: #f1f5f9;
+  --surface-3: #e2e8f0;
+  --border-subtle: rgba(226, 232, 240, 0.85);
+  --border-card: rgba(226, 232, 240, 0.9);
+  --highlight-specular: inset 0 1px 0 0 rgba(255, 255, 255, 0.8);
+  --text-primary: #09090b;
+  --text-secondary: #475569;
+  --text-tertiary: #64748b;
 }
 
 .dark {
-  --background: #090d16;
+  --background: #0b0f19;
   --foreground: #f8fafc;
+
+  /* Deep Obsidian & Midnight Slate Palette (Rich Indigo-Navy Depth) */
+  --canvas: #0b0f19;
+  --surface-1: #101726;
+  --surface-2: #151e32;
+  --surface-3: #1a253d;
+  --border-subtle: rgba(255, 255, 255, 0.07);
+  --border-card: rgba(255, 255, 255, 0.08);
+  --highlight-specular: inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
+  --text-primary: #ffffff;
+  --text-secondary: #cbd5e1; /* Slate-300: crisp contrast with deep slate backing */
+  --text-tertiary: #94a3b8;  /* Slate-400 */
 }
 
 body {
   background-color: var(--background);
   color: var(--foreground);
-  font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Cross-Browser Slim Custom Scrollbars (Firefox + WebKit) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(156, 163, 175, 0.35) transparent;
+}
+
+.dark * {
+  scrollbar-color: rgba(148, 163, 184, 0.25) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: rgba(156, 163, 175, 0.35);
+  border-radius: 9999px;
+  transition: background-color 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(100, 116, 139, 0.6);
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background-color: rgba(148, 163, 184, 0.25);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(203, 213, 225, 0.5);
+}
+
+::selection {
+  background-color: rgba(99, 102, 241, 0.25);
+  color: inherit;
+}
+
+/* Performant Layered Glass Surface (GPU friendly - zero compositor lag) */
+.glass-card {
+  background-color: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(226, 232, 240, 0.85);
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.8), 0 4px 20px -2px rgba(15, 23, 42, 0.04);
+}
+
+.dark .glass-card {
+  background-color: rgba(16, 23, 38, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.06), 0 4px 24px -2px rgba(0, 0, 0, 0.45);
+}
+
+/* Floating / Sticky Header Glass (uses blur safely on single container) */
+.glass-header {
+  background-color: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(226, 232, 240, 0.85);
+}
+
+.dark .glass-header {
+  background-color: rgba(11, 15, 25, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+/* Reusable Semantic Surface Helpers */
+.surface-canvas {
+  background-color: var(--canvas);
+}
+
+.surface-card {
+  background-color: var(--surface-1);
+  border: 1px solid var(--border-card);
+  box-shadow: var(--highlight-specular);
+}
+
+.surface-well {
+  background-color: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+}
+
+/* Scoped Micro-Glow Pips (OLED Beacon highlights without GPU table lag) */
+.glow-pip-indigo {
+  box-shadow: 0 0 10px 1px rgba(99, 102, 241, 0.45);
+}
+
+.glow-pip-cyan {
+  box-shadow: 0 0 10px 1px rgba(6, 182, 212, 0.45);
+}
+
+.glow-pip-rose {
+  box-shadow: 0 0 10px 1px rgba(244, 63, 94, 0.45);
+}
+
+.glow-pip-emerald {
+  box-shadow: 0 0 10px 1px rgba(16, 185, 129, 0.45);
+}
+
+.glow-pip-amber {
+  box-shadow: 0 0 10px 1px rgba(245, 158, 11, 0.45);
 }
 
 /* Custom modern glow utilities */
@@ -107,5 +251,99 @@ body {
 
 .animate-shimmer {
   animation: shimmer 1.8s infinite;
+}
+
+@keyframes float-slow {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-8px) rotate(1.5deg);
+  }
+}
+
+@keyframes float-reverse {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(8px) rotate(-1.5deg);
+  }
+}
+
+@keyframes pulse-subtle {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.02);
+  }
+}
+
+.animate-float-slow {
+  animation: float-slow 7s ease-in-out infinite;
+}
+
+.animate-float-reverse {
+  animation: float-reverse 9s ease-in-out infinite;
+}
+
+.animate-pulse-subtle {
+  animation: pulse-subtle 3.5s ease-in-out infinite;
+}
+
+/* Glassmorphism helpers */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.dark .glass-panel {
+  background: rgba(16, 23, 38, 0.82);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.glass-glow-border {
+  position: relative;
+}
+
+.glass-glow-border::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.4), rgba(244, 63, 94, 0.2), rgba(16, 185, 129, 0.3));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* Strict Print Shield: Clean black ink on white paper, no toner waste */
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  .glass-card,
+  .glass-panel,
+  .glass-header,
+  .surface-card,
+  .surface-well,
+  header,
+  aside,
+  nav {
+    background: #ffffff !important;
+    color: #000000 !important;
+    border-color: #d1d5db !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
 }
 

@@ -10,6 +10,7 @@ import {
 import { getNepalDateStr } from '@/lib/nepali-date'
 import { createClient } from '@/lib/supabase/client'
 import { isSupabaseConfigured } from '@/lib/supabase/config'
+import { DEFAULT_HOLIDAYS, isDateWithinHoliday } from '@/lib/master-data'
 
 export interface PracticalLogRecord {
   id: string
@@ -83,7 +84,9 @@ function savePendingOutbox(queue: PracticalLogRecord[]) {
   if (typeof window === 'undefined') return
   try {
     localStorage.setItem(OUTBOX_KEY, JSON.stringify(queue))
-    window.dispatchEvent(new CustomEvent('sync-status-changed', { detail: { pendingCount: queue.length } }))
+    queueMicrotask(() => {
+      window.dispatchEvent(new CustomEvent('sync-status-changed', { detail: { pendingCount: queue.length } }))
+    })
   } catch {}
 }
 
@@ -106,21 +109,23 @@ function removeFromOutbox(id: string, sessionId?: string, date?: string) {
 }
 
 export function useLogsState() {
-  const [logs, setLogs] = useState<PracticalLogRecord[]>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem(STORAGE_KEY)
-        if (saved) {
-          const parsed = JSON.parse(saved)
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed
-        }
-      } catch (e) {}
-    }
-    return INITIAL_MOCK_LOGS
-  })
+  const [logs, setLogs] = useState<PracticalLogRecord[]>(INITIAL_MOCK_LOGS)
 
   const [isSyncing, setIsSyncing] = useState<boolean>(false)
   const isSyncingRef = useRef(false)
+
+  // Load from localStorage on mount (prevents SSR hydration mismatch)
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY)
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setLogs(parsed)
+        }
+      }
+    } catch {}
+  }, [])
 
   // Flush Outbox Queue to Supabase
   const flushOutbox = useCallback(async () => {
@@ -161,6 +166,9 @@ export function useLogsState() {
           setLogs((prev) =>
             prev.map((l) => (l.id === item.id || (l.sessionId === item.sessionId && l.date === item.date) ? { ...l, isSynced: true } : l))
           )
+        } else if (res && !res.success) {
+          // Remove fatally rejected items (duplicate, holiday, validation) to prevent stuck outbox
+          removeFromOutbox(item.id, item.sessionId, item.date)
         }
       }
     } catch (err) {
@@ -171,7 +179,7 @@ export function useLogsState() {
     }
   }, [])
 
-  // Persist helper
+  // Persist helper (asynchronous dispatch to prevent React setState-in-render collisions)
   const persistLogs = useCallback(
     (updater: PracticalLogRecord[] | ((prev: PracticalLogRecord[]) => PracticalLogRecord[])) => {
       setLogs((prev) => {
@@ -179,19 +187,28 @@ export function useLogsState() {
         try {
           if (typeof window !== 'undefined') {
             localStorage.setItem(STORAGE_KEY, JSON.stringify(updated))
-            window.dispatchEvent(new Event('logs-updated'))
           }
         } catch (e) {
           console.error('Failed to save logs', e)
         }
         return updated
       })
+
+      if (typeof window !== 'undefined') {
+        queueMicrotask(() => {
+          window.dispatchEvent(new Event('logs-updated'))
+        })
+      }
     },
     []
   )
 
   // Load from Supabase on mount and merge with local un-synced outbox
   const loadRemoteLogs = useCallback(async () => {
+    if (typeof window !== 'undefined' && window.location.pathname.startsWith('/login')) {
+      return
+    }
+
     try {
       // First attempt to flush any pending offline logs
       await flushOutbox()
@@ -231,7 +248,12 @@ export function useLogsState() {
 
         // Merge: pending local outbox takes priority over remote stale records
         const merged = [...pending, ...mappedRemote]
-        persistLogs(merged)
+        try {
+          if (typeof window !== 'undefined') {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(merged))
+          }
+        } catch {}
+        setLogs(merged)
         return
       }
     } catch (e) {
@@ -248,7 +270,7 @@ export function useLogsState() {
         }
       }
     } catch (e) {}
-  }, [flushOutbox, persistLogs])
+  }, [flushOutbox])
 
   useEffect(() => {
     loadRemoteLogs()
@@ -285,23 +307,42 @@ export function useLogsState() {
     }
   }, [flushOutbox, loadRemoteLogs])
 
-  // Cross-tab sync
+  // Cross-tab and same-tab sync
   useEffect(() => {
     const handleUpdate = () => {
       try {
         const saved = localStorage.getItem(STORAGE_KEY)
         if (saved) {
-          setLogs(JSON.parse(saved))
+          const parsed = JSON.parse(saved)
+          setLogs((prev) => {
+            // Bail out if data is identical to avoid cascading re-renders
+            if (prev.length === parsed.length && JSON.stringify(prev) === saved) {
+              return prev
+            }
+            return parsed
+          })
         }
       } catch (e) {}
     }
 
     window.addEventListener('logs-updated', handleUpdate)
-    return () => window.removeEventListener('logs-updated', handleUpdate)
+    window.addEventListener('storage', (e) => {
+      if (e.key === STORAGE_KEY) handleUpdate()
+    })
+
+    return () => {
+      window.removeEventListener('logs-updated', handleUpdate)
+      window.removeEventListener('storage', handleUpdate as any)
+    }
   }, [])
 
   // Save new log record (Optimistic UI + Outbox Queue + Server Action Persistence)
   const saveLog = async (logData: Omit<PracticalLogRecord, 'id' | 'createdAt'> & { id?: string }) => {
+    // Prohibit recording logs on institutional holidays (automatic cancellation)
+    if (DEFAULT_HOLIDAYS.some((h) => isDateWithinHoliday(logData.date, h))) {
+      console.warn(`[LMR] Rejected log save on institutional holiday: ${logData.date}`)
+      return null
+    }
     const labKey =
       logData.labId ||
       (logData.lab?.toLowerCase().includes('comp')
@@ -361,6 +402,8 @@ export function useLogsState() {
           persistLogs((prev) =>
             prev.map((l) => (l.id === newRecord.id ? { ...l, isSynced: true } : l))
           )
+        } else if (res && !res.success) {
+          removeFromOutbox(newRecord.id, logData.sessionId, logData.date)
         }
       } catch (e) {
         console.warn('Network offline, queued in outbox for automatic sync:', e)

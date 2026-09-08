@@ -17,45 +17,58 @@ import {
   Command,
   ArrowRight,
   AlertTriangle,
+  GraduationCap,
+  User,
 } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { MASTER_ROUTINE } from '@/lib/master-data'
+import { useUserScope } from '@/hooks/use-user-scope'
+import { useCommandPalette } from '@/hooks/use-command-palette'
 
 export default function CommandPalette() {
-  const [isOpen, setIsOpen] = useState(false)
+  const { isOpen, close, toggle } = useCommandPalette()
   const [query, setQuery] = useState('')
   const router = useRouter()
   const { setTheme, theme } = useTheme()
+  const { scope: userScope, isTeacher } = useUserScope()
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
-        setIsOpen((prev) => !prev)
+        toggle()
       }
       if (e.key === 'Escape') {
-        setIsOpen(false)
+        close()
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [])
+  }, [toggle, close])
 
   if (!isOpen) return null
 
-  const filteredRoutines = MASTER_ROUTINE.filter(
-    (item) =>
+  const filteredRoutines = MASTER_ROUTINE.filter((item) => {
+    if (!query) return false
+    return (
       item.subjectCode.toLowerCase().includes(query.toLowerCase()) ||
       item.subjectTitle.toLowerCase().includes(query.toLowerCase()) ||
       item.teacher.toLowerCase().includes(query.toLowerCase()) ||
       item.grade.toLowerCase().includes(query.toLowerCase()) ||
       item.lab.toLowerCase().includes(query.toLowerCase())
-  ).slice(0, 5)
+    )
+  }).sort((a, b) => {
+    if (!isTeacher || !userScope) return 0
+    const teacherName = userScope.teacherProfile?.name || userScope.fullName || ''
+    const aMine = a.teacher.toLowerCase().includes(teacherName.toLowerCase()) ? 1 : 0
+    const bMine = b.teacher.toLowerCase().includes(teacherName.toLowerCase()) ? 1 : 0
+    return bMine - aMine
+  }).slice(0, 6)
 
   const handleSelect = (action: () => void) => {
     action()
-    setIsOpen(false)
+    close()
     setQuery('')
   }
 
@@ -85,8 +98,13 @@ export default function CommandPalette() {
         <div className="p-2 overflow-y-auto max-h-80 divide-y divide-zinc-100 dark:divide-zinc-800/60 text-xs">
           {/* Quick Actions */}
           <div className="py-1">
-            <div className="px-3 py-1.5 text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
-              System Operations
+            <div className="px-3 py-1.5 text-[10px] font-semibold text-zinc-400 uppercase tracking-wider flex items-center justify-between">
+              <span>System Operations</span>
+              {isTeacher && userScope?.teacherProfile && (
+                <span className="text-[9px] font-bold text-indigo-600 dark:text-indigo-400">
+                  {userScope.teacherProfile.name}
+                </span>
+              )}
             </div>
 
             <button

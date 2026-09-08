@@ -10,8 +10,8 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import { isSupabaseConfigured } from '@/lib/supabase/config'
 
-const STORAGE_KEY = 'lab_faculty_substitutions_v1'
-const OUTBOX_KEY = 'lab_pending_substitutions_outbox_v1'
+const STORAGE_KEY = 'lab_teacher_substitutions_v1'
+const OUTBOX_KEY = 'lab_pending_teacher_substitutions_outbox_v1'
 
 function getPendingOutbox(): FacultySubstitutionRecord[] {
   if (typeof window === 'undefined') return []
@@ -29,11 +29,13 @@ function savePendingOutbox(queue: FacultySubstitutionRecord[]) {
   if (typeof window === 'undefined') return
   try {
     localStorage.setItem(OUTBOX_KEY, JSON.stringify(queue))
-    window.dispatchEvent(
-      new CustomEvent('sync-status-changed', {
-        detail: { pendingSubstitutionsCount: queue.length },
-      })
-    )
+    queueMicrotask(() => {
+      window.dispatchEvent(
+        new CustomEvent('sync-status-changed', {
+          detail: { pendingSubstitutionsCount: queue.length },
+        })
+      )
+    })
   } catch {}
 }
 
@@ -49,18 +51,7 @@ function removeFromOutbox(id: string) {
 }
 
 export function useSubstitutionState() {
-  const [substitutions, setSubstitutions] = useState<FacultySubstitutionRecord[]>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem(STORAGE_KEY)
-        if (saved) {
-          const parsed = JSON.parse(saved)
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed
-        }
-      } catch (e) {}
-    }
-    return []
-  })
+  const [substitutions, setSubstitutions] = useState<FacultySubstitutionRecord[]>([])
 
   const isFlushingRef = useRef(false)
 
@@ -161,7 +152,7 @@ export function useSubstitutionState() {
         const channelName = `substitutions-feed-${Math.random().toString(36).substring(2, 8)}`
         const channel = supabase
           .channel(channelName)
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'faculty_substitutions' }, () => {
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'teacher_substitutions' }, () => {
             loadRemoteSubstitutions()
           })
           .subscribe()

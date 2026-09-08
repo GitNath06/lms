@@ -1,8 +1,11 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { after } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { isSupabaseConfigured } from '@/lib/supabase/config'
+import { getServerUserScope } from '@/lib/context/user-scope'
+import { dispatchIncidentEmailAlert } from '@/app/actions/notifications'
 
 export interface LabIncidentRecord {
   id: string
@@ -32,13 +35,14 @@ export interface LabIncidentRecord {
   resolved_by?: string | null
   resolved_at?: string | null
   reported_by: string
+  reported_by_id?: string | null
   created_at?: string
 }
 
 export interface LabNotificationRecord {
   id: string
   incident_id?: string | null
-  target_role: 'super_admin' | 'lab_incharge' | 'hod'
+  target_role: 'super_admin' | 'lab_incharge' | 'hod' | 'teacher' | 'all'
   target_lab_id?: string | null
   title: string
   message: string
@@ -308,7 +312,11 @@ export async function getIncidents(filters?: {
   status?: string
   severity?: string
   date?: string
+  view_mode?: 'my_data' | 'all'
 }): Promise<LabIncidentRecord[]> {
+  const scope = await getServerUserScope()
+  const shouldScopeToMyData = !scope.isPrivileged || filters?.view_mode === 'my_data'
+
   const store = getIncStore()
   let list = [...store]
 
@@ -321,6 +329,12 @@ export async function getIncidents(filters?: {
       if (filters?.status && filters.status !== 'all') query = query.eq('status', filters.status)
       if (filters?.severity && filters.severity !== 'all') query = query.eq('severity', filters.severity)
       if (filters?.date) query = query.eq('date', filters.date)
+
+      if (shouldScopeToMyData) {
+        query = query.or(
+          `reported_by_id.eq.${scope.userId},subject_teacher_name.eq.${scope.fullName},reported_by.eq.${scope.fullName}`
+        )
+      }
 
       const { data, error } = await query
       if (!error && data && data.length > 0) {
@@ -340,6 +354,16 @@ export async function getIncidents(filters?: {
   }
   if (filters?.date) {
     list = list.filter((i) => i.date === filters.date)
+  }
+
+  if (shouldScopeToMyData) {
+    const teacherNames = [scope.fullName, scope.teacherProfile?.name].filter(Boolean).map((n) => n!.toLowerCase())
+    list = list.filter((i) => {
+      if (scope.userId && i.reported_by_id === scope.userId) return true
+      const subjTeacher = (i.subject_teacher_name || '').toLowerCase()
+      const rep = (i.reported_by || '').toLowerCase()
+      return teacherNames.some((tn) => subjTeacher.includes(tn) || rep.includes(tn))
+    })
   }
 
   return list

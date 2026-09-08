@@ -166,7 +166,7 @@ export default function DailyLogSheetView({
                 <th className="py-2.5 px-3 border-r border-zinc-300 w-36">Batch / Grade</th>
                 <th className="py-2.5 px-3 border-r border-zinc-300">Subject & Experiment Title</th>
                 <th className="py-2.5 px-3 border-r border-zinc-300 w-36">Faculty In-charge</th>
-                <th className="py-2.5 px-3 border-r border-zinc-300 text-center w-24 font-mono">Turnout</th>
+                <th className="py-2.5 px-3 border-r border-zinc-300 text-center w-24 font-mono">Attendance</th>
                 <th className="py-2.5 px-3 w-40">Remarks / Status</th>
               </tr>
             </thead>

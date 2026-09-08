@@ -1,21 +1,36 @@
 import type { Metadata } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
+import { Plus_Jakarta_Sans, Inter, Noto_Sans_Devanagari, JetBrains_Mono } from 'next/font/google'
 import './globals.css'
 import Providers from '@/app/providers'
 
-const geistSans = Geist({
-  variable: '--font-geist-sans',
+const jakarta = Plus_Jakarta_Sans({
+  variable: '--font-heading-source',
   subsets: ['latin'],
+  display: 'swap',
 })
 
-const geistMono = Geist_Mono({
-  variable: '--font-geist-mono',
+const inter = Inter({
+  variable: '--font-sans-source',
   subsets: ['latin'],
+  display: 'swap',
+})
+
+const notoDevanagari = Noto_Sans_Devanagari({
+  variable: '--font-devanagari',
+  subsets: ['devanagari'],
+  weight: ['400', '500', '600', '700'],
+  display: 'swap',
+})
+
+const mono = JetBrains_Mono({
+  variable: '--font-mono-source',
+  subsets: ['latin'],
+  display: 'swap',
 })
 
 export const metadata: Metadata = {
-  title: 'Lab Management System',
-  description: 'Smart Practical Lab Scheduling & Session Tracking',
+  title: 'Lab Management System | LabSync LIMS',
+  description: 'Institutional Laboratory Operations, Practical Scheduling & Maintenance Terminal',
 }
 
 export default function RootLayout({
@@ -27,9 +42,9 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${jakarta.variable} ${inter.variable} ${notoDevanagari.variable} ${mono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 transition-colors duration-200">
+      <body className="min-h-full flex flex-col bg-slate-50 dark:bg-[#0B0F19] text-zinc-900 dark:text-zinc-100 transition-colors duration-200">
         <Providers>
           {children}
         </Providers>

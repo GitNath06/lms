@@ -23,7 +23,6 @@ const LABS_INFO = [
     key: 'comp',
     code: 'LAB-COMP-01',
     name: 'Computer Engineering Lab',
-    dept: 'DEPT // COMPUTER ENG',
     icon: Terminal,
     capacity: 40,
   },
@@ -31,7 +30,6 @@ const LABS_INFO = [
     key: 'phys',
     code: 'LAB-PHYS-01',
     name: 'Physics Laboratory',
-    dept: 'DEPT // SCIENCE',
     icon: Atom,
     capacity: 38,
   },
@@ -39,7 +37,6 @@ const LABS_INFO = [
     key: 'chem',
     code: 'LAB-CHEM-01',
     name: 'Chemistry Laboratory',
-    dept: 'DEPT // SCIENCE',
     icon: FlaskRound,
     capacity: 40,
   },
@@ -77,10 +74,10 @@ export default function LiveLabPods({
           return (
             <div
               key={lab.key}
-              className={`rounded-xl border p-4 transition-all duration-200 backdrop-blur-md flex flex-col justify-between bg-white dark:bg-zinc-900/60 ${
+              className={`glass-card rounded-xl p-4 transition-all duration-200 flex flex-col justify-between ${
                 isOccupied
-                  ? 'border-emerald-500/40 dark:border-emerald-500/30 shadow-xs'
-                  : 'border-zinc-200/80 dark:border-zinc-800 shadow-2xs hover:border-zinc-300 dark:hover:border-zinc-700'
+                  ? 'border-emerald-500/50 dark:border-emerald-500/40 shadow-xs'
+                  : 'hover:border-zinc-300 dark:hover:border-zinc-700'
               }`}
             >
               <div>
@@ -93,7 +90,7 @@ export default function LiveLabPods({
                       <div className="text-[10px] text-zinc-400 font-mono font-bold">
                         {lab.code}
                       </div>
-                      <h4 className="text-xs font-bold text-zinc-950 dark:text-white tracking-tight">
+                      <h4 className="text-xs font-bold font-heading text-zinc-950 dark:text-white tracking-tight">
                         {lab.name}
                       </h4>
                     </div>
@@ -106,7 +103,7 @@ export default function LiveLabPods({
                       OCCUPIED
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono text-zinc-500 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono text-zinc-500 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900">
                       <span className="h-1.5 w-1.5 rounded-full bg-zinc-400" />
                       AVAILABLE
                     </span>
@@ -147,7 +144,7 @@ export default function LiveLabPods({
                 {isOccupied && activeSessionInLab ? (
                   <button
                     onClick={() => onOpenSession(activeSessionInLab)}
-                    className="text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-0.5 hover:underline"
+                    className="text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-0.5 hover:underline cursor-pointer"
                   >
                     <span>Record Log</span>
                     <ArrowUpRight className="h-3 w-3" />
@@ -155,9 +152,10 @@ export default function LiveLabPods({
                 ) : (
                   <button
                     onClick={() => onQuickBook(lab.name)}
-                    className="text-zinc-700 dark:text-zinc-300 font-bold flex items-center gap-0.5 hover:underline"
+                    className="text-zinc-700 dark:text-zinc-300 font-bold flex items-center gap-1 hover:underline cursor-pointer"
                   >
-                    <span>+ Quick Book</span>
+                    <Plus className="h-3 w-3" />
+                    <span>Quick Book</span>
                   </button>
                 )}
               </div>

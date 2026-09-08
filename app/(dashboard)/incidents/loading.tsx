@@ -2,7 +2,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 
 export default function IncidentsLoading() {
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-12 font-mono animate-pulse">
+    <div className="space-y-6 w-full pb-12 font-mono animate-pulse">
       {/* Header Skeleton */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-zinc-200 dark:border-zinc-800 pb-5">
         <div className="flex items-center gap-2.5">

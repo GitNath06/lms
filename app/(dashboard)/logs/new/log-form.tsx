@@ -28,32 +28,61 @@ import {
   MASTER_TIME_SLOTS,
   computeMultiPeriodLabel
 } from '@/lib/master-data'
+import { useInfrastructureState } from '@/hooks/use-infrastructure-state'
 
 type Lab = Database['public']['Tables']['labs']['Row']
 type Teacher = { id: string; full_name: string }
 
-export default function LogForm({ labs, teachers }: { labs: Lab[]; teachers: Teacher[] }) {
+export default function LogForm({
+  labs,
+  teachers,
+  scopedOptions,
+}: {
+  labs: Lab[]
+  teachers: Teacher[]
+  scopedOptions?: any
+}) {
   const router = useRouter()
   const { saveLog } = useLogsState()
 
-  // 4. Class / Batch & Subject (Initialized to 12C)
-  const [selectedClassId, setSelectedClassId] = useState<string>('12c')
-  const activeClassObj = DEFAULT_CLASSES.find((c) => c.id === selectedClassId) || DEFAULT_CLASSES[0]
+  const isTeacher = Boolean(scopedOptions && !scopedOptions.isPrivileged)
 
-  // Filter subjects strictly for the selected class
-  const classSubjects = DEFAULT_SUBJECTS.filter((s) => s.grade === activeClassObj.name)
+  // Compute available classes: if non-privileged teacher, strictly filter to their assigned classes
+  const availableClasses =
+    isTeacher && scopedOptions?.assignedClasses?.length > 0
+      ? DEFAULT_CLASSES.filter((c) => scopedOptions.assignedClasses.includes(c.name))
+      : DEFAULT_CLASSES
+
+  // 4. Class / Batch & Subject (Initialized to teacher's first class)
+  const defaultClass = availableClasses[0] || DEFAULT_CLASSES[0]
+  const [selectedClassId, setSelectedClassId] = useState<string>(defaultClass.id)
+  const activeClassObj = availableClasses.find((c) => c.id === selectedClassId) || defaultClass
+
+  // Filter subjects strictly for the selected class and teacher
+  const classSubjects =
+    isTeacher && scopedOptions?.assignedSubjects?.length > 0
+      ? scopedOptions.assignedSubjects.filter((s: any) => s.grade === activeClassObj.name)
+      : DEFAULT_SUBJECTS.filter((s) => s.grade === activeClassObj.name)
   const initialSub = classSubjects[0] || DEFAULT_SUBJECTS[0]
 
   const [selectedSubjectCode, setSelectedSubjectCode] = useState<string>(initialSub.code)
 
   // 1. Facility & In-Charge (Auto-synced to subject's designated teacher & room)
   const [selectedLabId, setSelectedLabId] = useState<string>(initialSub.labId || labs[0]?.id || 'comp')
-  const [selectedTeacherId, setSelectedTeacherId] = useState<string>(initialSub.teacherId || teachers[0]?.id || 't1')
+  const [selectedTeacherId, setSelectedTeacherId] = useState<string>(
+    isTeacher
+      ? scopedOptions?.teacher?.id || 't1'
+      : initialSub.teacherId || teachers[0]?.id || 't1'
+  )
+
+  const { getHolidayForDate } = useInfrastructureState()
 
   // 2. Session Date
   const [sessionDate, setSessionDate] = useState<string>(
     new Date().toISOString().split('T')[0]
   )
+  const activeHoliday = getHolidayForDate(sessionDate)
+  const isHoliday = !!activeHoliday
 
   // 3. Multi-Period Selection (Default: P1 & P2)
   const [selectedPeriods, setSelectedPeriods] = useState<string[]>(['t2', 't3'])
@@ -74,6 +103,7 @@ export default function LogForm({ labs, teachers }: { labs: Lab[]; teachers: Tea
 
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [duplicateId, setDuplicateId] = useState<string | null>(null)
 
   // Turnout calculation & strict clamping (0% to 100% max)
   const effectiveAbsentCount =
@@ -94,7 +124,7 @@ export default function LogForm({ labs, teachers }: { labs: Lab[]; teachers: Tea
       if (selectedPeriods.length === 1) return // keep at least 1
       setSelectedPeriods(selectedPeriods.filter((p) => p !== slotId))
     } else {
-      setSelectedPeriods([...selectedPeriods, slotId])
+      setSelectedPeriods([...selectedPeriods, slotId].sort())
     }
   }
 
@@ -109,21 +139,24 @@ export default function LogForm({ labs, teachers }: { labs: Lab[]; teachers: Tea
     setAbsentCountInput(nextAbsent.length)
   }
 
-  // Reactive class change: Filters subjects, auto-selects subject, teacher, lab, and headcount
+  // Reactive class change: Auto-selects corresponding subjects
   const handleClassChange = (classId: string) => {
     setSelectedClassId(classId)
-    const cls = DEFAULT_CLASSES.find((c) => c.id === classId)
-    if (cls) {
-      setTotalStudents(cls.strength)
-      setAbsentRolls([])
-      setAbsentCountInput(0)
+    const targetClass = availableClasses.find((c) => c.id === classId) || DEFAULT_CLASSES.find((c) => c.id === classId)
+    if (targetClass) {
+      setTotalStudents(targetClass.strength)
+      setAbsentCountInput(2)
+      setAbsentRolls([14, 28].filter((r) => r <= targetClass.strength))
 
-      // Filter subjects for this specific class
-      const matchingSubjects = DEFAULT_SUBJECTS.filter((s) => s.grade === cls.name)
-      if (matchingSubjects.length > 0) {
-        const firstSub = matchingSubjects[0]
+      const validSubs =
+        isTeacher && scopedOptions?.assignedSubjects?.length > 0
+          ? scopedOptions.assignedSubjects.filter((s: any) => s.grade === targetClass.name)
+          : DEFAULT_SUBJECTS.filter((s) => s.grade === targetClass.name)
+
+      if (validSubs.length > 0) {
+        const firstSub = validSubs[0]
         setSelectedSubjectCode(firstSub.code)
-        if (firstSub.teacherId) setSelectedTeacherId(firstSub.teacherId)
+        if (!isTeacher && firstSub.teacherId) setSelectedTeacherId(firstSub.teacherId)
         if (firstSub.labId) setSelectedLabId(firstSub.labId)
         if (firstSub.defaultTopic) setPracticalTitle(firstSub.defaultTopic)
       }
@@ -133,9 +166,13 @@ export default function LogForm({ labs, teachers }: { labs: Lab[]; teachers: Tea
   // Reactive subject change: Auto-selects corresponding subject teacher and laboratory
   const handleSubjectChange = (code: string) => {
     setSelectedSubjectCode(code)
-    const sub = DEFAULT_SUBJECTS.find((s) => s.code === code)
+    const sub =
+      (isTeacher && scopedOptions?.assignedSubjects?.length > 0
+        ? scopedOptions.assignedSubjects.find((s: any) => s.code === code)
+        : null) || DEFAULT_SUBJECTS.find((s) => s.code === code)
+
     if (sub) {
-      if (sub.teacherId) setSelectedTeacherId(sub.teacherId)
+      if (!isTeacher && sub.teacherId) setSelectedTeacherId(sub.teacherId)
       if (sub.labId) setSelectedLabId(sub.labId)
       if (sub.defaultTopic) setPracticalTitle(sub.defaultTopic)
     }
@@ -152,6 +189,13 @@ export default function LogForm({ labs, teachers }: { labs: Lab[]; teachers: Tea
     event.preventDefault()
     setIsSubmitting(true)
     setError(null)
+    setDuplicateId(null)
+
+    if (isHoliday && activeHoliday) {
+      setError(`Session logging is suspended: ${sessionDate} is marked as an institutional holiday (${activeHoliday.name}).`)
+      setIsSubmitting(false)
+      return
+    }
 
     const chosenSubject = DEFAULT_SUBJECTS.find((s) => s.code === selectedSubjectCode)
     const finalSubjectName = chosenSubject ? chosenSubject.fullName : selectedSubjectCode
@@ -169,10 +213,39 @@ export default function LogForm({ labs, teachers }: { labs: Lab[]; teachers: Tea
     const safePresent = Math.max(0, Math.min(safeTotal, safeTotal - safeAbsent))
 
     const teacherObj = teachers.find((t) => t.id === selectedTeacherId)
+    const teacherName = isTeacher
+      ? (scopedOptions?.teacher?.name || teacherObj?.full_name || 'Assigned Subject Teacher')
+      : (teacherObj ? teacherObj.full_name : 'Assigned Subject Teacher')
     const labObj = labs.find((l) => l.id === selectedLabId)
 
     try {
+      const res = await createPracticalLog({
+        lab_id: selectedLabId,
+        teacher_id: selectedTeacherId,
+        teacher: teacherName,
+        date: sessionDate,
+        period_label: periodInfo.label,
+        subject_name: `${selectedSubjectCode} - ${finalSubjectName}`,
+        batch_group: activeClassObj.name,
+        practical_title: practicalTitle,
+        total_students: safeTotal,
+        present_students: safePresent,
+        absent_students: safeAbsent,
+        absent_rolls: sanitizedRolls,
+        remarks,
+        status: 'conducted',
+        topic_learned: practicalTitle,
+      })
+
+      if (!res.success) {
+        setError(res.error || 'Failed to record practical session.')
+        if (res.duplicateId) setDuplicateId(res.duplicateId)
+        setIsSubmitting(false)
+        return
+      }
+
       await saveLog({
+        id: res.log?.id,
         sessionId: `adhoc-${Date.now()}`,
         date: sessionDate,
         dayKey: 'sun',
@@ -181,7 +254,7 @@ export default function LogForm({ labs, teachers }: { labs: Lab[]; teachers: Tea
         subjectCode: selectedSubjectCode,
         subjectTitle: finalSubjectName,
         grade: activeClassObj.name,
-        teacher: teacherObj ? teacherObj.full_name : 'Faculty In-Charge',
+        teacher: teacherObj ? teacherObj.full_name : 'Assigned Subject Teacher',
         lab: labObj ? labObj.name : 'Laboratory',
         labId: selectedLabId,
         status: 'conducted',
@@ -193,12 +266,11 @@ export default function LogForm({ labs, teachers }: { labs: Lab[]; teachers: Tea
         remarks,
       })
 
-      router.push('/logs')
+      router.push('/records')
       router.refresh()
     } catch (err: any) {
-      console.warn('Fallback offline save completed', err)
-      router.push('/logs')
-      router.refresh()
+      console.warn('Practical log submit error:', err)
+      setError(err.message || 'An error occurred while saving the practical log.')
     } finally {
       setIsSubmitting(false)
     }
@@ -207,9 +279,19 @@ export default function LogForm({ labs, teachers }: { labs: Lab[]; teachers: Tea
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       {error && (
-        <div className="bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 p-3 rounded-xl text-xs border border-rose-200 dark:border-rose-900/60 font-mono flex items-center gap-2">
-          <AlertCircle className="h-4 w-4 shrink-0 text-rose-500" />
-          <span>{error}</span>
+        <div className="bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 p-3.5 rounded-xl text-xs border border-rose-200 dark:border-rose-900/60 font-mono flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in duration-200">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 shrink-0 text-rose-500" />
+            <span>{error}</span>
+          </div>
+          {duplicateId && (
+            <a
+              href={`/records?search=${encodeURIComponent(activeClassObj.name)}`}
+              className="px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-bold text-[11px] shrink-0 inline-flex items-center gap-1 self-start sm:self-auto"
+            >
+              <span>Open in Records ➔</span>
+            </a>
+          )}
         </div>
       )}
 
@@ -256,24 +338,33 @@ export default function LogForm({ labs, teachers }: { labs: Lab[]; teachers: Tea
               <div className="space-y-1 font-mono">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
-                    Faculty In-Charge *
+                    Subject Teacher *
                   </label>
                   <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">
-                    Auto-selected for Subject
+                    {isTeacher ? 'Authenticated Identity' : 'Auto-selected for Subject'}
                   </span>
                 </div>
-                <Select
-                  required
-                  value={selectedTeacherId}
-                  onChange={(e) => setSelectedTeacherId(e.target.value)}
-                  className="h-8.5 text-xs"
-                >
-                  {teachers.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.full_name}
-                    </option>
-                  ))}
-                </Select>
+                {isTeacher ? (
+                  <div className="h-8.5 px-3 bg-zinc-50 dark:bg-zinc-800/80 border border-zinc-200 dark:border-zinc-700 rounded-lg text-xs font-mono text-zinc-900 dark:text-zinc-100 flex items-center justify-between">
+                    <span className="font-semibold">{scopedOptions?.teacher?.name || 'Assigned Faculty'}</span>
+                    <Badge className="text-[9px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20">
+                      Current User
+                    </Badge>
+                  </div>
+                ) : (
+                  <Select
+                    required
+                    value={selectedTeacherId}
+                    onChange={(e) => setSelectedTeacherId(e.target.value)}
+                    className="h-8.5 text-xs"
+                  >
+                    {teachers.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.full_name}
+                      </option>
+                    ))}
+                  </Select>
+                )}
               </div>
             </div>
 
@@ -289,8 +380,18 @@ export default function LogForm({ labs, teachers }: { labs: Lab[]; teachers: Tea
                   type="date"
                   value={sessionDate}
                   onChange={(e) => setSessionDate(e.target.value)}
-                  className="h-8.5 text-xs font-mono"
+                  className={`h-8.5 text-xs font-mono ${
+                    isHoliday
+                      ? 'border-amber-500 bg-amber-50/50 dark:bg-amber-950/20 text-amber-900 dark:text-amber-200 font-bold'
+                      : ''
+                  }`}
                 />
+                {isHoliday && activeHoliday && (
+                  <div className="mt-1.5 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-200 text-xs flex items-center gap-1.5">
+                    <AlertCircle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                    <span className="font-semibold">{activeHoliday.name} (Holiday Recess)</span>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-1 font-mono">
@@ -304,7 +405,7 @@ export default function LogForm({ labs, teachers }: { labs: Lab[]; teachers: Tea
                   onChange={(e) => handleClassChange(e.target.value)}
                   className="h-8.5 text-xs"
                 >
-                  {DEFAULT_CLASSES.map((c) => (
+                  {availableClasses.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name} — {c.stream} ({c.strength} Students)
                     </option>
@@ -331,9 +432,9 @@ export default function LogForm({ labs, teachers }: { labs: Lab[]; teachers: Tea
                 className="h-8.5 text-xs font-sans"
               >
                 {classSubjects.length > 0 ? (
-                  classSubjects.map((s) => (
+                  classSubjects.map((s: any) => (
                     <option key={s.code} value={s.code}>
-                      {s.code} — {s.title} ({s.lab})
+                      {s.code} — {s.title} ({s.lab || s.labName || 'Laboratory'})
                     </option>
                   ))
                 ) : (
@@ -401,7 +502,7 @@ export default function LogForm({ labs, teachers }: { labs: Lab[]; teachers: Tea
             </div>
           </div>
 
-          {/* Card 3: Experiment Topic & Faculty Observations */}
+          {/* Card 3: Experiment Topic & Teacher Observations */}
           <div className="bg-white dark:bg-zinc-900/80 rounded-2xl border border-zinc-200/80 dark:border-zinc-800 p-4 shadow-xs space-y-3 font-mono">
             <div className="space-y-1">
               <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
@@ -420,7 +521,7 @@ export default function LogForm({ labs, teachers }: { labs: Lab[]; teachers: Tea
 
             <div className="space-y-1">
               <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
-                Faculty Remarks & Observations (Optional)
+                Teacher Remarks & Observations (Optional)
               </label>
               <textarea
                 rows={2}
@@ -504,10 +605,10 @@ export default function LogForm({ labs, teachers }: { labs: Lab[]; teachers: Tea
               </div>
             </div>
 
-            {/* Turnout Progress Bar (Clamped strictly to 100%) */}
+            {/* Attendance Progress Bar (Clamped strictly to 100%) */}
             <div className="space-y-1">
               <div className="flex items-center justify-between text-[11px] font-bold">
-                <span className="text-zinc-500">Verified Turnout Rate</span>
+                <span className="text-zinc-500">Student Attendance Rate</span>
                 <span
                   className={
                     attendancePercentage >= 80
@@ -517,7 +618,7 @@ export default function LogForm({ labs, teachers }: { labs: Lab[]; teachers: Tea
                       : 'text-rose-600 dark:text-rose-400'
                   }
                 >
-                  {attendancePercentage}% Turnout
+                  {attendancePercentage}% Attendance
                 </span>
               </div>
               <div className="h-2 w-full bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden">
@@ -653,11 +754,21 @@ export default function LogForm({ labs, teachers }: { labs: Lab[]; teachers: Tea
             <Button
               type="submit"
               size="sm"
-              disabled={isSubmitting}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold gap-1.5 px-5 shadow-xs text-xs"
+              disabled={isSubmitting || isHoliday}
+              className={`font-bold gap-1.5 px-5 shadow-xs text-xs ${
+                isHoliday
+                  ? 'bg-zinc-400 dark:bg-zinc-700 text-zinc-200 cursor-not-allowed'
+                  : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+              }`}
             >
               <FileCheck className="h-3.5 w-3.5" />
-              <span>{isSubmitting ? 'Recording...' : 'Endorse & Save Log'}</span>
+              <span>
+                {isHoliday
+                  ? 'Logging Suspended (Holiday)'
+                  : isSubmitting
+                  ? 'Recording...'
+                  : 'Save & Submit Log'}
+              </span>
             </Button>
           </div>
         </div>

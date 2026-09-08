@@ -15,9 +15,11 @@ import { useIncidentState } from '@/hooks/use-incident-state'
 import { useInfrastructureState } from '@/hooks/use-infrastructure-state'
 import { getNepalDateStr } from '@/lib/nepali-date'
 import { MASTER_TIME_SLOTS } from '@/lib/master-data'
+import { useUserScope } from '@/hooks/use-user-scope'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
+import { Badge } from '@/components/ui/badge'
 
 interface ReportIncidentModalProps {
   isOpen: boolean
@@ -34,24 +36,41 @@ export default function ReportIncidentModal({
 }: ReportIncidentModalProps) {
   const { logIncident } = useIncidentState()
   const { faculty, classes, incidentCategories } = useInfrastructureState()
+  const { scope, isTeacher } = useUserScope()
 
   // Primary focus on Physics, Chemistry, and Computer labs
   const TARGET_LABS = [
     { id: 'phys', name: 'Physics Laboratory' },
     { id: 'chem', name: 'Chemistry Laboratory' },
     { id: 'comp', name: 'Computer Laboratory' },
+    { id: 'elec', name: 'Electronics & Hardware Lab' },
+    { id: 'bio', name: 'Biology & Life Sciences Lab' },
   ]
+
+  const availableClasses =
+    isTeacher && scope?.assignedClasses && scope.assignedClasses.length > 0
+      ? classes.filter((c) => scope.assignedClasses.includes(c.name))
+      : classes
 
   const [labId, setLabId] = useState<string>(defaultLabId)
   const [periodSlot, setPeriodSlot] = useState<string>('Period 2 (11:00 - 11:45)')
-  const [batchName, setBatchName] = useState<string>(classes[0]?.name || 'Class 12C')
-  const [teacherName, setTeacherName] = useState<string>(faculty[0]?.name || 'Dr. Prakash Adhikari')
+  const [batchName, setBatchName] = useState<string>(availableClasses[0]?.name || 'Class 12C')
+  const [teacherName, setTeacherName] = useState<string>(
+    isTeacher && scope?.fullName ? scope.fullName : faculty[0]?.name || 'Dr. Prakash Adhikari'
+  )
   const [incidentType, setIncidentType] = useState<string>(incidentCategories[0]?.code || 'breakage')
   const [severity, setSeverity] = useState<any>('minor')
   const [incidentTitle, setIncidentTitle] = useState<string>('')
   const [circumstances, setCircumstances] = useState<string>('')
   const [studentRolls, setStudentRolls] = useState<string>('')
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false)
+
+  // Reactively sync teacherName when scope loads
+  React.useEffect(() => {
+    if (isTeacher && scope?.fullName) {
+      setTeacherName(scope.fullName)
+    }
+  }, [isTeacher, scope?.fullName])
 
   if (!isOpen) return null
 
@@ -234,8 +253,8 @@ export default function ReportIncidentModal({
                 onChange={(e) => setBatchName(e.target.value)}
                 className="bg-white dark:bg-zinc-950 text-xs"
               >
-                {classes.length > 0 ? (
-                  classes.map((c) => (
+                {availableClasses.length > 0 ? (
+                  availableClasses.map((c) => (
                     <option key={c.id} value={c.name}>
                       {c.name} ({c.stream || c.section})
                     </option>
@@ -255,13 +274,22 @@ export default function ReportIncidentModal({
               <label className="font-bold text-zinc-800 dark:text-zinc-200">
                 Supervising Teacher
               </label>
-              <Select value={teacherName} onChange={(e) => setTeacherName(e.target.value)}>
-                {faculty.map((f) => (
-                  <option key={f.id} value={f.name}>
-                    {f.name}
-                  </option>
-                ))}
-              </Select>
+              {isTeacher ? (
+                <div className="h-8.5 px-2.5 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg text-xs font-mono text-zinc-900 dark:text-zinc-100 flex items-center justify-between">
+                  <span className="truncate">{teacherName}</span>
+                  <Badge className="text-[9px] bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/20">
+                    Self
+                  </Badge>
+                </div>
+              ) : (
+                <Select value={teacherName} onChange={(e) => setTeacherName(e.target.value)}>
+                  {faculty.map((f) => (
+                    <option key={f.id} value={f.name}>
+                      {f.name}
+                    </option>
+                  ))}
+                </Select>
+              )}
             </div>
 
             <div className="space-y-1">

@@ -13,7 +13,10 @@ import {
   mergeSchedules as mergeSchedulesAction,
   unmergeSchedule as unmergeScheduleAction,
   deleteSchedule as deleteScheduleAction,
+  updateScheduleStatus,
 } from '@/app/actions/schedules'
+import { parseSlotTimeRange } from '@/lib/utils'
+import { broadcastSync, subscribeToSync } from '@/lib/sync-bus'
 
 const STORAGE_KEY = 'lab_master_routine_2083_v6'
 const ROUTINE_OUTBOX_KEY = 'lab_pending_schedules_outbox_v1'
@@ -35,7 +38,9 @@ function savePendingRoutineOutbox(queue: MasterRoutineItem[]) {
   if (typeof window === 'undefined') return
   try {
     localStorage.setItem(ROUTINE_OUTBOX_KEY, JSON.stringify(queue))
-    window.dispatchEvent(new CustomEvent('sync-status-changed', { detail: { pendingSchedulesCount: queue.length } }))
+    queueMicrotask(() => {
+      window.dispatchEvent(new CustomEvent('sync-status-changed', { detail: { pendingSchedulesCount: queue.length } }))
+    })
   } catch {}
 }
 
@@ -51,20 +56,24 @@ function removeRoutineFromOutbox(id: string) {
 }
 
 export function useRoutineState() {
-  const [routines, setRoutines] = useState<MasterRoutineItem[]>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem(STORAGE_KEY)
-        if (saved) {
-          const parsed = JSON.parse(saved)
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed
-        }
-      } catch (e) {}
-    }
-    return MASTER_ROUTINE
-  })
+  // Always initialize with MASTER_ROUTINE on initial SSR render to guarantee identical markup during hydration
+  const [routines, setRoutines] = useState<MasterRoutineItem[]>(MASTER_ROUTINE)
   const [isLoaded, setIsLoaded] = useState(false)
   const isFlushingRef = useRef(false)
+
+  // Load from localStorage on mount (prevents SSR hydration mismatch)
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY)
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setRoutines(parsed)
+        }
+      }
+    } catch (e) {}
+    setIsLoaded(true)
+  }, [])
 
   // Flush Pending Schedules Outbox to Supabase
   const flushRoutineOutbox = useCallback(async () => {
@@ -84,8 +93,8 @@ export function useRoutineState() {
           day_key: item.dayKey,
           slot_id: item.slotId,
           span: item.span || 1,
-          start_time: item.timeSlot.split(' - ')[0] || '10:10',
-          end_time: item.timeSlot.split(' - ')[1] || '11:00',
+          start_time: parseSlotTimeRange(item.timeSlot).startTime,
+          end_time: parseSlotTimeRange(item.timeSlot).endTime,
           metadata: {
             teacher: item.teacher,
             labName: item.lab,
@@ -94,6 +103,9 @@ export function useRoutineState() {
         })
 
         if (res && res.success) {
+          removeRoutineFromOutbox(item.id)
+        } else if (res && res.error) {
+          console.warn('Routine outbox item rejected by server, removing from outbox queue:', res.error)
           removeRoutineFromOutbox(item.id)
         }
       }
@@ -104,20 +116,26 @@ export function useRoutineState() {
     }
   }, [])
 
-  // Persist helper
+  // Persist helper (asynchronous dispatch to prevent React setState-in-render collisions)
   const persistRoutines = useCallback((updater: MasterRoutineItem[] | ((prev: MasterRoutineItem[]) => MasterRoutineItem[])) => {
     setRoutines((prev) => {
       const updated = typeof updater === 'function' ? updater(prev) : updater
       try {
         if (typeof window !== 'undefined') {
           localStorage.setItem(STORAGE_KEY, JSON.stringify(updated))
-          window.dispatchEvent(new Event('routine-updated'))
         }
       } catch (e) {
         console.error('Failed to save routine', e)
       }
       return updated
     })
+
+    if (typeof window !== 'undefined') {
+      queueMicrotask(() => {
+        window.dispatchEvent(new Event('routine-updated'))
+        broadcastSync('schedules', {})
+      })
+    }
   }, [])
 
   // Load from Supabase with fallback to localStorage and pending outbox merge
@@ -168,12 +186,23 @@ export function useRoutineState() {
               dotColor: isComp ? 'bg-indigo-500' : isPhys ? 'bg-amber-500' : isChem ? 'bg-emerald-500' : isBio ? 'bg-teal-500' : 'bg-cyan-500',
               badgeColor: 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700',
               accentColor: 'border-l-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/20 text-zinc-950 dark:text-zinc-50',
+              status: s.status || s.metadata?.status || 'confirmed',
+              isSkipped: s.metadata?.is_skipped || s.status === 'skipped' || false,
+              skippedReason: s.metadata?.skipped_reason || undefined,
+              skippedBy: s.metadata?.skipped_by || undefined,
+              requestedBy: s.metadata?.requested_by || undefined,
+              declineReason: s.metadata?.decline_reason || undefined,
             }
           })
 
         // Merge: un-synced offline schedules take priority
         const merged = [...pending, ...mappedRemote]
-        persistRoutines(merged)
+        try {
+          if (typeof window !== 'undefined') {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(merged))
+          }
+        } catch {}
+        setRoutines(merged)
         setIsLoaded(true)
         return
       }
@@ -193,7 +222,7 @@ export function useRoutineState() {
     } catch (e) {} finally {
       setIsLoaded(true)
     }
-  }, [flushRoutineOutbox, persistRoutines])
+  }, [flushRoutineOutbox])
 
   useEffect(() => {
     loadRemoteSchedules()
@@ -213,13 +242,42 @@ export function useRoutineState() {
       try {
         const saved = localStorage.getItem(STORAGE_KEY)
         if (saved) {
-          setRoutines(JSON.parse(saved))
+          const parsed = JSON.parse(saved)
+          setRoutines((prev) => {
+            // Bail out if unchanged to prevent infinite re-render cycles
+            if (prev.length === parsed.length && JSON.stringify(prev) === saved) {
+              return prev
+            }
+            return parsed
+          })
         }
       } catch (e) {}
     }
 
     window.addEventListener('routine-updated', handleUpdate)
-    return () => window.removeEventListener('routine-updated', handleUpdate)
+    window.addEventListener('storage', (e) => {
+      if (e.key === STORAGE_KEY) handleUpdate()
+    })
+
+    const unsub = subscribeToSync('schedules', (eventData) => {
+      const payloadRoutines = eventData?.payload?.routines
+      if (payloadRoutines && Array.isArray(payloadRoutines)) {
+        setRoutines((prev) => {
+          if (prev.length === payloadRoutines.length && JSON.stringify(prev) === JSON.stringify(payloadRoutines)) {
+            return prev
+          }
+          return payloadRoutines
+        })
+      } else {
+        handleUpdate()
+      }
+    })
+
+    return () => {
+      window.removeEventListener('routine-updated', handleUpdate)
+      window.removeEventListener('storage', handleUpdate as any)
+      unsub()
+    }
   }, [])
 
   // Operations backed by Server Actions + Optimistic State + Outbox
@@ -236,8 +294,8 @@ export function useRoutineState() {
           day_key: session.dayKey,
           slot_id: session.slotId,
           span: session.span || 1,
-          start_time: session.timeSlot.split(' - ')[0] || '10:10',
-          end_time: session.timeSlot.split(' - ')[1] || '11:00',
+          start_time: parseSlotTimeRange(session.timeSlot).startTime,
+          end_time: parseSlotTimeRange(session.timeSlot).endTime,
           metadata: {
             teacher: session.teacher,
             labName: session.lab,
@@ -245,6 +303,8 @@ export function useRoutineState() {
           },
         })
         if (res && res.success) {
+          removeRoutineFromOutbox(session.id)
+        } else if (res && res.error) {
           removeRoutineFromOutbox(session.id)
         }
       } catch (e) {
@@ -263,23 +323,66 @@ export function useRoutineState() {
     }
   }
 
+  const updateSession = async (sessionId: string, updatedFields: Partial<MasterRoutineItem>) => {
+    const current = routines.find((r) => r.id === sessionId)
+    if (!current) return
+    const updated: MasterRoutineItem = {
+      ...current,
+      ...updatedFields,
+    }
+    persistRoutines((prev) => prev.map((r) => (r.id === sessionId ? updated : r)))
+    addRoutineToOutbox(updated)
+
+    if (navigator.onLine) {
+      try {
+        const { createClient } = await import('@/lib/supabase/client')
+        const supabase = createClient()
+        const labId =
+          updated.labKey === 'comp'
+            ? 'comp'
+            : updated.labKey === 'phys'
+            ? 'phys'
+            : updated.labKey === 'chem'
+            ? 'chem'
+            : updated.labKey === 'bio'
+            ? 'bio'
+            : 'elec'
+        await (supabase.from('schedules') as any)
+          .update({
+            lab_id: labId,
+            subject_name: `${updated.subjectCode} - ${updated.subjectTitle}`,
+            batch_name: updated.grade,
+            day_key: updated.dayKey,
+            slot_id: updated.slotId,
+            span: updated.span || 1,
+            start_time: parseSlotTimeRange(updated.timeSlot).startTime,
+            end_time: parseSlotTimeRange(updated.timeSlot).endTime,
+            metadata: {
+              teacher: updated.teacher,
+              labName: updated.lab,
+              studentsCount: updated.defaultStudents,
+            },
+          })
+          .eq('id', sessionId)
+        removeRoutineFromOutbox(sessionId)
+      } catch (e) {
+        console.warn('Network offline, update queued in outbox:', e)
+      }
+    }
+  }
+
   const extendSession = (sessionId: string, additionalSpan: number = 1) => {
-    persistRoutines((prev) =>
-      prev.map((r) => {
-        if (r.id === sessionId) {
-          const newSpan = (r.span || 1) + additionalSpan
-          const newTimeSlot = computeCombinedTimeRange(r.slotId, newSpan)
-          const updated = {
-            ...r,
-            span: newSpan,
-            timeSlot: newTimeSlot,
-          }
-          addRoutineToOutbox(updated)
-          return updated
-        }
-        return r
-      })
-    )
+    const current = routines.find((r) => r.id === sessionId)
+    if (!current) return
+    const newSpan = (current.span || 1) + additionalSpan
+    const newTimeSlot = computeCombinedTimeRange(current.slotId, newSpan)
+    const updated = {
+      ...current,
+      span: newSpan,
+      timeSlot: newTimeSlot,
+    }
+    persistRoutines((prev) => prev.map((r) => (r.id === sessionId ? updated : r)))
+    addRoutineToOutbox(updated)
   }
 
   const mergeSession = async (
@@ -290,102 +393,297 @@ export function useRoutineState() {
     mergedGrade?: string,
     mergedTeacher?: string
   ) => {
-    persistRoutines((prev) => {
-      const current = prev.find((r) => r.id === sessionId)
-      if (!current) return prev
+    const current = routines.find((r) => r.id === sessionId)
+    if (!current) return
 
-      if (nextSessionId) {
-        const next = prev.find((r) => r.id === nextSessionId)
-        if (next) {
-          const combinedSpan = (current.span || 1) + (next.span || 1)
-          const combinedTimeSlot = computeCombinedTimeRange(current.slotId, combinedSpan)
-          const combinedCode = mergedCode || `${current.subjectCode} + ${next.subjectCode}`
-          const combinedTitle = mergedTitle || `${current.subjectTitle} & ${next.subjectTitle}`
-          const combinedGrade = mergedGrade || (current.grade === next.grade ? current.grade : `${current.grade} & ${next.grade}`)
-          const combinedTeacher = mergedTeacher || (current.teacher === next.teacher ? current.teacher : `${current.teacher} & ${next.teacher}`)
-          const combinedStudents = (current.defaultStudents || 36) + (next.defaultStudents || 36)
+    if (nextSessionId) {
+      const next = routines.find((r) => r.id === nextSessionId)
+      if (next) {
+        const combinedSpan = (current.span || 1) + (next.span || 1)
+        const combinedTimeSlot = computeCombinedTimeRange(current.slotId, combinedSpan)
+        const combinedCode = mergedCode || `${current.subjectCode} + ${next.subjectCode}`
+        const combinedTitle = mergedTitle || `${current.subjectTitle} & ${next.subjectTitle}`
+        const combinedGrade = mergedGrade || (current.grade === next.grade ? current.grade : `${current.grade} & ${next.grade}`)
+        const combinedTeacher = mergedTeacher || (current.teacher === next.teacher ? current.teacher : `${current.teacher} & ${next.teacher}`)
+        const combinedStudents = (current.defaultStudents || 36) + (next.defaultStudents || 36)
 
-          const mergedItem: MasterRoutineItem = {
-            ...current,
-            span: combinedSpan,
-            timeSlot: combinedTimeSlot,
-            subjectCode: combinedCode,
-            subjectTitle: combinedTitle,
-            grade: combinedGrade,
-            teacher: combinedTeacher,
-            defaultStudents: combinedStudents,
-            mergedParts: [
-              {
-                subjectCode: current.subjectCode,
-                subjectTitle: current.subjectTitle,
-                grade: current.grade,
-                teacher: current.teacher,
-                students: current.defaultStudents,
-              },
-              {
-                subjectCode: next.subjectCode,
-                subjectTitle: next.subjectTitle,
-                grade: next.grade,
-                teacher: next.teacher,
-                students: next.defaultStudents,
-              },
-            ],
-          }
-
-          addRoutineToOutbox(mergedItem)
-
-          return prev
-            .filter((r) => r.id !== nextSessionId)
-            .map((r) => (r.id === sessionId ? mergedItem : r))
+        const mergedItem: MasterRoutineItem = {
+          ...current,
+          span: combinedSpan,
+          timeSlot: combinedTimeSlot,
+          subjectCode: combinedCode,
+          subjectTitle: combinedTitle,
+          grade: combinedGrade,
+          teacher: combinedTeacher,
+          defaultStudents: combinedStudents,
+          mergedParts: [
+            {
+              subjectCode: current.subjectCode,
+              subjectTitle: current.subjectTitle,
+              grade: current.grade,
+              teacher: current.teacher,
+              students: current.defaultStudents,
+            },
+            {
+              subjectCode: next.subjectCode,
+              subjectTitle: next.subjectTitle,
+              grade: next.grade,
+              teacher: next.teacher,
+              students: next.defaultStudents,
+            },
+          ],
         }
-      }
 
-      // Single session extend fallback
-      const newSpan = (current.span || 1) + 1
-      const updated = {
-        ...current,
-        span: newSpan,
-        timeSlot: computeCombinedTimeRange(current.slotId, newSpan),
-      }
-      addRoutineToOutbox(updated)
-      return prev.map((r) => (r.id === sessionId ? updated : r))
-    })
+        persistRoutines((prev) =>
+          prev.filter((r) => r.id !== nextSessionId).map((r) => (r.id === sessionId ? mergedItem : r))
+        )
+        addRoutineToOutbox(mergedItem)
 
-    try {
-      await mergeSchedulesAction(sessionId, nextSessionId, {
-        subject_name: mergedTitle,
-        batch_name: mergedGrade,
-      })
-    } catch (e) {
-      console.warn('Server sync for mergeSession skipped:', e)
+        try {
+          await mergeSchedulesAction(sessionId, nextSessionId, {
+            subject_name: mergedTitle,
+            batch_name: mergedGrade,
+          })
+        } catch (e) {
+          console.warn('Server sync for mergeSession skipped:', e)
+        }
+        return
+      }
     }
+
+    // Single session extend fallback
+    const newSpan = (current.span || 1) + 1
+    const updated = {
+      ...current,
+      span: newSpan,
+      timeSlot: computeCombinedTimeRange(current.slotId, newSpan),
+    }
+    persistRoutines((prev) => prev.map((r) => (r.id === sessionId ? updated : r)))
+    addRoutineToOutbox(updated)
   }
 
   const unmergeSession = async (sessionId: string) => {
-    persistRoutines((prev) => {
-      const current = prev.find((r) => r.id === sessionId)
-      if (!current || (current.span || 1) <= 1) return prev
+    const current = routines.find((r) => r.id === sessionId)
+    if (!current || (current.span || 1) <= 1) return
 
-      const originalSlot = MASTER_TIME_SLOTS.find((t) => t.id === current.slotId)
-      const unmerged: MasterRoutineItem = {
-        ...current,
-        span: 1,
-        timeSlot: originalSlot?.label || '10:10 - 11:00',
-        subjectCode: current.mergedParts ? current.mergedParts[0].subjectCode : current.subjectCode.split(' + ')[0],
-        subjectTitle: current.mergedParts ? current.mergedParts[0].subjectTitle : current.subjectTitle.split(' & ')[0],
-        grade: current.mergedParts ? current.mergedParts[0].grade : current.grade.split(' & ')[0],
-        teacher: current.mergedParts ? current.mergedParts[0].teacher : current.teacher.split(' & ')[0],
-        mergedParts: undefined,
-      }
+    let slotList = MASTER_TIME_SLOTS
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('infrastructure_periods')
+        if (saved) {
+          const parsed = JSON.parse(saved)
+          if (Array.isArray(parsed) && parsed.length > 0) slotList = parsed
+        }
+      } catch (e) {}
+    }
+    const originalSlot = slotList.find((t) => t.id === current.slotId)
+    const unmerged: MasterRoutineItem = {
+      ...current,
+      span: 1,
+      timeSlot: originalSlot?.label || current.timeSlot.split('-')[0]?.trim() || '10:10 - 11:00',
+      subjectCode: current.mergedParts ? current.mergedParts[0].subjectCode : current.subjectCode.split(' + ')[0],
+      subjectTitle: current.mergedParts ? current.mergedParts[0].subjectTitle : current.subjectTitle.split(' & ')[0],
+      grade: current.mergedParts ? current.mergedParts[0].grade : current.grade.split(' & ')[0],
+      teacher: current.mergedParts ? current.mergedParts[0].teacher : current.teacher.split(' & ')[0],
+      mergedParts: undefined,
+    }
 
-      addRoutineToOutbox(unmerged)
-      return prev.map((r) => (r.id === sessionId ? unmerged : r))
-    })
+    persistRoutines((prev) => prev.map((r) => (r.id === sessionId ? unmerged : r)))
+    addRoutineToOutbox(unmerged)
 
     try {
       await unmergeScheduleAction(sessionId)
     } catch (e) {
       console.warn('Server sync for unmergeSession skipped:', e)
+    }
+  }
+
+  const skipSession = async (sessionId: string, reason: string = 'Administrative cancellation', skippedBy: string = 'Administrator') => {
+    const current = routines.find((r) => r.id === sessionId)
+    const updated: MasterRoutineItem = current
+      ? {
+          ...current,
+          status: 'skipped',
+          isSkipped: true,
+          skippedReason: reason,
+          skippedBy,
+        }
+      : ({
+          id: sessionId,
+          status: 'skipped',
+          isSkipped: true,
+          skippedReason: reason,
+          skippedBy,
+        } as any)
+
+    persistRoutines((prev) =>
+      prev.map((r) =>
+        r.id === sessionId
+          ? {
+              ...r,
+              status: 'skipped',
+              isSkipped: true,
+              skippedReason: reason,
+              skippedBy,
+            }
+          : r
+      )
+    )
+    addRoutineToOutbox(updated)
+
+    try {
+      await updateScheduleStatus(sessionId, {
+        status: 'skipped',
+        is_skipped: true,
+        skipped_reason: reason,
+        skipped_by: skippedBy,
+      })
+    } catch (e) {
+      console.warn('Server sync for skipSession skipped:', e)
+    }
+  }
+
+  const unskipSession = async (sessionId: string) => {
+    const current = routines.find((r) => r.id === sessionId)
+    const updated: MasterRoutineItem = current
+      ? {
+          ...current,
+          status: 'confirmed',
+          isSkipped: false,
+          skippedReason: undefined,
+          skippedBy: undefined,
+        }
+      : ({
+          id: sessionId,
+          status: 'confirmed',
+          isSkipped: false,
+        } as any)
+
+    persistRoutines((prev) =>
+      prev.map((r) =>
+        r.id === sessionId
+          ? {
+              ...r,
+              status: 'confirmed',
+              isSkipped: false,
+              skippedReason: undefined,
+              skippedBy: undefined,
+            }
+          : r
+      )
+    )
+    addRoutineToOutbox(updated)
+
+    try {
+      await updateScheduleStatus(sessionId, {
+        status: 'confirmed',
+        is_skipped: false,
+      })
+    } catch (e) {
+      console.warn('Server sync for unskipSession skipped:', e)
+    }
+  }
+
+  const requestSlotBooking = async (session: MasterRoutineItem, requestedBy: string) => {
+    const requestedSession: MasterRoutineItem = {
+      ...session,
+      status: 'requested',
+      isSkipped: false,
+      requestedBy,
+    }
+    persistRoutines((prev) => [...prev, requestedSession])
+    addRoutineToOutbox(requestedSession)
+
+    if (navigator.onLine) {
+      try {
+        const res = await createSchedule({
+          lab_id: session.labKey === 'comp' ? 'comp' : session.labKey === 'phys' ? 'phys' : session.labKey === 'chem' ? 'chem' : session.labKey === 'bio' ? 'bio' : 'elec',
+          subject_name: `${session.subjectCode} - ${session.subjectTitle}`,
+          batch_name: session.grade,
+          day_key: session.dayKey,
+          slot_id: session.slotId,
+          span: session.span || 1,
+          start_time: parseSlotTimeRange(session.timeSlot).startTime,
+          end_time: parseSlotTimeRange(session.timeSlot).endTime,
+          metadata: {
+            teacher: session.teacher,
+            labName: session.lab,
+            studentsCount: session.defaultStudents,
+            status: 'requested',
+            requested_by: requestedBy,
+          },
+        })
+        if (res && res.success) {
+          removeRoutineFromOutbox(session.id)
+        }
+      } catch (e) {
+        console.warn('Network offline, routine queued in outbox:', e)
+      }
+    }
+  }
+
+  const approveSlotBooking = async (sessionId: string) => {
+    const current = routines.find((r) => r.id === sessionId)
+    const updated: MasterRoutineItem = current
+      ? {
+          ...current,
+          status: 'confirmed',
+        }
+      : ({
+          id: sessionId,
+          status: 'confirmed',
+        } as any)
+
+    persistRoutines((prev) =>
+      prev.map((r) => (r.id === sessionId ? { ...r, status: 'confirmed' } : r))
+    )
+    addRoutineToOutbox(updated)
+
+    try {
+      await updateScheduleStatus(sessionId, { status: 'confirmed' })
+    } catch (e) {
+      console.warn('Server sync for approveSlotBooking skipped:', e)
+    }
+  }
+
+  const rejectSlotBooking = async (sessionId: string, reason?: string) => {
+    const current = routines.find((r) => r.id === sessionId)
+    const updated: MasterRoutineItem = current
+      ? {
+          ...current,
+          status: 'skipped',
+          isSkipped: true,
+          declineReason: reason || 'Booking request declined by Lab Administration',
+        }
+      : ({
+          id: sessionId,
+          status: 'skipped',
+          isSkipped: true,
+          declineReason: reason || 'Booking request declined by Lab Administration',
+        } as any)
+
+    persistRoutines((prev) =>
+      prev.map((r) =>
+        r.id === sessionId
+          ? {
+              ...r,
+              status: 'skipped',
+              isSkipped: true,
+              declineReason: reason || 'Booking request declined by Lab Administration',
+            }
+          : r
+      )
+    )
+    addRoutineToOutbox(updated)
+
+    try {
+      await updateScheduleStatus(sessionId, {
+        status: 'skipped',
+        is_skipped: true,
+        decline_reason: reason || 'Booking request declined by Lab Administration',
+      })
+    } catch (e) {
+      console.warn('Server sync for rejectSlotBooking skipped:', e)
     }
   }
 
@@ -401,10 +699,16 @@ export function useRoutineState() {
     routines,
     isLoaded,
     addSession,
+    updateSession,
     deleteSession,
     extendSession,
     mergeSession,
     unmergeSession,
+    skipSession,
+    unskipSession,
+    requestSlotBooking,
+    approveSlotBooking,
+    rejectSlotBooking,
     resetToMaster,
     flushRoutineOutbox,
   }

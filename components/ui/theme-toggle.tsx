@@ -16,9 +16,9 @@ export default function ThemeToggle() {
   if (!mounted) {
     return (
       <Button
-        variant="ghost"
+        variant="outline"
         size="icon"
-        className="h-9 w-9 rounded-lg border border-zinc-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-500"
+        className="h-9 w-9 rounded-xl text-zinc-500 shadow-2xs"
         aria-label="Toggle theme"
       >
         <span className="h-4 w-4" />
@@ -28,16 +28,16 @@ export default function ThemeToggle() {
 
   return (
     <Button
-      variant="ghost"
+      variant="outline"
       size="icon"
       onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
-      className="h-9 w-9 rounded-lg border border-zinc-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors shadow-xs"
+      className="h-9 w-9 rounded-xl text-zinc-700 dark:text-zinc-300 shadow-2xs"
       title={resolvedTheme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
     >
       {resolvedTheme === 'dark' ? (
         <Sun className="h-4 w-4 text-amber-400" />
       ) : (
-        <Moon className="h-4 w-4 text-zinc-700" />
+        <Moon className="h-4 w-4 text-zinc-700 dark:text-zinc-300" />
       )}
     </Button>
   )

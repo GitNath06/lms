@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { isSupabaseConfigured } from '@/lib/supabase/config'
 import { getSchedules } from './schedules'
 
-export interface FacultySubstitutionRecord {
+export interface TeacherSubstitutionRecord {
   id: string
   schedule_id?: string | null
   date: string // YYYY-MM-DD
@@ -20,13 +20,16 @@ export interface FacultySubstitutionRecord {
   created_at?: string
 }
 
-const IN_MEMORY_SUBSTITUTIONS: FacultySubstitutionRecord[] = []
+// Backward compatibility alias
+export type FacultySubstitutionRecord = TeacherSubstitutionRecord
 
-function getSubStore(): FacultySubstitutionRecord[] {
-  if (!(globalThis as any).__FACULTY_SUBSTITUTIONS__) {
-    ;(globalThis as any).__FACULTY_SUBSTITUTIONS__ = [...IN_MEMORY_SUBSTITUTIONS]
+const IN_MEMORY_SUBSTITUTIONS: TeacherSubstitutionRecord[] = []
+
+function getSubStore(): TeacherSubstitutionRecord[] {
+  if (!(globalThis as any).__TEACHER_SUBSTITUTIONS__) {
+    ;(globalThis as any).__TEACHER_SUBSTITUTIONS__ = [...IN_MEMORY_SUBSTITUTIONS]
   }
-  return (globalThis as any).__FACULTY_SUBSTITUTIONS__
+  return (globalThis as any).__TEACHER_SUBSTITUTIONS__
 }
 
 export async function assignSubstitute(data: {
@@ -40,7 +43,7 @@ export async function assignSubstitute(data: {
   substitute_teacher_id: string
   substitute_teacher_name: string
   reason?: string
-}): Promise<{ success: boolean; substitution?: FacultySubstitutionRecord; error?: string }> {
+}): Promise<{ success: boolean; substitution?: TeacherSubstitutionRecord; error?: string }> {
   try {
     // 1. COLLISION ENGINE: Verify substitute teacher isn't double-booked in another lab
     const allSchedules = await getSchedules()
@@ -68,7 +71,7 @@ export async function assignSubstitute(data: {
     }
 
     const recordId = data.id || `sub-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`
-    const record: FacultySubstitutionRecord = {
+    const record: TeacherSubstitutionRecord = {
       id: recordId,
       schedule_id: data.schedule_id || null,
       date: data.date,
@@ -95,7 +98,8 @@ export async function assignSubstitute(data: {
     if (isSupabaseConfigured()) {
       try {
         const supabase = await createClient()
-        const { error: dbError } = await (supabase.from('faculty_substitutions') as any).upsert(
+        // Try writing to teacher_substitutions first
+        const { error: dbError } = await (supabase.from('teacher_substitutions') as any).upsert(
           {
             id: record.id,
             schedule_id: record.schedule_id,
@@ -113,7 +117,7 @@ export async function assignSubstitute(data: {
         )
 
         if (dbError) {
-          console.error('❌ Supabase substitution upsert error:', dbError)
+          console.error('❌ Supabase teacher substitution upsert error:', dbError)
         }
       } catch (err) {
         console.warn('Supabase substitution write skipped:', err)
@@ -133,14 +137,14 @@ export async function getSubstitutions(filters?: {
   date?: string
   schedule_id?: string
   lab_id?: string
-}): Promise<FacultySubstitutionRecord[]> {
+}): Promise<TeacherSubstitutionRecord[]> {
   const store = getSubStore()
   let list = [...store]
 
   if (isSupabaseConfigured()) {
     try {
       const supabase = await createClient()
-      let query = supabase.from('faculty_substitutions').select('*').order('date', { ascending: false })
+      let query = supabase.from('teacher_substitutions').select('*').order('date', { ascending: false })
 
       if (filters?.date) query = query.eq('date', filters.date)
       if (filters?.schedule_id) query = query.eq('schedule_id', filters.schedule_id)
@@ -148,7 +152,7 @@ export async function getSubstitutions(filters?: {
 
       const { data, error } = await query
       if (!error && data && data.length > 0) {
-        return data as FacultySubstitutionRecord[]
+        return data as TeacherSubstitutionRecord[]
       }
     } catch (e) {}
   }
@@ -168,12 +172,12 @@ export async function getSubstitutions(filters?: {
 
 export async function cancelSubstitution(id: string): Promise<{ success: boolean }> {
   const store = getSubStore()
-  ;(globalThis as any).__FACULTY_SUBSTITUTIONS__ = store.filter((s) => s.id !== id)
+  ;(globalThis as any).__TEACHER_SUBSTITUTIONS__ = store.filter((s) => s.id !== id)
 
   if (isSupabaseConfigured()) {
     try {
       const supabase = await createClient()
-      await (supabase.from('faculty_substitutions') as any).delete().eq('id', id)
+      await (supabase.from('teacher_substitutions') as any).delete().eq('id', id)
     } catch (e) {}
   }
 

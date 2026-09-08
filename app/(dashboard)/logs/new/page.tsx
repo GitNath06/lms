@@ -1,13 +1,14 @@
 import Link from 'next/link'
 import { ArrowLeft, ClipboardList, ShieldCheck } from 'lucide-react'
 import LogForm from './log-form'
-import { getActiveLabs, getTeachers } from '@/app/actions/logs'
+import { getActiveLabs, getTeachers, getScopedLogFormOptions } from '@/app/actions/logs'
 import { Badge } from '@/components/ui/badge'
 
 export default async function NewLogPage() {
-  const [labs, teachers] = await Promise.all([
+  const [labs, teachers, scopedOptions] = await Promise.all([
     getActiveLabs(),
     getTeachers(),
+    getScopedLogFormOptions(),
   ])
 
   return (
@@ -26,7 +27,7 @@ export default async function NewLogPage() {
             <div className="flex items-center gap-2">
               <h2 className="text-base font-bold tracking-tight text-zinc-950 dark:text-white flex items-center gap-2 font-mono">
                 <ClipboardList className="h-4 w-4 text-indigo-500" />
-                Practical Session Endorsement Entry
+                New Practical Session Log
               </h2>
               <Badge className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 font-mono text-[10px]">
                 Session 2083
@@ -47,7 +48,7 @@ export default async function NewLogPage() {
       </div>
 
       {/* Main Form Body */}
-      <LogForm labs={labs} teachers={teachers} />
+      <LogForm labs={labs} teachers={teachers} scopedOptions={scopedOptions} />
     </div>
   )
 }
