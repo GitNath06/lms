@@ -3,15 +3,19 @@
  * Centralized constant for all exports (Excel, CSV, Print/PDF, and Report sheets)
  */
 
+export const INSTITUTION_NAME =
+  process.env.NEXT_PUBLIC_INSTITUTION_NAME || 'Ratna Rajya Laxmi Secondary School'
+
 export const INSTITUTION_CONFIG = {
-  code: 'RRLSS-KTM',
-  name: 'SHREE RATNA RAJYA LAXMI SECONDARY SCHOOL',
+  code: 'RRLSS-NP',
+  name: process.env.NEXT_PUBLIC_INSTITUTION_NAME || 'RATNA RAJYA LAXMI SECONDARY SCHOOL',
   nameNepali: 'श्री रत्न राज्य लक्ष्मी माध्यमिक विद्यालय',
   department: 'Department of Science & Computer Engineering',
   departmentNepali: 'विज्ञान तथा कम्प्युटर इन्जिनियरिङ विभाग',
-  location: 'Kathmandu, Nepal',
+  location: 'Gaindakot-11, Pitauji, Nawalparasi (Nawalpur), Gandaki, Nepal',
+  website: 'https://ratnarajya.edu.np',
   academicYear: '2083 B.S. / 2026 A.D.',
-  systemTitle: 'Academic Laboratory Practical & Management System (LMR)',
+  systemTitle: 'Academic Laboratory Practical & Management System (LabSync)',
   systemSubtitle: 'Official Practical Experiment Logs, Incident Tracking & Certified Verification Registry',
   signatures: {
     left: {

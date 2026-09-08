@@ -30,6 +30,9 @@ import {
   RotateCcw,
   KeyRound,
   ShieldCheck,
+  FileSpreadsheet,
+  Calendar,
+  Wrench,
 } from 'lucide-react'
 import { signIn } from '@/app/actions/auth'
 import {
@@ -41,6 +44,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import ThemeToggle from '@/components/ui/theme-toggle'
+import { INSTITUTION_NAME } from '@/lib/institution'
 
 const DEMO_ACCOUNTS = [
   {
@@ -296,26 +300,30 @@ function LoginForm() {
 
   return (
     <div className="w-full max-w-md mx-auto space-y-5 animate-in fade-in zoom-in-95 duration-300">
-      {/* Frosted Glass Card */}
-      <div className="relative rounded-3xl p-7 sm:p-8 bg-white/90 dark:bg-zinc-900/90 border border-zinc-200/80 dark:border-zinc-800/80 shadow-2xl backdrop-blur-2xl transition-all">
-        {/* Glow ambient background aura */}
-        <div className="absolute -top-12 -right-12 w-40 h-40 bg-indigo-500/15 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-12 -left-12 w-40 h-40 bg-purple-500/15 rounded-full blur-3xl pointer-events-none" />
+      {/* Studio Obsidian Glass Card with Dual-Rim Specular Highlights */}
+      <div className="relative rounded-3xl p-7 sm:p-8 glass-glow-card overflow-hidden shadow-2xl transition-all">
+        {/* Subtle Top Chamfer Light Sheen */}
+        <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-indigo-400/30 dark:via-white/20 to-transparent pointer-events-none" />
 
-        {/* Card Header */}
-        <div className="text-center space-y-2 mb-6">
-          <div className="inline-flex items-center justify-center h-12 w-12 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-500/25 ring-4 ring-indigo-500/10 mb-1">
-            <FlaskConical className="h-6 w-6 animate-pulse-subtle" />
+        {/* Soft Ambient Corner Auras */}
+        <div className="absolute -top-16 -right-16 w-48 h-48 bg-indigo-500/10 dark:bg-indigo-500/15 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-16 -left-16 w-48 h-48 bg-purple-500/10 dark:bg-purple-500/15 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="relative z-10">
+          {/* Card Header */}
+          <div className="text-center space-y-2 mb-6">
+            <div className="inline-flex items-center justify-center h-12 w-12 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-500/25 ring-4 ring-indigo-500/10 mb-1">
+              <FlaskConical className="h-6 w-6 animate-pulse-subtle" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold tracking-tight text-zinc-950 dark:text-white font-heading">
+                Academic Portal Login
+              </h2>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 font-sans mt-0.5">
+                Enter your verified institutional credentials to authenticate
+              </p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-xl font-bold tracking-tight text-zinc-950 dark:text-white font-mono">
-              Academic Portal Login
-            </h2>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 font-sans mt-0.5">
-              Enter your verified institutional credentials to authenticate
-            </p>
-          </div>
-        </div>
 
         {/* Error Notification Alert */}
         {error && (
@@ -441,25 +449,27 @@ function LoginForm() {
           </div>
         </form>
 
-        {/* Secondary Actions: Register Teacher Modal Trigger */}
-        <div className="mt-5 pt-4 border-t border-zinc-100 dark:border-zinc-800/80 flex items-center justify-between text-xs font-sans text-zinc-500">
-          <span>New Faculty or Teacher?</span>
-          <button
-            type="button"
-            onClick={() => {
-              setIsRegisterOpen(true)
-              setRegStep('form')
-              setRegError(null)
-            }}
-            className="font-semibold text-indigo-600 dark:text-indigo-400 hover:underline font-mono text-xs cursor-pointer"
-          >
-            Request Access (OTP Verified) →
-          </button>
+          {/* Secondary Actions: Register Teacher Modal Trigger */}
+          <div className="mt-5 pt-4 border-t border-zinc-100 dark:border-zinc-800/80 flex items-center justify-between text-xs font-sans text-zinc-500">
+            <span>New Faculty or Teacher?</span>
+            <button
+              type="button"
+              onClick={() => {
+                setIsRegisterOpen(true)
+                setRegStep('form')
+                setRegError(null)
+              }}
+              className="font-semibold text-indigo-600 dark:text-indigo-400 hover:underline font-mono text-xs cursor-pointer inline-flex items-center gap-1.5 group"
+            >
+              <span>Request Access</span>
+              <span className="transition-transform group-hover:translate-x-0.5">&rarr;</span>
+            </button>
+          </div>
         </div>
       </div>
 
       {/* ⚡ Sleek 1-Click Evaluation / Demo Accounts Bar */}
-      <div className="p-4 rounded-2xl bg-white/70 dark:bg-zinc-900/70 border border-zinc-200/70 dark:border-zinc-800/70 shadow-sm backdrop-blur-xl space-y-2.5">
+      <div className="p-4 rounded-2xl glass-glow-card shadow-sm space-y-2.5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="p-1 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400">
@@ -484,8 +494,8 @@ function LoginForm() {
                 onClick={() => handleSelectDemo(acc)}
                 onDoubleClick={() => handleInstantDemoLogin(acc)}
                 title={`Double click for instant login as ${acc.roleLabel}`}
-                className={`p-2 rounded-xl border text-left transition-all relative cursor-pointer ${acc.accentColor} ${
-                  isSelected ? 'ring-2 ring-indigo-500 shadow-sm font-semibold' : 'opacity-85 hover:opacity-100'
+                className={`p-2.5 rounded-xl border text-left transition-all relative cursor-pointer press-tactile ${acc.accentColor} ${
+                  isSelected ? 'ring-2 ring-indigo-500 shadow-md font-semibold' : 'opacity-90 hover:opacity-100 hover:scale-[1.02]'
                 }`}
               >
                 {isSelected && (
@@ -509,23 +519,23 @@ function LoginForm() {
       </div>
 
       {/* ========================================================================= */}
-      {/* 🛡️ MODAL 1: Email-OTP Verified Teacher Registration (3-Step Flow) */}
+      {/* 🛡️ MODAL 1: Email-OTP Verified Registration (3-Step Flow) */}
       {/* ========================================================================= */}
       {isRegisterOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="relative w-full max-w-md bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-2xl p-6 space-y-4 animate-in zoom-in-95 duration-200">
+          <div className="relative w-full max-w-md bg-white dark:bg-surface-1 rounded-3xl border border-zinc-200 dark:border-border-card shadow-2xl p-6 space-y-4 animate-in zoom-in-95 duration-200">
             {/* Modal Header */}
-            <div className="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-zinc-800">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-white/[0.08]">
               <div className="flex items-center gap-2">
-                <ShieldCheck className="h-5 w-5 text-indigo-600" />
-                <h3 className="text-sm font-bold font-mono text-zinc-950 dark:text-white">
-                  Teacher Registration (Email OTP)
+                <ShieldCheck className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                <h3 className="text-sm font-bold font-heading text-zinc-950 dark:text-white">
+                  Registration
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setIsRegisterOpen(false)}
-                className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 cursor-pointer"
+                className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 cursor-pointer transition-colors"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -533,7 +543,7 @@ function LoginForm() {
 
             {/* Error in modal */}
             {regError && (
-              <div className="flex items-start gap-2 p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-300 text-xs">
+              <div className="flex items-start gap-2 p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-300 text-xs animate-in slide-in-from-top-1 duration-150">
                 <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
                 <span>{regError}</span>
               </div>
@@ -543,7 +553,7 @@ function LoginForm() {
             {regStep === 'form' && (
               <form onSubmit={handleSendSignupOtp} className="space-y-3 font-sans">
                 <p className="text-xs text-zinc-500 leading-relaxed">
-                  Enter your official details. A 6-digit verification code will be sent to your institutional email to prevent unauthorized signups.
+                  Enter your details. A 6-digit code will be sent to your email to verify your account.
                 </p>
 
                 <div className="space-y-1">
@@ -554,7 +564,7 @@ function LoginForm() {
                     required
                     value={regName}
                     onChange={(e) => setRegName(e.target.value)}
-                    placeholder="e.g. Dr. Nirmala Poudel"
+                    placeholder="Full Name"
                     className="h-10 text-xs rounded-xl font-sans"
                   />
                 </div>
@@ -568,7 +578,7 @@ function LoginForm() {
                       required
                       value={regDept}
                       onChange={(e) => setRegDept(e.target.value)}
-                      placeholder="e.g. Chemistry"
+                      placeholder="e.g. Science"
                       className="h-10 text-xs rounded-xl font-sans"
                     />
                   </div>
@@ -588,21 +598,21 @@ function LoginForm() {
 
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                    Institutional Email (OTP Target)
+                    Email Address
                   </label>
                   <Input
                     required
                     type="email"
                     value={regEmail}
                     onChange={(e) => setRegEmail(e.target.value)}
-                    placeholder="n.poudel@rrl.edu.np"
+                    placeholder="example@mail.com"
                     className="h-10 text-xs rounded-xl font-sans"
                   />
                 </div>
 
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                    Account Password
+                    Password
                   </label>
                   <Input
                     required
@@ -627,23 +637,23 @@ function LoginForm() {
                   <Button
                     type="submit"
                     disabled={regLoading}
-                    className="text-xs font-mono font-bold bg-indigo-600 hover:bg-indigo-700 text-white gap-1.5 cursor-pointer"
+                    className="text-xs font-mono font-bold bg-indigo-600 hover:bg-indigo-700 text-white gap-1.5 cursor-pointer shadow-sm active:scale-[0.98] transition-all"
                   >
                     {regLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Mail className="h-3.5 w-3.5" />}
-                    <span>Send Verification Code →</span>
+                    <span>Send Verification Code</span>
                   </Button>
                 </div>
               </form>
             )}
 
-            {/* STEP 2: 6-Digit OTP Entry */}
+            {/* STEP 2: Enhanced 6-Digit OTP Entry */}
             {regStep === 'otp' && (
-              <form onSubmit={handleVerifySignupOtp} className="space-y-4 font-sans text-center">
+              <form onSubmit={handleVerifySignupOtp} className="space-y-4 font-sans text-center animate-in fade-in-50 duration-200">
                 <div className="p-3.5 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-200/70 dark:border-indigo-800/70 text-left">
-                  <div className="text-xs text-zinc-600 dark:text-zinc-300">
+                  <div className="text-xs text-zinc-600 dark:text-zinc-400">
                     Verification code dispatched to:
                   </div>
-                  <div className="text-sm font-bold font-mono text-indigo-600 dark:text-indigo-400 mt-0.5">
+                  <div className="text-sm font-bold font-mono text-indigo-600 dark:text-indigo-400 mt-0.5 truncate">
                     {regEmail}
                   </div>
                 </div>
@@ -662,20 +672,62 @@ function LoginForm() {
                   </div>
                 )}
 
-                <div className="space-y-1 text-left">
-                  <label className="text-xs font-bold uppercase tracking-wider text-zinc-500 font-mono">
-                    Enter 6-Digit Code
-                  </label>
-                  <Input
-                    required
-                    maxLength={6}
-                    value={regOtp}
-                    onChange={(e) => setRegOtp(e.target.value.replace(/\D/g, ''))}
-                    placeholder="000000"
-                    autoFocus
-                    className="h-12 text-center text-2xl font-mono tracking-[8px] font-bold rounded-xl bg-zinc-50 dark:bg-zinc-950 border-zinc-200 dark:border-zinc-800"
-                  />
-                  <p className="text-[11px] text-zinc-400">
+                <div className="space-y-2 text-left">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold uppercase tracking-wider text-zinc-500 font-mono">
+                      Enter 6-Digit Code
+                    </label>
+                    <span className="text-[11px] text-zinc-400 font-mono">
+                      {regOtp.length}/6 digits
+                    </span>
+                  </div>
+
+                  {/* Enhanced Segmented Visual OTP Display */}
+                  <div className="relative group">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      required
+                      maxLength={6}
+                      value={regOtp}
+                      onChange={(e) => setRegOtp(e.target.value.replace(/\D/g, ''))}
+                      autoFocus
+                      aria-label="6-digit verification code"
+                      className="absolute inset-0 w-full h-full opacity-0 z-20 cursor-text tracking-widest text-transparent"
+                    />
+
+                    <div className="grid grid-cols-6 gap-2 sm:gap-2.5">
+                      {[0, 1, 2, 3, 4, 5].map((idx) => {
+                        const digit = regOtp[idx] || ''
+                        const isCurrent = regOtp.length === idx
+                        return (
+                          <div
+                            key={idx}
+                            className={`h-13 flex items-center justify-center text-xl font-heading font-extrabold rounded-xl border transition-all duration-200 select-none ${
+                              digit
+                                ? 'bg-white dark:bg-surface-2 border-indigo-500 text-indigo-600 dark:text-indigo-400 shadow-sm scale-[1.02]'
+                                : isCurrent
+                                ? 'bg-zinc-50 dark:bg-surface-2 border-indigo-400 ring-2 ring-indigo-500/20 shadow-xs'
+                                : 'bg-zinc-50/80 dark:bg-surface-2/60 border-zinc-200 dark:border-border-card text-zinc-400'
+                            }`}
+                          >
+                            {digit ? (
+                              <span className="animate-in zoom-in-75 duration-150 tabular-nums">
+                                {digit}
+                              </span>
+                            ) : isCurrent ? (
+                              <span className="h-5 w-0.5 bg-indigo-500 animate-pulse rounded-full" />
+                            ) : (
+                              <span className="text-zinc-300 dark:text-zinc-600 text-sm font-mono">•</span>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] text-zinc-400 pt-0.5">
                     Code expires in 10 minutes.
                   </p>
                 </div>
@@ -702,10 +754,10 @@ function LoginForm() {
                 <Button
                   type="submit"
                   disabled={regLoading || regOtp.length !== 6}
-                  className="w-full h-10 text-xs font-mono font-bold bg-indigo-600 hover:bg-indigo-700 text-white gap-1.5 shadow-md shadow-indigo-500/20 cursor-pointer"
+                  className="w-full h-11 text-xs font-mono font-bold bg-indigo-600 hover:bg-indigo-700 text-white gap-1.5 shadow-md shadow-indigo-500/20 cursor-pointer active:scale-[0.98] transition-transform"
                 >
                   {regLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
-                  <span>Verify Email & Submit Application</span>
+                  <span>Verify Email & Complete Registration</span>
                 </Button>
               </form>
             )}
@@ -933,11 +985,14 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 flex flex-col justify-center relative overflow-hidden transition-colors duration-300">
+    <div className="min-h-screen bg-zinc-50 dark:bg-canvas flex flex-col justify-center relative overflow-x-clip transition-colors duration-300">
       {/* Dynamic Animated Ambient Orbs */}
       <div className="absolute top-1/4 -left-32 w-96 h-96 bg-indigo-500/10 dark:bg-indigo-600/15 rounded-full blur-[100px] animate-aurora-1 pointer-events-none" />
       <div className="absolute bottom-1/4 -right-32 w-96 h-96 bg-purple-500/10 dark:bg-purple-600/15 rounded-full blur-[100px] animate-aurora-2 pointer-events-none" />
       <div className="absolute top-3/4 left-1/3 w-80 h-80 bg-cyan-500/10 dark:bg-cyan-600/10 rounded-full blur-[100px] pointer-events-none" />
+
+      {/* Cybernetic Dot Grid Overlay */}
+      <div className="absolute inset-0 bg-dot-grid opacity-75 pointer-events-none" />
 
       {/* Top Bar with Brand & Theme Switcher */}
       <header className="absolute top-0 inset-x-0 h-16 flex items-center justify-between px-6 sm:px-12 z-20">
@@ -958,97 +1013,118 @@ export default function LoginPage() {
       </header>
 
       {/* Main Split Layout: Showcase & Authentication Card */}
-      <main className="flex-1 flex items-center justify-center p-4 sm:p-8 lg:p-12 z-10 w-full">
+      <main className="flex-1 flex items-center justify-center p-4 sm:p-8 lg:p-12 z-10 w-full overflow-x-clip">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center w-full max-w-[1400px]">
           {/* Left Column: High-Tech Laboratory Telemetry Showcase (Desktop) */}
-          <div className="hidden lg:flex lg:col-span-6 flex-col justify-center space-y-6 pr-4">
-            {/* Status Live Tag */}
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-xs font-mono font-bold w-fit shadow-xs">
-              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span>All 3 Laboratories Connected (Phys • Chem • Comp)</span>
+          <div className="hidden lg:flex lg:col-span-6 flex-col justify-center space-y-5 pr-4">
+            {/* 1. Status Live Tag with Radar Pulse (All the way up) */}
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-xs font-mono font-bold w-fit shadow-xs">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-radar-ripple absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 shadow-sm" />
+              </span>
+              <span>All 3 Laboratories Online (Computer • Physics • Chemistry)</span>
             </div>
 
-            <div className="space-y-3">
-              <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-zinc-950 dark:text-white font-mono leading-tight">
-                Centralized Laboratory Management & Practical Register
+            {/* 2. Primary Institution Header Card */}
+            <div className="p-4 sm:p-5 rounded-2xl glass-glow-card flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 shadow-sm border border-indigo-500/20 dark:border-indigo-500/30 bg-gradient-to-r from-indigo-500/10 via-white/90 to-purple-500/10 dark:from-indigo-950/40 dark:via-surface-1 dark:to-surface-2">
+              <div className="flex items-center gap-3.5 min-w-0">
+                <div className="h-12 w-12 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-purple-600 text-white flex items-center justify-center shrink-0 shadow-md shadow-indigo-500/25 ring-2 ring-indigo-500/20">
+                  <Building2 className="h-6 w-6" />
+                </div>
+                <div className="min-w-0 space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="font-heading font-extrabold text-base sm:text-lg text-zinc-950 dark:text-white tracking-tight truncate">
+                      {INSTITUTION_NAME}
+                    </span>
+                  </div>
+                  <p className="text-xs text-zinc-600 dark:text-zinc-400 font-sans truncate">
+                    Gaindakot-11, Pitauji, Nawalparasi (Gandaki) • Official Academic Laboratory Network
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+                <span className="px-3 py-1 rounded-xl text-xs font-mono font-bold bg-indigo-500/15 dark:bg-indigo-500/25 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30 uppercase tracking-wider">
+                  Campus Node
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-zinc-950 dark:text-white font-heading leading-snug">
+                Academic Laboratory Operating System & Practical Register
               </h1>
-              <p className="text-sm text-zinc-600 dark:text-zinc-400 font-sans leading-relaxed">
-                Streamlining academic practical sessions, student attendance registers, incident damage escalations, and certified reporting for institutional excellence.
+              <p className="text-xs sm:text-sm text-zinc-600 dark:text-zinc-400 font-sans leading-relaxed">
+                Replaces manual paper logbooks with live routine grids, Class 11/12 roll attendance tallies, incident triage, and certified A4 print sheets.
               </p>
             </div>
 
-            {/* Interactive Telemetry Cards Grid */}
-            <div className="grid grid-cols-2 gap-3.5 pt-2">
-              <div className="p-4 rounded-2xl bg-white/70 dark:bg-zinc-900/60 border border-zinc-200/80 dark:border-zinc-800 backdrop-blur-xl space-y-1 shadow-2xs hover:border-indigo-500/40 transition-colors animate-float-slow">
+            {/* 3. Showcase of Best Platform Features (Spacious Grid with Coordinated Gentle Waves) */}
+            <div className="grid grid-cols-2 gap-5 pt-1">
+              {/* Feature 1: Dual Sign-Off Digital Verification */}
+              <div className="p-4 rounded-2xl glass-glow-card space-y-1.5 shadow-sm hover:border-indigo-500/40 transition-colors animate-float-card-1">
                 <div className="flex items-center justify-between text-indigo-600 dark:text-indigo-400">
-                  <Cpu className="h-5 w-5" />
-                  <span className="text-[10px] font-mono font-bold bg-indigo-500/10 px-1.5 py-0.5 rounded">
-                    Active
+                  <UserCheck className="h-5 w-5" />
+                  <span className="font-mono text-[10px] text-zinc-500 dark:text-zinc-400 uppercase tracking-wider bg-indigo-500/10 px-2 py-0.5 rounded">
+                    Dual Sign-Off
                   </span>
                 </div>
-                <div className="text-xl font-bold font-mono text-zinc-950 dark:text-white pt-1">
-                  110+ Workstations
+                <div className="text-xl sm:text-2xl font-heading font-extrabold tracking-tight text-zinc-950 dark:text-white pt-1">
+                  100% Audit Trail
                 </div>
-                <div className="text-[11px] text-zinc-500 font-sans">
-                  Real-time telemetry across labs
+                <div className="font-mono text-[10px] text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
+                  Teacher Log + Incharge Verify
                 </div>
               </div>
 
-              <div className="p-4 rounded-2xl bg-white/70 dark:bg-zinc-900/60 border border-zinc-200/80 dark:border-zinc-800 backdrop-blur-xl space-y-1 shadow-2xs hover:border-emerald-500/40 transition-colors animate-float-reverse">
+              {/* Feature 2: Weekly Schedule & Live Routine Grid */}
+              <div className="p-4 rounded-2xl glass-glow-card space-y-1.5 shadow-sm hover:border-emerald-500/40 transition-colors animate-float-card-2">
                 <div className="flex items-center justify-between text-emerald-600 dark:text-emerald-400">
-                  <Activity className="h-5 w-5" />
-                  <span className="text-[10px] font-mono font-bold bg-emerald-500/10 px-1.5 py-0.5 rounded">
-                    Term 2083
+                  <Calendar className="h-5 w-5" />
+                  <span className="font-mono text-[10px] text-zinc-500 dark:text-zinc-400 uppercase tracking-wider bg-emerald-500/10 px-2 py-0.5 rounded">
+                    Sunday–Friday
                   </span>
                 </div>
-                <div className="text-xl font-bold font-mono text-zinc-950 dark:text-white pt-1">
-                  14 Today's Practicals
+                <div className="text-xl sm:text-2xl font-heading font-extrabold tracking-tight text-zinc-950 dark:text-white pt-1">
+                  Live Routine Grid
                 </div>
-                <div className="text-[11px] text-zinc-500 font-sans">
-                  Curriculum syllabus tracking
+                <div className="font-mono text-[10px] text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
+                  Real-time Lab Occupancy
                 </div>
               </div>
 
-              <div className="p-4 rounded-2xl bg-white/70 dark:bg-zinc-900/60 border border-zinc-200/80 dark:border-zinc-800 backdrop-blur-xl space-y-1 shadow-2xs hover:border-purple-500/40 transition-colors">
+              {/* Feature 3: Attendance & Practical Roll Counter */}
+              <div className="p-4 rounded-2xl glass-glow-card space-y-1.5 shadow-sm hover:border-purple-500/40 transition-colors animate-float-card-3">
                 <div className="flex items-center justify-between text-purple-600 dark:text-purple-400">
-                  <Atom className="h-5 w-5" />
-                  <span className="text-[10px] font-mono font-bold bg-purple-500/10 px-1.5 py-0.5 rounded">
-                    Role-Bound
+                  <Activity className="h-5 w-5" />
+                  <span className="font-mono text-[10px] text-zinc-500 dark:text-zinc-400 uppercase tracking-wider bg-purple-500/10 px-2 py-0.5 rounded">
+                    Class 11 & 12
                   </span>
                 </div>
-                <div className="text-sm font-bold font-mono text-zinc-950 dark:text-white pt-1">
-                  4-Tier RBAC Security
+                <div className="text-xl sm:text-2xl font-heading font-extrabold tracking-tight text-zinc-950 dark:text-white pt-1">
+                  Roll-Call Tally
                 </div>
-                <div className="text-[11px] text-zinc-500 font-sans">
-                  Super Admin, Incharge, HOD, Teacher
+                <div className="font-mono text-[10px] text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
+                  Auto Attendance Compliance %
                 </div>
               </div>
 
-              <div className="p-4 rounded-2xl bg-white/70 dark:bg-zinc-900/60 border border-zinc-200/80 dark:border-zinc-800 backdrop-blur-xl space-y-1 shadow-2xs hover:border-cyan-500/40 transition-colors">
+              {/* Feature 4: Certified A4 Print & XLSX Reporting */}
+              <div className="p-4 rounded-2xl glass-glow-card space-y-1.5 shadow-sm hover:border-cyan-500/40 transition-colors animate-float-card-4">
                 <div className="flex items-center justify-between text-cyan-600 dark:text-cyan-400">
-                  <Clock className="h-5 w-5" />
-                  <span className="text-[10px] font-mono font-bold bg-cyan-500/10 px-1.5 py-0.5 rounded">
-                    Sync
+                  <FileSpreadsheet className="h-5 w-5" />
+                  <span className="font-mono text-[10px] text-zinc-500 dark:text-zinc-400 uppercase tracking-wider bg-cyan-500/10 px-2 py-0.5 rounded">
+                    1-Click Export
                   </span>
                 </div>
-                <div className="text-sm font-bold font-mono text-zinc-950 dark:text-white pt-1">
-                  Offline Outbox Buffer
+                <div className="text-xl sm:text-2xl font-heading font-extrabold tracking-tight text-zinc-950 dark:text-white pt-1">
+                  A4 Print & Excel
                 </div>
-                <div className="text-[11px] text-zinc-500 font-sans">
-                  Resilient practical logging
+                <div className="font-mono text-[10px] text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
+                  Government Certified Sheets
                 </div>
               </div>
-            </div>
-
-            {/* Institution Affiliation Stamp */}
-            <div className="p-3.5 rounded-2xl bg-zinc-100/60 dark:bg-zinc-900/40 border border-zinc-200/60 dark:border-zinc-800/60 flex items-center justify-between text-xs font-mono text-zinc-500">
-              <div className="flex items-center gap-2">
-                <Building2 className="h-4 w-4 text-indigo-500" />
-                <span>Radha Raman Secondary School</span>
-              </div>
-              <span className="text-[10px] text-zinc-400 font-bold uppercase">
-                Official Lab Terminal
-              </span>
             </div>
           </div>
 

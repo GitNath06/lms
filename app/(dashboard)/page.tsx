@@ -277,13 +277,22 @@ export default function DashboardPage() {
     return s.labKey === labFilter
   }
 
+  // Hydration-guarded dynamic time-of-day greeting (client-only computation)
+  const [greeting, setGreeting] = useState('Welcome to Lab Operations')
+  useEffect(() => {
+    const hr = new Date().getHours()
+    if (hr < 12) setGreeting('Good morning')
+    else if (hr < 17) setGreeting('Good afternoon')
+    else setGreeting('Good evening')
+  }, [])
+
   // Hydration guard: render stable identical skeleton during SSR and pre-hydration
   if (!mounted) {
     return <DashboardLoading />
   }
 
   return (
-    <div className="space-y-5 w-full animate-in fade-in duration-300 relative select-none">
+    <div className="space-y-5 w-full animate-in fade-in duration-300 relative select-none overflow-x-clip">
       {/* Toast Feedback */}
       {toastMessage && (
         <div className="fixed top-20 right-8 z-50 bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 px-4 py-2.5 rounded-xl shadow-2xl text-xs font-medium animate-in slide-in-from-top-2 duration-200 flex items-center gap-2 border border-zinc-700 dark:border-zinc-300">
@@ -312,7 +321,7 @@ export default function DashboardPage() {
                   {todayHoliday.startDateNp} {todayHoliday.endDateNp ? `to ${todayHoliday.endDateNp}` : ''}
                 </span>
               </div>
-              <h3 className="text-sm font-bold text-zinc-950 dark:text-white mt-0.5">
+              <h3 className="text-sm font-bold text-zinc-950 dark:text-white mt-0.5 font-heading">
                 {todayHoliday.name}
               </h3>
               <p className="text-xs text-zinc-600 dark:text-zinc-300 mt-0.5">
@@ -331,11 +340,10 @@ export default function DashboardPage() {
         </div>
       )}
 
-
-      {/* 1. TOP EXECUTIVE KPI CARDS (ULTRA-MODERN GLASSMORPHIC COMMAND TILES) */}
+      {/* 1. TOP EXECUTIVE KPI CARDS (ULTRA-MODERN GLASS-GLOW COMMAND TILES) */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {/* Tile 1: Today's Practical Timetable */}
-        <div className="glass-card relative overflow-hidden rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-indigo-400/60 dark:hover:border-indigo-700/60 transition-all duration-300 group">
+        <div className="glass-glow-card hover-card-lift relative overflow-hidden rounded-2xl p-4 shadow-sm group">
           <div className="absolute -top-10 -right-10 h-24 w-24 rounded-full bg-indigo-500/10 dark:bg-indigo-500/15 blur-2xl group-hover:bg-indigo-500/20 transition-all pointer-events-none" />
 
           <div className="flex items-center justify-between">
@@ -343,7 +351,7 @@ export default function DashboardPage() {
               <div className="h-8 w-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center border border-indigo-200/60 dark:border-indigo-800/50 shadow-2xs">
                 <BookOpen className="h-4 w-4" />
               </div>
-              <span className="text-[11px] font-mono font-bold tracking-wider uppercase text-zinc-500 dark:text-zinc-400">
+              <span className="font-mono text-[10px] text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
                 Today's Schedule
               </span>
             </div>
@@ -379,7 +387,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Session Distribution Footer */}
-          <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800/80 flex items-center justify-between text-[11px] font-mono text-zinc-500 dark:text-zinc-400">
+          <div className="pt-2 border-t border-zinc-100 dark:border-white/[0.08] flex items-center justify-between text-[11px] font-mono text-zinc-500 dark:text-zinc-400">
             <span className="flex items-center gap-1">
               <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
               {nepaliDate.dayNameNp}
@@ -389,7 +397,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Tile 2: Operational Session Compliance */}
-        <div className="glass-card relative overflow-hidden rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-emerald-400/60 dark:hover:border-emerald-700/60 transition-all duration-300 group">
+        <div className="glass-glow-card hover-card-lift relative overflow-hidden rounded-2xl p-4 shadow-sm group">
           <div className="absolute -top-10 -right-10 h-24 w-24 rounded-full bg-emerald-500/10 dark:bg-emerald-500/15 blur-2xl group-hover:bg-emerald-500/20 transition-all pointer-events-none" />
 
           <div className="flex items-center justify-between">
@@ -397,7 +405,7 @@ export default function DashboardPage() {
               <div className="h-8 w-8 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-200/60 dark:border-emerald-800/50 shadow-2xs">
                 <FileCheck className="h-4 w-4" />
               </div>
-              <span className="text-[11px] font-mono font-bold tracking-wider uppercase text-zinc-500 dark:text-zinc-400">
+              <span className="font-mono text-[10px] text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
                 Session Compliance
               </span>
             </div>
@@ -434,7 +442,7 @@ export default function DashboardPage() {
             />
           </div>
 
-          <div className="border-t border-zinc-100 dark:border-zinc-800/80 pt-1.5 flex items-center justify-between text-[11px] font-mono text-zinc-500 dark:text-zinc-400">
+          <div className="border-t border-zinc-100 dark:border-white/[0.08] pt-1.5 flex items-center justify-between text-[11px] font-mono text-zinc-500 dark:text-zinc-400">
             <span>Status:</span>
             <span className="font-semibold text-zinc-700 dark:text-zinc-300">
               {passedUnloggedSessions.length === 0 ? 'Verified Complete' : `${passedUnloggedSessions.length} Pending Action`}
@@ -443,7 +451,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Tile 3: Student Attendance Rate (Reclaimed from redundant BS picker) */}
-        <div className="glass-card relative overflow-hidden rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-indigo-400/60 dark:hover:border-indigo-700/60 transition-all duration-300 group">
+        <div className="glass-glow-card hover-card-lift relative overflow-hidden rounded-2xl p-4 shadow-sm group">
           <div className="absolute -top-10 -right-10 h-24 w-24 rounded-full bg-indigo-500/10 dark:bg-indigo-500/15 blur-2xl group-hover:bg-indigo-500/20 transition-all pointer-events-none" />
 
           <div className="flex items-center justify-between">
@@ -451,7 +459,7 @@ export default function DashboardPage() {
               <div className="h-8 w-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center border border-indigo-200/60 dark:border-indigo-800/50 shadow-2xs">
                 <Users className="h-4 w-4" />
               </div>
-              <span className="text-[11px] font-mono font-bold tracking-wider uppercase text-zinc-500 dark:text-zinc-400">
+              <span className="font-mono text-[10px] text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
                 Attendance Rate
               </span>
             </div>
@@ -482,7 +490,7 @@ export default function DashboardPage() {
             />
           </div>
 
-          <div className="border-t border-zinc-100 dark:border-zinc-800/80 pt-1.5 flex items-center justify-between text-[11px] font-mono text-zinc-500 dark:text-zinc-400">
+          <div className="border-t border-zinc-100 dark:border-white/[0.08] pt-1.5 flex items-center justify-between text-[11px] font-mono text-zinc-500 dark:text-zinc-400">
             <span>Roll-call Tally:</span>
             <span className="font-semibold text-zinc-700 dark:text-zinc-300">
               {totalPresentToday > 0 ? `${totalPresentToday} Students Logged` : 'Awaiting Session Roll'}
@@ -491,7 +499,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Tile 4: Lab Health & Maintenance (Reclaimed from redundant clock, dynamically combining breakages + overdue routines) */}
-        <div className="glass-card relative overflow-hidden rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-rose-400/60 dark:hover:border-rose-700/60 transition-all duration-300 group">
+        <div className="glass-glow-card hover-card-lift relative overflow-hidden rounded-2xl p-4 shadow-sm group">
           <div className="absolute -top-10 -right-10 h-24 w-24 rounded-full bg-rose-500/10 dark:bg-rose-500/15 blur-2xl group-hover:bg-rose-500/20 transition-all pointer-events-none" />
 
           <div className="flex items-center justify-between">
@@ -503,7 +511,7 @@ export default function DashboardPage() {
               }`}>
                 {totalHealthIssues > 0 ? <AlertTriangle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
               </div>
-              <span className="text-[11px] font-mono font-bold tracking-wider uppercase text-zinc-500 dark:text-zinc-400">
+              <span className="font-mono text-[10px] text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
                 Lab Health & Servicing
               </span>
             </div>
@@ -544,7 +552,7 @@ export default function DashboardPage() {
             />
           </div>
 
-          <div className="border-t border-zinc-100 dark:border-zinc-800/80 pt-1.5 flex items-center justify-between text-[11px] font-mono text-zinc-500 dark:text-zinc-400">
+          <div className="border-t border-zinc-100 dark:border-white/[0.08] pt-1.5 flex items-center justify-between text-[11px] font-mono text-zinc-500 dark:text-zinc-400">
             <span>Servicing Status:</span>
             <span className="font-semibold text-zinc-700 dark:text-zinc-300">
               {overdueServicing > 0 ? `${overdueServicing} Overdue Task${overdueServicing === 1 ? '' : 's'}` : 'Routines Up to Date'}

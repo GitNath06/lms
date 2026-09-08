@@ -2,8 +2,8 @@
 
 import { getPgPool } from '@/lib/db'
 import { isSupabaseConfigured } from '@/lib/supabase/config'
-import { getNepalDateStr, getNepaliDateObj } from '@/lib/nepali-date'
-import { MASTER_ROUTINES, MASTER_TIME_SLOTS } from '@/lib/master-data'
+import { getNepalDateStr, getNepaliDate } from '@/lib/nepali-date'
+import { MASTER_ROUTINE, MasterRoutineItem } from '@/lib/master-data'
 import { getAcademicHolidays } from '@/app/actions/holidays'
 import {
   sendTeacherDailyScheduleEmail,
@@ -66,7 +66,7 @@ export async function checkAndRecordDispatch(
  */
 export async function dispatchTeacherDailyReminders(force = false) {
   const todayDateStr = getNepalDateStr(new Date())
-  const nepaliObj = getNepaliDateObj(new Date())
+  const nepaliObj = getNepaliDate(new Date())
   const dayOfWeek = new Date().getDay() // 0=Sun, 1=Mon, ..., 5=Fri, 6=Sat
 
   // Saturday is academic recess in Nepal
@@ -82,8 +82,8 @@ export async function dispatchTeacherDailyReminders(force = false) {
   const todayKey = DAY_KEYS[dayOfWeek] || 'sun'
 
   // Fetch active routines for today
-  const todaysSessions = MASTER_ROUTINES.filter(
-    (r) => r.dayKey === todayKey && r.category !== 'Recess'
+  const todaysSessions = MASTER_ROUTINE.filter(
+    (r: MasterRoutineItem) => r.dayKey === todayKey && (r.category as string) !== 'Recess'
   )
 
   if (todaysSessions.length === 0) {
@@ -95,8 +95,8 @@ export async function dispatchTeacherDailyReminders(force = false) {
   }
 
   // Group by Teacher
-  const teacherSessionsMap = new Map<string, typeof todaysSessions>()
-  todaysSessions.forEach((s) => {
+  const teacherSessionsMap = new Map<string, MasterRoutineItem[]>()
+  todaysSessions.forEach((s: MasterRoutineItem) => {
     const teacherKey = s.teacher || 'Unassigned'
     if (!teacherSessionsMap.has(teacherKey)) {
       teacherSessionsMap.set(teacherKey, [])
@@ -151,8 +151,8 @@ export async function dispatchTeacherDailyReminders(force = false) {
       to: recipientEmail,
       teacherName,
       dateStr: todayDateStr,
-      nepaliDateStr: `${nepaliObj.dayName}, ${nepaliObj.bsMonthName} ${nepaliObj.bsDate}, ${nepaliObj.bsYear}`,
-      sessions: sessions.map((s) => ({
+      nepaliDateStr: `${nepaliObj.dayName}, ${nepaliObj.bsMonthName} ${nepaliObj.bsDay}, ${nepaliObj.bsYear}`,
+      sessions: sessions.map((s: MasterRoutineItem) => ({
         timeSlot: s.timeSlot,
         labName: s.lab || 'Laboratory',
         subjectCode: s.subjectCode,
@@ -304,19 +304,19 @@ export async function dispatchOverdueMaintenanceAlerts(force = false) {
       SELECT 
         r.id as reminder_id,
         r.due_date,
-        r.snooze_until,
+        r.snoozed_until,
         r.status,
         p.title as plan_title,
-        p.cadence,
+        p.interval_days,
         p.category,
         p.lab_id,
         l.name as lab_name,
-        CURRENT_DATE - COALESCE(r.snooze_until::date, r.due_date::date) as overdue_days
+        CURRENT_DATE - COALESCE(r.snoozed_until::date, r.due_date::date) as overdue_days
       FROM public.maintenance_reminders r
       JOIN public.maintenance_plans p ON r.plan_id = p.id
       JOIN public.labs l ON p.lab_id = l.id
       WHERE r.status IN ('pending', 'overdue')
-        AND COALESCE(r.snooze_until::date, r.due_date::date) < CURRENT_DATE
+        AND COALESCE(r.snoozed_until::date, r.due_date::date) < CURRENT_DATE
       ORDER BY overdue_days DESC;
     `)
 
@@ -330,10 +330,14 @@ export async function dispatchOverdueMaintenanceAlerts(force = false) {
       if (!labTasksMap.has(row.lab_id)) {
         labTasksMap.set(row.lab_id, { labName: row.lab_name, tasks: [] })
       }
+      const interval = row.interval_days || 30
+      const cadenceText =
+        interval <= 1 ? 'daily' : interval <= 7 ? 'weekly' : interval <= 30 ? 'monthly' : 'quarterly'
+
       labTasksMap.get(row.lab_id)!.tasks.push({
         title: row.plan_title,
         overdueDays: Math.max(1, row.overdue_days),
-        cadence: row.cadence || 'monthly',
+        cadence: cadenceText,
         category: row.category,
       })
     })
@@ -496,5 +500,63 @@ export async function dispatchNewUserRegistrationAlert(newUser: {
   } catch (err: any) {
     console.error('[Mailer] Failed to notify admins of new registration:', err)
     return { success: false, error: err.message }
+  }
+}
+
+/**
+ * 7. Query Email Dispatch Logs for Admin Audit View
+ */
+export async function getEmailDispatchLogs(limit = 25) {
+  try {
+    const pool = getPgPool()
+    const res = await pool.query(
+      `
+      SELECT id, dispatch_type, recipient_email, reference_date, metadata, dispatched_at
+      FROM public.email_dispatch_logs
+      ORDER BY dispatched_at DESC
+      LIMIT $1;
+      `,
+      [limit]
+    )
+    return { success: true, logs: res.rows }
+  } catch (err: any) {
+    console.warn('[Mailer] Could not query email dispatch logs:', err)
+    return { success: false, logs: [], error: err.message }
+  }
+}
+
+/**
+ * 8. Query Email Notification Engine Health Status
+ */
+export async function getEmailEngineStatus() {
+  const isGmailConfigured = Boolean(
+    process.env.GMAIL_USER?.trim() && process.env.GMAIL_APP_PASSWORD?.trim()
+  )
+  const isCronSecretConfigured = Boolean(process.env.CRON_SECRET?.trim())
+
+  let totalLogs = 0
+  let todaysLogs = 0
+  const todayStr = getNepalDateStr(new Date())
+
+  try {
+    const pool = getPgPool()
+    const totalRes = await pool.query(`SELECT COUNT(*) as count FROM public.email_dispatch_logs;`)
+    totalLogs = parseInt(totalRes.rows[0]?.count || '0', 10)
+
+    const todayRes = await pool.query(
+      `SELECT COUNT(*) as count FROM public.email_dispatch_logs WHERE reference_date = $1;`,
+      [todayStr]
+    )
+    todaysLogs = parseInt(todayRes.rows[0]?.count || '0', 10)
+  } catch (e) {}
+
+  return {
+    success: true,
+    isGmailConfigured,
+    senderEmail: process.env.GMAIL_USER || 'no-reply@rrl.edu.np',
+    isCronSecretConfigured,
+    totalLogs,
+    todaysLogs,
+    todayStr,
   }
 }

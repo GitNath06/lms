@@ -376,3 +376,21 @@ create table institution_settings (
 4. **Zero Pricing/Cost Clutter**: Maintenance logs and plans track technical compliance only. No financial fields.
 5. **Zero Department Regressions**: Never re-introduce department strings to profiles or tables. Use Role Badges and Facility Scopes.
 6. **Strict TypeScript Standards**: All pull requests and edits must pass `npx tsc --noEmit` with **0 errors**.
+
+---
+
+## 7. Automated Institutional Email Notification Engine
+
+### Architecture & Flows
+- **Daily Practical Schedule Reminders**: Automated 7:00 AM NPT dispatch (via Vercel Cron `15 1 * * 0-5` UTC, excluding Saturday recess) delivering tailored daily rosters with period times, room/lab assignments, and student tallies to each teacher.
+- **Skipped Practical Session Alerts**: Triggered upon session log submission with `status: 'skipped'`, notifying the assigned teacher with the recorded skip reason.
+- **Incident & Breakage Broadcasts**: Immediate alerting to Lab In-Charges, Coordinators, and HODs when equipment breakages or damage are reported or escalated.
+- **Overdue Preventive Maintenance Scans**: Automated daily scan alerting Lab In-Charges of overdue equipment maintenance checklists.
+- **Proactive 48h Holiday Lab Shutdown SOP**: 48h advance notice before institutional closures prompting Lab In-Charges to initiate power-down protocols.
+- **New Teacher Registration Alerts**: Real-time alerts to Super Admins and Lab In-Charges when a newly registered faculty member completes email OTP verification and awaits role approval.
+
+### Technical Safeguards & Reliability
+1. **Serverless Lifecycle Protection**: All Server Action background notifications use Next.js native `after()` callbacks (`import { after } from 'next/server'`), ensuring SMTP handshakes complete without truncation when responses return to the client.
+2. **Connection Pooling & Rate Throttling**: Nodemailer configured with `pool: true`, `maxConnections: 2`, `rateDelta: 1000`, and `rateLimit: 3` (maximum 3 emails/second) to prevent Gmail SMTP `421` concurrency limit and `454` throttling errors.
+3. **Strict Route Authorization**: `/api/cron/reminders` validates incoming requests against `process.env.CRON_SECRET` via `Bearer` token and returns `401 Unauthorized` on mismatch.
+4. **Anti-Spam Idempotency**: PostgreSQL `public.email_dispatch_logs` table enforces unique constraint `(dispatch_type, recipient_email, reference_date)` to prevent duplicate dispatches within the same cycle.

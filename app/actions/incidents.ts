@@ -204,6 +204,13 @@ export async function reportIncident(data: Omit<LabIncidentRecord, 'id' | 'creat
     revalidatePath('/admin')
     revalidatePath('/')
 
+    // Non-blocking background email dispatch with Next.js after()
+    after(async () => {
+      await dispatchIncidentEmailAlert(newRecord, false).catch((err) =>
+        console.error('[Mailer] Background incident alert failed:', err)
+      )
+    })
+
     return { success: true, incident: newRecord }
   } catch (e: any) {
     return { success: false, error: e.message || 'Failed to report incident' }
@@ -251,6 +258,13 @@ export async function escalateIncidentToHOD(id: string, reason: string): Promise
 
     revalidatePath('/admin')
     revalidatePath('/')
+
+    // Non-blocking background email dispatch with Next.js after()
+    after(async () => {
+      await dispatchIncidentEmailAlert(item, true).catch((err) =>
+        console.error('[Mailer] Background HOD escalation alert failed:', err)
+      )
+    })
 
     return { success: true }
   } catch (e: any) {

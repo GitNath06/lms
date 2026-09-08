@@ -83,6 +83,11 @@ const IncidentDrawer = dynamic(() => import('@/components/dashboard/incident-dra
   ssr: false,
 })
 
+const EmailNotificationManager = dynamic(() => import('@/components/admin/email-notification-manager'), {
+  ssr: false,
+  loading: () => <div className="h-32 flex items-center justify-center text-xs text-zinc-500 font-medium">Loading Email Notifications Station...</div>,
+})
+
 async function computeSha256(text: string): Promise<string> {
   if (typeof window === 'undefined' || !window.crypto?.subtle) {
     return 'sha256-precomputed-hash'
@@ -115,7 +120,7 @@ export default function SuperAdminPage() {
   // Sub-tabs for Curriculum, Facilities, Operations
   const [curriculumSubTab, setCurriculumSubTab] = useState<'subjects' | 'periods' | 'classes' | 'routine'>('subjects')
   const [facilitiesSubTab, setFacilitiesSubTab] = useState<'labs' | 'maintenance' | 'categories' | 'incidents'>('labs')
-  const [operationsSubTab, setOperationsSubTab] = useState<'calendar' | 'recovery'>('calendar')
+  const [operationsSubTab, setOperationsSubTab] = useState<'calendar' | 'notifications' | 'recovery'>('calendar')
 
   const [toastMessage, setToastMessage] = useState<string | null>(null)
 
@@ -1365,6 +1370,17 @@ export default function SuperAdminPage() {
             </button>
             <button
               type="button"
+              onClick={() => setOperationsSubTab('notifications')}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                operationsSubTab === 'notifications'
+                  ? 'bg-white dark:bg-zinc-900 text-zinc-950 dark:text-white shadow-xs'
+                  : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+              }`}
+            >
+              Email Notification Engine
+            </button>
+            <button
+              type="button"
               onClick={() => setOperationsSubTab('recovery')}
               className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                 operationsSubTab === 'recovery'
@@ -1508,6 +1524,11 @@ export default function SuperAdminPage() {
                 isEditModeUnlocked={isEditModeUnlocked}
               />
             </div>
+          )}
+
+          {/* Email Notification Engine */}
+          {operationsSubTab === 'notifications' && (
+            <EmailNotificationManager />
           )}
 
           {/* Disaster Recovery Suite */}

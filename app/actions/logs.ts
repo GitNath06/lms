@@ -1,6 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { after } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { Database } from '@/types/database'
 import { isSupabaseConfigured } from '@/lib/supabase/config'
@@ -8,6 +9,7 @@ import { DEFAULT_HOLIDAYS, isDateWithinHoliday } from '@/lib/master-data'
 import { getServerUserScope } from '@/lib/context/user-scope'
 import { getTeacherAssignments } from '@/lib/context/institutional-relationships'
 import { getPgPool } from '@/lib/db'
+import { dispatchSkippedSessionNotification } from '@/app/actions/notifications'
 
 type PracticalLogInsert = Database['public']['Tables']['practical_logs']['Insert']
 type PracticalLogUpdate = Database['public']['Tables']['practical_logs']['Update']
@@ -366,6 +368,19 @@ export async function createPracticalLog(
   }
 
   safeRevalidatePaths(['/logs', '/records', '/print/daily-log', '/print/records', '/'])
+
+  // Non-blocking background skipped session alert
+  if (logPayload.status === 'skipped' || logPayload.is_skipped) {
+    after(async () => {
+      await dispatchSkippedSessionNotification({
+        ...newLogRecord,
+        teacher_name: teacherName,
+        lab_name: labInfo?.name || safeLabId,
+      }).catch((err) =>
+        console.error('[Mailer] Background skipped session notification failed:', err)
+      )
+    })
+  }
 
   return { success: true, log: newLogRecord }
 }

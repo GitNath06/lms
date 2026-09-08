@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer'
+import { INSTITUTION_NAME } from '@/lib/institution'
 
 interface SendEmailParams {
   to: string
@@ -98,7 +99,7 @@ export async function sendVerificationOtpEmail(to: string, fullName: string, otp
 
       <p style="color: #94a3b8; font-size: 11px; text-align: center; margin: 0;">
         If you did not request this registration, you can safely disregard this message.<br/>
-        Radha Raman Secondary School • Laboratory Administration
+        ${INSTITUTION_NAME} • Laboratory Administration
       </p>
     </div>
   `
@@ -666,7 +667,7 @@ export async function sendNewUserRegistrationAdminAlertEmail(params: {
 
       <p style="color: #94a3b8; font-size: 11px; text-align: center; margin: 0;">
         Access permissions must be approved by Super Admin before login is granted.<br/>
-        Radha Raman Secondary School • User Access Governance
+        ${INSTITUTION_NAME} • User Access Governance
       </p>
     </div>
   `

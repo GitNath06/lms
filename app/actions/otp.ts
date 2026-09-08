@@ -1,8 +1,10 @@
 'use server'
 
+import { after } from 'next/server'
 import pg from 'pg'
 import { sendVerificationOtpEmail, sendPasswordResetOtpEmail } from '@/lib/mailer'
 import { DEFAULT_ROLE_PERMISSIONS, UserRole } from '@/lib/permissions'
+import { dispatchNewUserRegistrationAlert } from '@/app/actions/notifications'
 
 function getPgClient() {
   return new pg.Client({
@@ -282,6 +284,18 @@ export async function verifySignupAndCreateAccount(formData: FormData, otpCodeRa
 
     await client.query('COMMIT')
     await client.end()
+
+    // Non-blocking background notification to Super Admins & Lab In-Charges
+    after(async () => {
+      await dispatchNewUserRegistrationAlert({
+        fullName,
+        email,
+        role,
+        registeredAt: new Date().toLocaleString(),
+      }).catch((err) =>
+        console.error('[Mailer] Background new user admin notification failed:', err)
+      )
+    })
 
     return {
       success: true,

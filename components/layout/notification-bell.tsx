@@ -224,7 +224,7 @@ export default function NotificationBell({
         type="button"
         onClick={() => setIsOpen(!isOpen)}
         className="relative p-2.5 rounded-xl text-zinc-600 dark:text-zinc-300 hover:text-zinc-950 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all border border-transparent hover:border-zinc-200 dark:hover:border-zinc-700 cursor-pointer shadow-2xs"
-        title="Incident Alerts & Notifications"
+        title="Notification Panel"
       >
         <Bell className="h-4.5 w-4.5" />
 
@@ -298,7 +298,7 @@ export default function NotificationBell({
               <div>
                 <div className="flex items-center gap-2">
                   <h3 className="text-sm font-bold text-zinc-950 dark:text-white">
-                    Incident & Damage Feed
+                    Notification Panel
                   </h3>
                   {userUnreadCount > 0 && (
                     <span className="px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 text-[10px] font-bold">
@@ -387,13 +387,13 @@ export default function NotificationBell({
                   {activeTab === 'unread'
                     ? 'All Caught Up!'
                     : activeTab === 'critical'
-                    ? 'No Critical Hazards'
+                    ? 'No Critical Notices'
                     : 'No Notifications'}
                 </h4>
                 <p className="text-xs text-zinc-500 dark:text-zinc-400 max-w-xs mx-auto">
                   {activeTab === 'unread'
-                    ? 'You have reviewed all incident alerts in your laboratory scope.'
-                    : 'All laboratory facilities and equipment are operating in normal state.'}
+                    ? 'You have reviewed all notices in your institutional scope.'
+                    : 'All laboratory facilities, registrations, and systems are running smoothly.'}
                 </p>
               </div>
             ) : (
@@ -530,14 +530,26 @@ export default function NotificationBell({
               <span>Real-time channel active</span>
             </div>
 
-            <Link
-              href="/incidents"
-              onClick={() => setIsOpen(false)}
-              className="text-indigo-600 dark:text-indigo-400 hover:underline font-bold text-xs flex items-center gap-1"
-            >
-              <span>Incident Hub</span>
-              <ExternalLink className="h-3.5 w-3.5" />
-            </Link>
+            <div className="flex items-center gap-3">
+              <Link
+                href="/incidents"
+                onClick={() => setIsOpen(false)}
+                className="text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white font-medium text-xs flex items-center gap-1"
+              >
+                <span>Incidents</span>
+                <ExternalLink className="h-3 w-3" />
+              </Link>
+              {currentUserRole === 'super_admin' && (
+                <Link
+                  href="/admin"
+                  onClick={() => setIsOpen(false)}
+                  className="text-indigo-600 dark:text-indigo-400 hover:underline font-bold text-xs flex items-center gap-1"
+                >
+                  <span>Admin Console</span>
+                  <ExternalLink className="h-3 w-3" />
+                </Link>
+              )}
+            </div>
           </div>
         </div>
       )}
