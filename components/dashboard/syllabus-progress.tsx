@@ -8,15 +8,6 @@ import { useLogsState } from '@/hooks/use-logs-state'
 
 import { SlidingSegmentedTabs } from '@/components/ui/sliding-segmented-tabs'
 
-const GRADIENTS = [
-  'from-indigo-500 to-blue-500',
-  'from-sky-500 to-cyan-500',
-  'from-rose-500 to-pink-500',
-  'from-cyan-500 to-teal-500',
-  'from-amber-500 to-orange-500',
-  'from-emerald-500 to-teal-500',
-]
-
 export default function SyllabusProgress() {
   const { subjects } = useInfrastructureState()
   const { logs } = useLogsState()
@@ -46,7 +37,6 @@ export default function SyllabusProgress() {
         quota,
         completed,
         percentage,
-        gradient: GRADIENTS[index % GRADIENTS.length],
       }
     })
   }, [subjects, logs])
@@ -70,12 +60,12 @@ export default function SyllabusProgress() {
 
       <CardHeader className="p-4 pb-3 border-b border-zinc-100 dark:border-white/[0.06] flex flex-row items-center justify-between">
         <div>
-          <CardTitle className="text-xs font-mono font-bold text-zinc-900 dark:text-zinc-100 uppercase tracking-wider flex items-center gap-2">
+          <CardTitle className="text-xs sm:text-[13px] font-bold font-sans text-zinc-900 dark:text-zinc-100 uppercase tracking-wider flex items-center gap-2">
             <span className="h-2 w-2 rounded-full bg-indigo-500" />
             Academic Progress
           </CardTitle>
-          <CardDescription className="text-[11px] text-zinc-500">
-            {currentView === 'pace' ? 'Term Experiment Quota & Pace' : 'Recent Verified Practical Activity'}
+          <CardDescription className="text-xs text-zinc-500 dark:text-slate-400 font-sans mt-0.5">
+            {currentView === 'pace' ? 'Term Syllabus Progress & Quotas' : 'Recent Practical Session Activity'}
           </CardDescription>
         </div>
 
@@ -95,73 +85,87 @@ export default function SyllabusProgress() {
       <CardContent className="p-3.5 space-y-2.5">
         {currentView === 'pace' ? (
           syllabusTracks.length === 0 ? (
-            <div className="text-center py-4 text-xs text-zinc-400 font-mono">
+            <div className="text-center py-4 text-xs text-zinc-500 dark:text-slate-400 font-sans">
               No active curriculum subjects configured.
             </div>
           ) : (
-            syllabusTracks.map((track, i) => (
-              <div
-                key={i}
-                className="p-2.5 rounded-xl border border-zinc-200/60 dark:border-white/[0.06] bg-zinc-50/40 dark:bg-surface-2/40 hover:-translate-y-0.5 transition-all duration-150 ease-out motion-reduce:hover:translate-y-0 hover:shadow-2xs space-y-1.5"
-              >
-                <div className="flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-1.5 truncate">
-                    <span className="px-1 py-0.2 rounded text-[9px] font-mono font-bold border bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700">
-                      {track.code}
-                    </span>
-                    <span className="font-semibold text-zinc-900 dark:text-zinc-100 text-[11px] truncate">
-                      {track.subject}
-                    </span>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
+              {syllabusTracks.map((track, i) => (
+                <div
+                  key={i}
+                  className="p-2.5 rounded-xl border border-zinc-200/60 dark:border-white/[0.06] bg-zinc-50/40 dark:bg-surface-2/40 hover:-translate-y-0.5 transition-all duration-150 ease-out motion-reduce:hover:translate-y-0 hover:shadow-2xs space-y-1.5"
+                >
+                  <div className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-1.5 truncate">
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border bg-zinc-100 dark:bg-slate-800/80 text-zinc-800 dark:text-slate-300 border-zinc-200 dark:border-slate-700/60">
+                        {track.code}
+                      </span>
+                      <span className="font-semibold text-zinc-900 dark:text-white text-xs sm:text-[13px] font-sans truncate">
+                        {track.subject}
+                      </span>
+                    </div>
+                    <div className="text-right font-sans text-xs text-zinc-600 dark:text-slate-300 shrink-0">
+                      <span className="font-bold text-zinc-900 dark:text-white tabular-nums font-mono">
+                        {track.completed}/{track.quota}
+                      </span>
+                      <span className="text-zinc-500 dark:text-slate-400 ml-1">({track.percentage}%)</span>
+                    </div>
                   </div>
-                  <div className="text-right font-mono text-[10px] text-zinc-500 shrink-0">
-                    <span className="font-bold text-zinc-800 dark:text-zinc-200">
-                      {track.completed}/{track.quota}
-                    </span>
-                    <span className="text-zinc-400 ml-1">({track.percentage}%)</span>
-                  </div>
-                </div>
 
-                {/* Progress Bar */}
-                <div className="h-1.5 w-full bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full bg-gradient-to-r ${track.gradient} transition-all duration-700 ease-out`}
-                    style={{ width: `${track.percentage}%` }}
-                  />
+                  {/* Progress Bar */}
+                  <div className="h-1.5 w-full bg-zinc-200 dark:bg-slate-800 rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-indigo-600 dark:bg-indigo-500 transition-all duration-700 ease-out"
+                      style={{ width: `${track.percentage}%` }}
+                    />
+                  </div>
                 </div>
-              </div>
-            ))
+              ))}
+            </div>
           )
         ) : (
           /* Recent Verified Logs Fallback */
           recentLogs.length === 0 ? (
-            <div className="text-center py-5 text-xs text-zinc-400 font-mono">
+            <div className="text-center py-5 text-xs text-zinc-500 dark:text-slate-400 font-sans">
               No practical session records logged yet.
             </div>
           ) : (
-            recentLogs.map((log) => (
-              <div
-                key={log.id}
-                className="p-2.5 rounded-lg border border-zinc-200/60 dark:border-zinc-800/80 bg-zinc-50/40 dark:bg-zinc-900/30 space-y-1 font-mono text-[11px]"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 truncate">
-                    <span className="px-1 py-0.2 rounded text-[9px] font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                      {log.grade}
-                    </span>
-                    <span className="font-bold text-zinc-900 dark:text-zinc-100 truncate font-sans">
-                      {log.topicLearned || log.subjectTitle}
-                    </span>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
+              {recentLogs.map((log) => {
+                const attPct = log.totalStudents > 0 ? (log.presentStudents / log.totalStudents) * 100 : 0
+                const attColor =
+                  attPct >= 85
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : attPct < 75
+                    ? 'text-rose-600 dark:text-rose-400'
+                    : 'text-zinc-900 dark:text-slate-100'
+
+                return (
+                  <div
+                    key={log.id}
+                    className="p-2.5 rounded-xl border border-zinc-200/60 dark:border-white/[0.06] bg-zinc-50/40 dark:bg-surface-2/40 space-y-1 text-xs font-sans"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 truncate">
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border bg-zinc-100 dark:bg-slate-800/80 text-zinc-800 dark:text-slate-300 border-zinc-200 dark:border-slate-700/60">
+                          {log.grade}
+                        </span>
+                        <span className="font-semibold text-zinc-900 dark:text-white truncate font-sans text-xs sm:text-[13px]">
+                          {log.topicLearned || log.subjectTitle}
+                        </span>
+                      </div>
+                      <span className={`${attColor} text-xs font-bold font-mono shrink-0 tabular-nums`}>
+                        {log.presentStudents}/{log.totalStudents}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-slate-400 font-sans">
+                      <span>{log.lab} • {log.teacher}</span>
+                      <span className="font-mono text-[11px]">{log.date}</span>
+                    </div>
                   </div>
-                  <span className="text-emerald-600 dark:text-emerald-400 text-[10px] font-bold shrink-0">
-                    {log.presentStudents}/{log.totalStudents}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-[10px] text-zinc-500">
-                  <span>{log.lab} • {log.teacher}</span>
-                  <span>{log.date}</span>
-                </div>
-              </div>
-            ))
+                )
+              })}
+            </div>
           )
         )}
       </CardContent>

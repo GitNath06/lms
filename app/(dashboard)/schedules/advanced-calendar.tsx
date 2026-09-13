@@ -56,6 +56,7 @@ export default function AdvancedCalendar({
     dayKey: currentDayKey,
     activeSlotId,
     activeSessions,
+    now,
   } = useLiveSchedule()
 
   const {
@@ -102,10 +103,10 @@ export default function AdvancedCalendar({
 
   // Calculate Base Date according to week offset
   const baseDate = useMemo(() => {
-    const d = new Date()
+    const d = new Date(now)
     d.setDate(d.getDate() + weekOffset * 7)
     return d
-  }, [weekOffset])
+  }, [now, weekOffset])
 
   const orderedDays = getOrderedDays(startDay)
   const weekDates = getWeekDates(baseDate, startDay)
@@ -956,7 +957,7 @@ export default function AdvancedCalendar({
                 className="w-full p-2 text-xs rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none"
               >
                 <option value="Lab occupied for senior exams">Lab occupied for senior exams</option>
-                <option value="Apparatus under scheduled maintenance">Apparatus under scheduled maintenance</option>
+                <option value="Equipment under scheduled maintenance">Equipment under scheduled maintenance</option>
                 <option value="Chemical inventory shortage">Chemical inventory shortage</option>
                 <option value="Time slot collision with another practical">Time slot collision with another practical</option>
                 <option value="Other">Custom Reason (specify below)</option>

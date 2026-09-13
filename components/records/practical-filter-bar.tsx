@@ -20,6 +20,7 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { useInfrastructureState } from '@/hooks/use-infrastructure-state'
 
 interface PracticalFilterBarProps {
   filters: PracticalRecordFilters
@@ -47,9 +48,11 @@ export default function PracticalFilterBar({
   userScope,
 }: PracticalFilterBarProps) {
   const isPrivileged = ['super_admin', 'lab_incharge', 'hod', 'admin'].includes(userRole)
+  const { classes: infraClasses, subjects: infraSubjects, faculty: infraFaculty, labs: infraLabs } = useInfrastructureState()
 
-  // Dynamic context-first cascading options
+  // Dynamic context-first cascading options using live infrastructure state
   const cascading = React.useMemo(() => {
+    const activeLabs = (infraLabs && infraLabs.length > 0) ? infraLabs : labs
     const scope: UserScopeContext = userScope || {
       userId: '',
       fullName: userName || 'Faculty',
@@ -58,19 +61,45 @@ export default function PracticalFilterBar({
       department: '',
       isPrivileged,
       isTeacher: !isPrivileged,
-      assignedLabIds: labs.map((l) => l.id),
+      assignedLabIds: activeLabs.map((l) => l.id),
       assignedClasses: [],
       assignedSubjects: [],
       defaultViewMode: isPrivileged ? 'institutional' : 'my_data',
       teacherProfile: null,
     }
-    return getCascadingOptions(scope, {
-      labId: filters.lab_id,
-      classBatch: filters.batch_group,
-      subjectCode: filters.subject_name,
-      teacherId: filters.teacher_id,
-    })
-  }, [userScope, userName, userRole, isPrivileged, filters.lab_id, filters.batch_group, filters.subject_name, filters.teacher_id, labs])
+    return getCascadingOptions(
+      scope,
+      {
+        labId: filters.lab_id,
+        classBatch: filters.batch_group,
+        subjectCode: filters.subject_name,
+        teacherId: filters.teacher_id,
+      },
+      {
+        classes: infraClasses,
+        subjects: infraSubjects,
+        labs: activeLabs,
+        teachers: (infraFaculty && infraFaculty.length > 0)
+          ? infraFaculty.map((f) => ({ id: f.id, name: f.name, email: f.email }))
+          : teachers.map((t) => ({ id: t.id, name: t.full_name })),
+      }
+    )
+  }, [
+    userScope,
+    userName,
+    userRole,
+    isPrivileged,
+    filters.lab_id,
+    filters.batch_group,
+    filters.subject_name,
+    filters.teacher_id,
+    labs,
+    teachers,
+    infraClasses,
+    infraSubjects,
+    infraFaculty,
+    infraLabs,
+  ])
 
   const handleFieldChange = (field: keyof PracticalRecordFilters, value: any) => {
     onFiltersChange({

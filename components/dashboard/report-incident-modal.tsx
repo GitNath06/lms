@@ -60,6 +60,7 @@ export default function ReportIncidentModal({
   )
   const [incidentType, setIncidentType] = useState<string>(incidentCategories[0]?.code || 'breakage')
   const [severity, setSeverity] = useState<any>('minor')
+  const [equipmentName, setEquipmentName] = useState<string>('')
   const [incidentTitle, setIncidentTitle] = useState<string>('')
   const [circumstances, setCircumstances] = useState<string>('')
   const [studentRolls, setStudentRolls] = useState<string>('')
@@ -95,11 +96,12 @@ export default function ReportIncidentModal({
         circumstances: circumstances.trim() || undefined,
         incident_type: incidentType as any,
         severity: severity,
-        equipment_name: 'Apparatus / Station Equipment',
+        equipment_name: equipmentName.trim() || 'Lab Equipment / Workstation',
         quantity: 1,
         student_rolls: studentRolls.trim() || undefined,
         resolution_notes: undefined,
         reported_by: teacherName,
+        reported_by_id: scope?.userId || undefined,
       })
 
       if (onSuccess) {
@@ -211,33 +213,48 @@ export default function ReportIncidentModal({
             </div>
           </div>
 
-          {/* Summary Title */}
-          <div className="space-y-1">
-            <label className="font-bold text-zinc-800 dark:text-zinc-200">
-              Incident Summary Headline *
-            </label>
-            <Input
-              type="text"
-              required
-              placeholder="e.g. Accidental drop of glass burette during acid-base titration setup"
-              value={incidentTitle}
-              onChange={(e) => setIncidentTitle(e.target.value)}
-              className="bg-white dark:bg-zinc-950 text-xs"
-            />
+          {/* Summary Title & Equipment Name */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="font-bold text-zinc-800 dark:text-zinc-200">
+                Equipment / Item Affected *
+              </label>
+              <Input
+                type="text"
+                placeholder="e.g. PC-04 Monitor, Digital Multimeter, Burette 50ml"
+                value={equipmentName}
+                onChange={(e) => setEquipmentName(e.target.value)}
+                className="bg-white dark:bg-zinc-950 text-xs"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="font-bold text-zinc-800 dark:text-zinc-200">
+                Incident Summary Headline *
+              </label>
+              <Input
+                type="text"
+                required
+                placeholder="e.g. Screen blackout or glass crack during experiment"
+                value={incidentTitle}
+                onChange={(e) => setIncidentTitle(e.target.value)}
+                className="bg-white dark:bg-zinc-950 text-xs"
+              />
+            </div>
           </div>
 
-          {/* What Happened (Detailed Circumstances & Apparatus Details) */}
+          {/* What Happened (Detailed Circumstances & Equipment Details) */}
           <div className="space-y-1">
             <label className="font-bold text-zinc-800 dark:text-zinc-200 flex items-center justify-between">
               <span>What Happened & Details *</span>
-              <span className="text-[10px] text-zinc-400 font-normal">Specify apparatus, damage circumstances, safety actions taken</span>
+              <span className="text-[10px] text-zinc-400 font-normal">Specify equipment, damage circumstances, safety actions taken</span>
             </label>
             <textarea
               required
               rows={3}
               value={circumstances}
               onChange={(e) => setCircumstances(e.target.value)}
-              placeholder="Describe exactly what happened: which equipment or station was affected, cause of damage, broken pieces cleared, workshop or buffer store actions needed..."
+              placeholder="Describe exactly what happened: which equipment or station was affected, cause of damage, safety steps taken, workshop or store replacement needed..."
               className="flex w-full rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 px-3 py-2 text-xs text-zinc-900 dark:text-zinc-100 font-sans leading-relaxed"
             />
           </div>

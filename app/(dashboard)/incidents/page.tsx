@@ -160,7 +160,7 @@ export default function IncidentsPage() {
                                 Incident and Damage
                             </h1>
                             <p className="text-xs text-zinc-500 font-mono mt-0.5">
-                                Physics, Chemistry & Computer Laboratory apparatus breakages, technical faults & escalation log
+                                Physics, Chemistry & Computer Laboratory equipment breakages, technical faults & escalation log
                             </p>
                         </div>
                     </div>

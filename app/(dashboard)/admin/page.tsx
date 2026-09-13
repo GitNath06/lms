@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import {
   ShieldCheck,
@@ -54,10 +54,12 @@ import {
   SubjectCurriculumItem,
   IncidentCategoryItem,
 } from '@/hooks/use-infrastructure-state'
+import { IncidentCategoriesManager } from '@/components/admin/incident-categories-manager'
 import { updateLabFacility, createLabFacility } from '@/app/actions/labs'
 import dynamic from 'next/dynamic'
 import { HolidayItem } from '@/lib/master-data'
 import { useIncidentState, LabIncidentRecord } from '@/hooks/use-incident-state'
+import { matchesGrade } from '@/lib/context/institutional-relationships'
 
 const DualCalendarPicker = dynamic(() => import('@/components/admin/dual-calendar-picker'), {
   ssr: false,
@@ -182,6 +184,7 @@ export default function SuperAdminPage() {
     addIncidentCategory,
     updateIncidentCategory,
     deleteIncidentCategory,
+    deactivateIncidentCategory,
     resetIncidentCategories,
     updateIncidentSettings,
   } = useInfrastructureState()
@@ -210,6 +213,99 @@ export default function SuperAdminPage() {
   const [subFormQuota, setSubFormQuota] = useState(25)
   const [subFormLabId, setSubFormLabId] = useState('comp')
   const [subFormTeacherId, setSubFormTeacherId] = useState('t1')
+
+  // Subjects Filter & Grouping State
+  const [subjectSearchQuery, setSubjectSearchQuery] = useState('')
+  const [subjectTeacherFilter, setSubjectTeacherFilter] = useState('all')
+  const [subjectClassFilter, setSubjectClassFilter] = useState('all')
+  const [subjectLabFilter, setSubjectLabFilter] = useState('all')
+  const [subjectGroupByClass, setSubjectGroupByClass] = useState(true)
+
+  // Filtered subjects computation
+  const filteredSubjects = useMemo(() => {
+    return subjects.filter((s) => {
+      // Search filter
+      if (subjectSearchQuery.trim()) {
+        const q = subjectSearchQuery.toLowerCase()
+        const matches =
+          s.title.toLowerCase().includes(q) ||
+          s.code.toLowerCase().includes(q) ||
+          (s.teacherName && s.teacherName.toLowerCase().includes(q))
+        if (!matches) return false
+      }
+
+      // Teacher filter
+      if (subjectTeacherFilter !== 'all') {
+        const matchesTeacher =
+          s.teacherId === subjectTeacherFilter ||
+          (s.teacherName && s.teacherName === subjectTeacherFilter) ||
+          (faculty.find((f) => f.id === subjectTeacherFilter)?.name === s.teacherName)
+        if (!matchesTeacher) return false
+      }
+
+      // Class grade filter
+      if (subjectClassFilter !== 'all') {
+        if (s.grade !== subjectClassFilter && !matchesGrade(s.grade, subjectClassFilter)) return false
+      }
+
+      // Lab facility filter
+      if (subjectLabFilter !== 'all') {
+        if (s.labId !== subjectLabFilter && s.lab !== subjectLabFilter) return false
+      }
+
+      return true
+    })
+  }, [subjects, subjectSearchQuery, subjectTeacherFilter, subjectClassFilter, subjectLabFilter, faculty])
+
+  // Grouped by Class computation
+  const groupedSubjects = useMemo(() => {
+    const map = new Map<string, SubjectCurriculumItem[]>()
+    filteredSubjects.forEach((s) => {
+      const key = s.grade || 'Unassigned Class'
+      if (!map.has(key)) {
+        map.set(key, [])
+      }
+      map.get(key)!.push(s)
+    })
+    // Sort class grades naturally: 11 first, then 12, etc.
+    return Array.from(map.entries()).sort(([a], [b]) =>
+      a.localeCompare(b, undefined, { numeric: true })
+    )
+  }, [filteredSubjects])
+
+  // Unique teachers list for filter dropdown
+  const teacherFilterOptions = useMemo(() => {
+    const list: { id: string; name: string }[] = []
+    const seen = new Set<string>()
+
+    faculty.forEach((f) => {
+      if (f.name && !seen.has(f.name)) {
+        seen.add(f.name)
+        list.push({ id: f.id, name: f.name })
+      }
+    })
+
+    subjects.forEach((s) => {
+      if (s.teacherName && !seen.has(s.teacherName)) {
+        seen.add(s.teacherName)
+        list.push({ id: s.teacherId || s.teacherName, name: s.teacherName })
+      }
+    })
+
+    return list.sort((a, b) => a.name.localeCompare(b.name))
+  }, [faculty, subjects])
+
+  // Class batches for filter dropdown (strictly based on Enrolled Class Batches)
+  const classFilterOptions = useMemo(() => {
+    if (classes && classes.length > 0) {
+      return classes.map((c) => c.name)
+    }
+    const set = new Set<string>()
+    subjects.forEach((s) => {
+      if (s.grade) set.add(s.grade)
+    })
+    return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+  }, [classes, subjects])
 
   const [isAddPeriodOpen, setIsAddPeriodOpen] = useState(false)
   const [editingPeriod, setEditingPeriod] = useState<PeriodSlotItem | null>(null)
@@ -274,7 +370,8 @@ export default function SuperAdminPage() {
     if (!requireEditMode()) return
 
     if (editingLab) {
-      updateLab(editingLab.id, {
+      const labId = editingLab.id
+      updateLab(labId, {
         name: labFormName,
         code: labFormCode.toUpperCase(),
         capacity: labFormCapacity,
@@ -282,9 +379,10 @@ export default function SuperAdminPage() {
         status: labFormStatus,
       })
       triggerToast(`Laboratory "${labFormName}" updated (${labFormCapacity} Stations).`)
+      setIsAddLabOpen(false)
       setEditingLab(null)
       try {
-        await updateLabFacility(editingLab.id, {
+        await updateLabFacility(labId, {
           name: labFormName,
           code: labFormCode.toUpperCase(),
           capacity: labFormCapacity,
@@ -705,35 +803,146 @@ export default function SuperAdminPage() {
           {/* Subjects Table */}
           {curriculumSubTab === 'subjects' && (
             <Card className="border border-zinc-200 dark:border-zinc-800 shadow-2xs overflow-hidden">
-              <CardHeader className="p-4 px-5 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-900/40 flex flex-row items-center justify-between">
+              <CardHeader className="p-4 px-5 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-900/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <CardTitle className="text-sm font-bold text-zinc-950 dark:text-white flex items-center gap-2">
                     <BookOpen className="h-4 w-4 text-cyan-600" />
-                    Practical Curriculum Catalog
+                    <span>Practical Curriculum Catalog</span>
+                    <Badge variant="outline" className="text-[11px] font-mono ml-1 font-bold">
+                      {filteredSubjects.length} of {subjects.length} Units
+                    </Badge>
                   </CardTitle>
-                  <CardDescription className="text-xs text-zinc-500">
+                  <CardDescription className="text-xs text-zinc-500 mt-0.5">
                     Manage course units, quota expectations, and assigned faculty instructors
                   </CardDescription>
                 </div>
-                <Button
-                  size="sm"
-                  disabled={!isEditModeUnlocked}
-                  onClick={() => {
-                    setEditingSubject(null)
-                    setSubFormTitle('')
-                    setSubFormCode('')
-                    setSubFormGrade('Class 12')
-                    setSubFormQuota(25)
-                    setSubFormLabId(labs[0]?.id || 'comp')
-                    setSubFormTeacherId(faculty[0]?.id || 't1')
-                    setIsAddSubjectOpen(true)
-                  }}
-                  className="bg-cyan-600 hover:bg-cyan-700 text-white font-semibold text-xs gap-1.5"
-                >
-                  <Plus className="h-4 w-4" />
-                  <span>Register Subject</span>
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={subjectGroupByClass ? 'secondary' : 'outline'}
+                    onClick={() => setSubjectGroupByClass(!subjectGroupByClass)}
+                    className="h-8 text-xs font-semibold gap-1.5 cursor-pointer"
+                    title="Toggle Grouping by Class Grade"
+                  >
+                    <Layers className="h-3.5 w-3.5 text-cyan-600 dark:text-cyan-400" />
+                    <span>{subjectGroupByClass ? 'Grouped by Class' : 'Flat View'}</span>
+                  </Button>
+                  <Button
+                    size="sm"
+                    disabled={!isEditModeUnlocked}
+                    onClick={() => {
+                      setEditingSubject(null)
+                      setSubFormTitle('')
+                      setSubFormCode('')
+                      setSubFormGrade(classes[0]?.name || '12 Eng')
+                      setSubFormQuota(25)
+                      setSubFormLabId(labs[0]?.id || 'comp')
+                      setSubFormTeacherId(faculty[0]?.id || 't1')
+                      setIsAddSubjectOpen(true)
+                    }}
+                    className="bg-cyan-600 hover:bg-cyan-700 text-white font-semibold text-xs gap-1.5 cursor-pointer shadow-xs"
+                  >
+                    <Plus className="h-4 w-4" />
+                    <span>Register Subject</span>
+                  </Button>
+                </div>
               </CardHeader>
+
+              {/* Filter Toolbar */}
+              <div className="p-3.5 px-5 border-b border-zinc-100 dark:border-zinc-800/80 bg-zinc-50/40 dark:bg-zinc-950/40 flex flex-wrap items-center gap-2.5">
+                {/* Search Bar */}
+                <div className="relative flex-1 min-w-[200px]">
+                  <Search className="h-3.5 w-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+                  <Input
+                    type="text"
+                    placeholder="Search subject title or code (e.g. COMP-12)..."
+                    value={subjectSearchQuery}
+                    onChange={(e) => setSubjectSearchQuery(e.target.value)}
+                    className="pl-8.5 h-8.5 text-xs bg-white dark:bg-zinc-900 font-sans"
+                  />
+                  {subjectSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSubjectSearchQuery('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 text-xs"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                {/* Filter by Teacher */}
+                <div className="w-full sm:w-auto min-w-[170px]">
+                  <Select
+                    value={subjectTeacherFilter}
+                    onChange={(e) => setSubjectTeacherFilter(e.target.value)}
+                    className="h-8.5 text-xs bg-white dark:bg-zinc-900 font-medium"
+                  >
+                    <option value="all">All Lead Teachers</option>
+                    {teacherFilterOptions.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+
+                {/* Filter by Class Grade */}
+                <div className="w-full sm:w-auto min-w-[140px]">
+                  <Select
+                    value={subjectClassFilter}
+                    onChange={(e) => setSubjectClassFilter(e.target.value)}
+                    className="h-8.5 text-xs bg-white dark:bg-zinc-900 font-medium"
+                  >
+                    <option value="all">All Classes</option>
+                    {classFilterOptions.map((grade) => (
+                      <option key={grade} value={grade}>
+                        {grade}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+
+                {/* Filter by Facility / Lab */}
+                <div className="w-full sm:w-auto min-w-[170px]">
+                  <Select
+                    value={subjectLabFilter}
+                    onChange={(e) => setSubjectLabFilter(e.target.value)}
+                    className="h-8.5 text-xs bg-white dark:bg-zinc-900 font-medium"
+                  >
+                    <option value="all">All Facilities</option>
+                    {labs.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.name}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+
+                {/* Reset Filters button */}
+                {(subjectSearchQuery ||
+                  subjectTeacherFilter !== 'all' ||
+                  subjectClassFilter !== 'all' ||
+                  subjectLabFilter !== 'all') && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setSubjectSearchQuery('')
+                      setSubjectTeacherFilter('all')
+                      setSubjectClassFilter('all')
+                      setSubjectLabFilter('all')
+                    }}
+                    className="h-8.5 px-2.5 text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 gap-1 cursor-pointer"
+                  >
+                    <RotateCcw className="h-3 w-3" />
+                    <span>Reset</span>
+                  </Button>
+                )}
+              </div>
+
               <CardContent className="p-0 overflow-x-auto">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
@@ -747,63 +956,175 @@ export default function SuperAdminPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
-                    {subjects.map((s) => (
-                      <tr key={s.code} className="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40 transition-colors">
-                        <td className="py-3 px-4">
-                          <div className="font-bold text-zinc-950 dark:text-white text-xs">{s.title}</div>
-                          <span className="text-[11px] font-mono text-cyan-600 dark:text-cyan-400 font-bold">{s.code}</span>
-                        </td>
-                        <td className="py-3 px-4 font-medium text-zinc-700 dark:text-zinc-300">{s.grade}</td>
-                        <td className="py-3 px-4 text-zinc-700 dark:text-zinc-300 font-medium">{s.lab}</td>
-                        <td className="py-3 px-4 text-zinc-700 dark:text-zinc-300 font-medium">{s.teacherName}</td>
-                        <td className="py-3 px-4 font-mono font-bold text-zinc-900 dark:text-zinc-100">{s.quota} Practicals</td>
-                        <td className="py-3 px-4 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              disabled={!isEditModeUnlocked}
-                              onClick={() => {
-                                setEditingSubject(s)
-                                setSubFormTitle(s.title)
-                                setSubFormCode(s.code)
-                                setSubFormGrade(s.grade)
-                                setSubFormQuota(s.quota)
-                                setSubFormLabId(s.labId)
-                                setSubFormTeacherId(s.teacherId)
-                                setIsAddSubjectOpen(true)
-                              }}
-                              className="h-7 px-2.5 text-xs font-semibold"
-                            >
-                              <Edit3 className="h-3 w-3 mr-1" />
-                              Edit
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              disabled={!isEditModeUnlocked}
-                              onClick={() => {
-                                requestDangerAction({
-                                  title: `Remove Subject: ${s.title}`,
-                                  description: `Are you sure you want to delete ${s.code} - ${s.title}?`,
-                                  impactMessage: 'Historical logs referencing this code remain untouched.',
-                                  itemType: 'subject',
-                                  itemId: s.code,
-                                  onConfirm: () => {
-                                    deleteSubject(s.code)
-                                    setDangerModal((prev) => ({ ...prev, isOpen: false }))
-                                    triggerToast(`Subject ${s.code} removed.`)
-                                  },
-                                })
-                              }}
-                              className="h-7 px-2 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border-rose-200"
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          </div>
+                    {filteredSubjects.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="py-12 text-center text-zinc-400 text-xs font-sans">
+                          No practical curriculum subjects match the selected filters.
                         </td>
                       </tr>
-                    ))}
+                    ) : subjectGroupByClass ? (
+                      groupedSubjects.map(([grade, items]) => (
+                        <React.Fragment key={grade}>
+                          {/* Class Group Header */}
+                          <tr className="bg-zinc-100/80 dark:bg-zinc-800/70 border-y border-zinc-200/80 dark:border-zinc-700/60">
+                            <td colSpan={6} className="py-2.5 px-4">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <span className="h-5.5 px-2.5 rounded-md bg-cyan-500/15 text-cyan-800 dark:text-cyan-300 text-[11px] font-extrabold uppercase tracking-wide border border-cyan-500/25 flex items-center gap-1.5 shadow-2xs">
+                                    <Layers className="h-3 w-3" />
+                                    <span>Class: {grade}</span>
+                                  </span>
+                                  <span className="text-[11.5px] font-semibold text-zinc-600 dark:text-zinc-300">
+                                    {items.length} practical course unit{items.length === 1 ? '' : 's'}
+                                  </span>
+                                </div>
+                                <span className="text-[10.5px] font-mono text-zinc-400 uppercase tracking-wider font-semibold">
+                                  Academic Cohort
+                                </span>
+                              </div>
+                            </td>
+                          </tr>
+                          {/* Subjects in this Class */}
+                          {items.map((s) => (
+                            <tr key={s.code} className="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40 transition-colors">
+                              <td className="py-3 px-4">
+                                <div className="font-bold text-zinc-950 dark:text-white text-xs">{s.title}</div>
+                                <span className="text-[11px] font-mono text-cyan-600 dark:text-cyan-400 font-bold">{s.code}</span>
+                              </td>
+                              <td className="py-3 px-4 font-medium text-zinc-700 dark:text-zinc-300">
+                                <span className="px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold text-[11px]">
+                                  {s.grade}
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-zinc-700 dark:text-zinc-300 font-medium">
+                                {s.lab || labs.find((l) => l.id === s.labId)?.name || 'Designated Lab'}
+                              </td>
+                              <td className="py-3 px-4 text-zinc-700 dark:text-zinc-300 font-medium">
+                                <span className="flex items-center gap-1.5">
+                                  <Users className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
+                                  <span>{s.teacherName || faculty.find((f) => f.id === s.teacherId)?.name || 'Unassigned'}</span>
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 font-mono font-bold text-zinc-900 dark:text-zinc-100">{s.quota} Practicals</td>
+                              <td className="py-3 px-4 text-right">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={!isEditModeUnlocked}
+                                    onClick={() => {
+                                      setEditingSubject(s)
+                                      setSubFormTitle(s.title)
+                                      setSubFormCode(s.code)
+                                      setSubFormGrade(s.grade)
+                                      setSubFormQuota(s.quota)
+                                      setSubFormLabId(s.labId)
+                                      setSubFormTeacherId(s.teacherId)
+                                      setIsAddSubjectOpen(true)
+                                    }}
+                                    className="h-7 px-2.5 text-xs font-semibold cursor-pointer"
+                                  >
+                                    <Edit3 className="h-3 w-3 mr-1" />
+                                    Edit
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={!isEditModeUnlocked}
+                                    onClick={() => {
+                                      requestDangerAction({
+                                        title: `Remove Subject: ${s.title}`,
+                                        description: `Are you sure you want to delete ${s.code} - ${s.title}?`,
+                                        impactMessage: 'Historical logs referencing this code remain untouched.',
+                                        itemType: 'subject',
+                                        itemId: s.code,
+                                        onConfirm: () => {
+                                          deleteSubject(s.code)
+                                          setDangerModal((prev) => ({ ...prev, isOpen: false }))
+                                          triggerToast(`Subject ${s.code} removed.`)
+                                        },
+                                      })
+                                    }}
+                                    className="h-7 px-2 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border-rose-200 cursor-pointer"
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </React.Fragment>
+                      ))
+                    ) : (
+                      filteredSubjects.map((s) => (
+                        <tr key={s.code} className="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40 transition-colors">
+                          <td className="py-3 px-4">
+                            <div className="font-bold text-zinc-950 dark:text-white text-xs">{s.title}</div>
+                            <span className="text-[11px] font-mono text-cyan-600 dark:text-cyan-400 font-bold">{s.code}</span>
+                          </td>
+                          <td className="py-3 px-4 font-medium text-zinc-700 dark:text-zinc-300">
+                            <span className="px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold text-[11px]">
+                              {s.grade}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-zinc-700 dark:text-zinc-300 font-medium">
+                            {s.lab || labs.find((l) => l.id === s.labId)?.name || 'Designated Lab'}
+                          </td>
+                          <td className="py-3 px-4 text-zinc-700 dark:text-zinc-300 font-medium">
+                            <span className="flex items-center gap-1.5">
+                              <Users className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
+                              <span>{s.teacherName || faculty.find((f) => f.id === s.teacherId)?.name || 'Unassigned'}</span>
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 font-mono font-bold text-zinc-900 dark:text-zinc-100">{s.quota} Practicals</td>
+                          <td className="py-3 px-4 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={!isEditModeUnlocked}
+                                onClick={() => {
+                                  setEditingSubject(s)
+                                  setSubFormTitle(s.title)
+                                  setSubFormCode(s.code)
+                                  setSubFormGrade(s.grade)
+                                  setSubFormQuota(s.quota)
+                                  setSubFormLabId(s.labId)
+                                  setSubFormTeacherId(s.teacherId)
+                                  setIsAddSubjectOpen(true)
+                                }}
+                                className="h-7 px-2.5 text-xs font-semibold cursor-pointer"
+                              >
+                                <Edit3 className="h-3 w-3 mr-1" />
+                                Edit
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={!isEditModeUnlocked}
+                                onClick={() => {
+                                  requestDangerAction({
+                                    title: `Remove Subject: ${s.title}`,
+                                    description: `Are you sure you want to delete ${s.code} - ${s.title}?`,
+                                    impactMessage: 'Historical logs referencing this code remain untouched.',
+                                    itemType: 'subject',
+                                    itemId: s.code,
+                                    onConfirm: () => {
+                                      deleteSubject(s.code)
+                                      setDangerModal((prev) => ({ ...prev, isOpen: false }))
+                                      triggerToast(`Subject ${s.code} removed.`)
+                                    },
+                                  })
+                                }}
+                                className="h-7 px-2 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border-rose-200 cursor-pointer"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </CardContent>
@@ -1139,9 +1460,24 @@ export default function SuperAdminPage() {
                         <td className="py-3 px-4 font-medium text-zinc-700 dark:text-zinc-300 capitalize">{l.type.replace('_', ' ')}</td>
                         <td className="py-3 px-4 font-mono font-bold text-zinc-900 dark:text-zinc-100">{l.capacity} Stations</td>
                         <td className="py-3 px-4">
-                          <span className="px-2.5 py-1 rounded-full text-[10.5px] font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
-                            {l.status}
-                          </span>
+                          {l.status === 'Operational' && (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30">
+                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+                              Operational
+                            </span>
+                          )}
+                          {l.status === 'Under Maintenance' && (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30">
+                              <Wrench className="h-3 w-3 text-amber-600 dark:text-amber-400" />
+                              Under Maintenance
+                            </span>
+                          )}
+                          {l.status !== 'Operational' && l.status !== 'Under Maintenance' && (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700">
+                              <span className="h-1.5 w-1.5 rounded-full bg-zinc-400"></span>
+                              {l.status || 'Inactive'}
+                            </span>
+                          )}
                         </td>
                         <td className="py-3 px-4 text-right">
                           <div className="flex items-center justify-end gap-1.5">
@@ -1203,53 +1539,20 @@ export default function SuperAdminPage() {
             />
           )}
 
-          {/* Incident Categories */}
+          {/* Incident Categories Full Governance Manager */}
           {facilitiesSubTab === 'categories' && (
-            <Card className="border border-zinc-200 dark:border-zinc-800 shadow-2xs overflow-hidden">
-              <CardHeader className="p-4 px-5 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-900/40">
-                <CardTitle className="text-sm font-bold text-zinc-950 dark:text-white flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4 text-rose-600" />
-                  Incident & Breakage Classifications
-                </CardTitle>
-                <CardDescription className="text-xs text-zinc-500">
-                  Standard classifications for apparatus damages, glass breakages, and safety hazards
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="p-0 overflow-x-auto">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/80 dark:bg-zinc-900/80 text-zinc-600 dark:text-zinc-400 font-bold uppercase text-[10.5px]">
-                      <th className="py-3 px-4">Category Name</th>
-                      <th className="py-3 px-4">Default Urgency</th>
-                      <th className="py-3 px-4">Target Lab</th>
-                      <th className="py-3 px-4">Description</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
-                    {incidentCategories.map((c) => (
-                      <tr key={c.id} className="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40 transition-colors">
-                        <td className="py-3 px-4 font-bold text-zinc-950 dark:text-white">{c.name}</td>
-                        <td className="py-3 px-4">
-                          <span
-                            className={`px-2 py-0.5 rounded-md text-[10.5px] font-bold uppercase ${
-                              c.severity === 'major_critical'
-                                ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30'
-                                : c.severity === 'moderate'
-                                ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30'
-                                : 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30'
-                            }`}
-                          >
-                            {c.severity.replace('_', ' ')}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 font-mono uppercase text-zinc-600 dark:text-zinc-400 font-bold">{c.targetLab || 'ALL'}</td>
-                        <td className="py-3 px-4 text-zinc-600 dark:text-zinc-300 text-xs">{c.description}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </CardContent>
-            </Card>
+            <IncidentCategoriesManager
+              categories={incidentCategories}
+              isEditModeUnlocked={isEditModeUnlocked}
+              onAddCategory={addIncidentCategory}
+              onUpdateCategory={updateIncidentCategory}
+              onDeleteCategory={deleteIncidentCategory}
+              onDeactivateCategory={deactivateIncidentCategory}
+              onResetCategories={resetIncidentCategories}
+              labs={labs}
+              historicalIncidents={incidents}
+              triggerToast={triggerToast}
+            />
           )}
 
           {/* Incident Register */}
@@ -1710,6 +2013,7 @@ export default function SuperAdminPage() {
                   >
                     <option value="Operational">Operational</option>
                     <option value="Under Maintenance">Under Maintenance</option>
+                    <option value="Inactive">Inactive</option>
                   </Select>
                 </div>
               </div>
@@ -1882,15 +2186,17 @@ export default function SuperAdminPage() {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="font-bold text-zinc-700 dark:text-zinc-300">Grade Level</label>
+                  <label className="font-bold text-zinc-700 dark:text-zinc-300">Grade Level / Class *</label>
                   <Select
                     value={subFormGrade}
                     onChange={(e) => setSubFormGrade(e.target.value)}
                     className="h-8.5 text-xs font-sans"
                   >
-                    <option value="Class 11">Class 11</option>
-                    <option value="Class 12">Class 12</option>
-                    <option value="Bachelor">Bachelor</option>
+                    {classes.map((c) => (
+                      <option key={c.id || c.name} value={c.name}>
+                        {c.name} {c.stream ? `— ${c.stream}` : ''}
+                      </option>
+                    ))}
                   </Select>
                 </div>
               </div>

@@ -137,7 +137,7 @@ export function generateIncidentRecordsCsv(
 
   // Header Banner
   lines.push(escapeCsvCell(INSTITUTION_CONFIG.name))
-  lines.push(escapeCsvCell('OFFICIAL LABORATORY INCIDENT & APPARATUS DAMAGE REGISTER'))
+  lines.push(escapeCsvCell('OFFICIAL LABORATORY INCIDENT & EQUIPMENT DAMAGE REGISTER'))
   lines.push(
     escapeCsvCell(
       `Facility: ${filtersMeta?.labName || 'All Facilities'} | Period: ${

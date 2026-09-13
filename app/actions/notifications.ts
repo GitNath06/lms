@@ -262,7 +262,7 @@ export async function dispatchIncidentEmailAlert(incident: any, isEscalated = fa
       id: incident.id || `inc-${Date.now()}`,
       title: incident.title || 'Equipment Breakage Incident',
       labName,
-      equipmentName: incident.equipment_name || 'Apparatus',
+      equipmentName: incident.equipment_name || 'Lab Equipment',
       severity: incident.severity || 'moderate',
       incidentType: incident.incident_type || 'breakage',
       sessionLabel: incident.session_label || 'Scheduled Slot',

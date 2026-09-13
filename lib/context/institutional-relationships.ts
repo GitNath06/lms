@@ -150,15 +150,46 @@ export function getTeacherAssignments(identifier?: string | null): TeacherAssign
 }
 
 /**
+ * Fuzzy check if two class/grade identifiers belong to the same level / cohort
+ * e.g. "12 Eng" matches "12", "Class 12", "12 Eng", "12C", "12 Sc"
+ */
+export function matchesGrade(classOrGradeA?: string | null, classOrGradeB?: string | null): boolean {
+  if (!classOrGradeA || !classOrGradeB) return true
+  const normA = classOrGradeA.trim().toLowerCase().replace(/^class\s+/i, '')
+  const normB = classOrGradeB.trim().toLowerCase().replace(/^class\s+/i, '')
+  
+  if (normA === normB) return true
+  if (normA.startsWith(normB) || normB.startsWith(normA)) return true
+
+  // Extract leading digits if present: e.g. "12 Eng" -> "12", "12 Sc" -> "12", "Class 12" -> "12"
+  const numA = normA.match(/\d+/)?.[0]
+  const numB = normB.match(/\d+/)?.[0]
+  if (numA && numB && numA === numB) {
+    const isMgtA = normA.includes('mgt') || normA.includes('management')
+    const isMgtB = normB.includes('mgt') || normB.includes('management')
+    const isEngA = normA.includes('eng') || normA.includes('comp')
+    const isEngB = normB.includes('eng') || normB.includes('comp')
+    const isScA = normA.includes('sc') || normA.includes('science')
+    const isScB = normB.includes('sc') || normB.includes('science')
+
+    // If one is explicitly management and the other is engineering/science, separate them
+    if ((isMgtA && (isEngB || isScB)) || (isMgtB && (isEngA || isScA))) {
+      return false
+    }
+    return true
+  }
+
+  return false
+}
+
+/**
  * Get all subjects for a class/grade
  */
-export function getSubjectsForClass(className?: string | null) {
-  if (!className) return DEFAULT_SUBJECTS
-  const clean = className.trim().replace(/^Class\s+/i, '').toLowerCase()
-  return DEFAULT_SUBJECTS.filter((s) => {
-    const sGrade = s.grade.trim().replace(/^Class\s+/i, '').toLowerCase()
-    return sGrade === clean || sGrade.startsWith(clean) || clean.startsWith(sGrade)
-  })
+export function getSubjectsForClass(className?: string | null, customSubjects?: any[]) {
+  const pool = customSubjects && customSubjects.length > 0 ? customSubjects : DEFAULT_SUBJECTS
+  if (!className) return pool
+  const matched = pool.filter((s: any) => matchesGrade(s.grade, className))
+  return matched.length > 0 ? matched : pool
 }
 
 /**

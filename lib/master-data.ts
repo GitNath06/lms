@@ -878,13 +878,12 @@ export interface ClassBatchItem {
 }
 
 export const DEFAULT_CLASSES: ClassBatchItem[] = [
-  { id: '12c', name: '12C', fullName: '12C - Tech Stream Sec A (Computer)', stream: 'Computer Engineering', strength: 38 },
-  { id: '12sc', name: '12 Sc', fullName: '12 Sc - Science Stream Sec B', stream: 'General Science', strength: 40 },
+  { id: '12eng', name: '12 Eng', fullName: '12 Eng - Computer Engineering', stream: 'Computer Engineering', strength: 38 },
   { id: '12mgt', name: '12 Mgt', fullName: '12 Mgt - Management Stream', stream: 'Management', strength: 36 },
-  { id: '11c', name: '11C', fullName: '11C - Tech Stream Sec A (Computer)', stream: 'Computer Engineering', strength: 42 },
-  { id: '11sc', name: '11 Sc', fullName: '11 Sc - Science Stream Sec B', stream: 'General Science', strength: 38 },
-  { id: '10a', name: '10A', fullName: '10A - Vocational Technical', stream: 'Secondary Technical', strength: 35 },
-  { id: '9b', name: '9B', fullName: '9B - Pre-Engineering', stream: 'Secondary Technical', strength: 36 },
+  { id: '11eng', name: '11 Eng', fullName: '11 Eng - Computer Engineering', stream: 'Computer Engineering', strength: 42 },
+  { id: '11mgt', name: '11 Mgt', fullName: '11 Mgt - General Science Stream', stream: 'General Science', strength: 38 },
+  { id: '10eng', name: '10 Eng', fullName: '10 Eng - Computer Engineering', stream: 'Computer Engineering', strength: 35 },
+  { id: '9eng', name: '9 Eng', fullName: '9 Eng - Computer Engineering', stream: 'Computer Engineering', strength: 36 },
   { id: '8a', name: '8A', fullName: '8A - General Science', stream: 'Basic Level', strength: 32 },
   { id: '7b', name: '7B', fullName: '7B - General Science', stream: 'Basic Level', strength: 30 },
   { id: '6a', name: '6A', fullName: '6A - Basic Science & Computing', stream: 'Basic Level', strength: 28 },

@@ -34,7 +34,7 @@ export default async function NewLogPage() {
               </Badge>
             </div>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 font-mono mt-0.5">
-              Record experiment syllabus, apparatus status, and student attendance tallies.
+              Record experiment syllabus, equipment status, and student attendance tallies.
             </p>
           </div>
         </div>

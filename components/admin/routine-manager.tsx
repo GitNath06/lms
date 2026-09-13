@@ -46,6 +46,7 @@ import {
   computeCombinedTimeRange,
   formatGradeBadge,
 } from '@/lib/master-data'
+import { matchesGrade } from '@/lib/context/institutional-relationships'
 import { useRoutineState } from '@/hooks/use-routine-state'
 import {
   useInfrastructureState,
@@ -157,6 +158,16 @@ export default function RoutineManager({ isEditModeUnlocked }: RoutineManagerPro
   const [formStudents, setFormStudents] = useState<number>(36)
   const [formError, setFormError] = useState<string | null>(null)
 
+  // Curriculum subjects dynamically filtered for currently selected formGrade
+  const curriculumSubjectsForGrade = useMemo(() => {
+    const raw = subjects && subjects.length > 0 ? subjects : DEFAULT_SUBJECTS
+    const direct = raw.filter((s) => s.grade === formGrade)
+    if (direct.length > 0) return direct
+    const fuzzy = raw.filter((s) => matchesGrade(s.grade, formGrade))
+    if (fuzzy.length > 0) return fuzzy
+    return raw
+  }, [subjects, formGrade])
+
   const showNotification = (msg: string) => {
     setActionSuccessMsg(msg)
     setTimeout(() => setActionSuccessMsg(null), 3000)
@@ -189,12 +200,13 @@ export default function RoutineManager({ isEditModeUnlocked }: RoutineManagerPro
     setFormDayKey(presetDay || (selectedDay !== 'all' ? (selectedDay as DayKey) : 'sun'))
     setFormSlotId(presetSlotId || 't1')
     setFormSpan(1)
-    setFormLabKey(presetLabKey || (selectedLab !== 'all' ? (selectedLab as any) : 'comp'))
-    setFormGrade(classes[0]?.name || '12C')
-    const firstSubj = subjects[0]
+    const initialGrade = classes[0]?.name || '12 Eng'
+    setFormGrade(initialGrade)
+    const matchingSubs = subjects.filter((s) => s.grade === initialGrade || matchesGrade(s.grade, initialGrade))
+    const firstSubj = matchingSubs[0] || subjects[0]
     setFormSubjectCode(firstSubj?.code || 'COMP-12')
     setFormSubjectTitle(firstSubj?.title || 'Data Structures & Algorithms Lab')
-    setFormTeacher(faculty[0]?.name || 'Er. Anish Karki')
+    setFormTeacher(firstSubj?.teacherName || faculty[0]?.name || 'Er. Anish Karki')
     setFormStudents(classes[0]?.capacity || 36)
     setFormError(null)
     setIsAddModalOpen(true)
@@ -1520,11 +1532,11 @@ export default function RoutineManager({ isEditModeUnlocked }: RoutineManagerPro
                     onChange={(e) => setFormLabKey(e.target.value as any)}
                     className="w-full h-9 px-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900 text-xs font-mono font-medium text-zinc-900 dark:text-zinc-100"
                   >
-                    <option value="comp">Computer Engineering Lab 01</option>
-                    <option value="phys">Physics Laboratory</option>
-                    <option value="chem">Chemistry Laboratory</option>
-                    <option value="bio">Biology Laboratory</option>
-                    <option value="elec">Electronics Laboratory</option>
+                    {labs.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.name}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -1587,12 +1599,19 @@ export default function RoutineManager({ isEditModeUnlocked }: RoutineManagerPro
                   </label>
                   <select
                     value={formGrade}
-                    onChange={(e) => setFormGrade(e.target.value)}
+                    onChange={(e) => {
+                      const newGrade = e.target.value
+                      setFormGrade(newGrade)
+                      const targetCls = classes.find((c) => c.name === newGrade)
+                      if (targetCls) {
+                        setFormStudents(targetCls.capacity)
+                      }
+                    }}
                     className="w-full h-9 px-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900 text-xs font-mono font-medium text-zinc-900 dark:text-zinc-100"
                   >
-                    {DEFAULT_CLASSES.map((c) => (
+                    {classes.map((c) => (
                       <option key={c.id} value={c.name}>
-                        {c.name} ({c.stream})
+                        {c.name} {c.stream ? `(${c.stream})` : ''}
                       </option>
                     ))}
                   </select>
@@ -1614,31 +1633,70 @@ export default function RoutineManager({ isEditModeUnlocked }: RoutineManagerPro
                 </div>
               </div>
 
-              {/* Subject Selection / Input */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* Subject Selection / Input with Quick Select from Curriculum */}
+              <div className="space-y-3">
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400">
-                    Subject Code
-                  </label>
-                  <Input
-                    value={formSubjectCode}
-                    onChange={(e) => setFormSubjectCode(e.target.value)}
-                    placeholder="e.g. COMP-12"
-                    className="h-9 text-xs font-mono bg-zinc-50/50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800"
-                    required
-                  />
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400">
+                      Curriculum Subject Catalog ({formGrade})
+                    </label>
+                    <span className="text-[10px] text-cyan-600 dark:text-cyan-400 font-bold">
+                      Select to auto-populate details
+                    </span>
+                  </div>
+                  <select
+                    onChange={(e) => {
+                      const code = e.target.value
+                      if (!code) return
+                      const sub = subjects.find((s) => s.code === code) || DEFAULT_SUBJECTS.find((s) => s.code === code)
+                      if (sub) {
+                        setFormSubjectCode(sub.code)
+                        setFormSubjectTitle(sub.title)
+                        if (sub.labId) setFormLabKey(sub.labId as any)
+                        if ('teacherName' in sub && (sub as any).teacherName) {
+                          setFormTeacher((sub as any).teacherName)
+                        } else if (sub.teacherId) {
+                          const t = faculty.find((f) => f.id === sub.teacherId)
+                          if (t) setFormTeacher(t.name)
+                        }
+                      }
+                    }}
+                    className="w-full h-9 px-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900 text-xs font-mono font-medium text-zinc-900 dark:text-zinc-100"
+                  >
+                    <option value="">Choose subject from curriculum to auto-fill...</option>
+                    {curriculumSubjectsForGrade.map((s) => (
+                      <option key={s.code} value={s.code}>
+                        {s.code} — {s.title} ({s.lab || 'Laboratory'})
+                      </option>
+                    ))}
+                  </select>
                 </div>
-                <div className="sm:col-span-2 space-y-1.5">
-                  <label className="text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400">
-                    Subject / Experiment Title
-                  </label>
-                  <Input
-                    value={formSubjectTitle}
-                    onChange={(e) => setFormSubjectTitle(e.target.value)}
-                    placeholder="e.g. Data Structures & Algorithms Lab"
-                    className="h-9 text-xs font-sans bg-zinc-50/50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800"
-                    required
-                  />
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400">
+                      Subject Code *
+                    </label>
+                    <Input
+                      value={formSubjectCode}
+                      onChange={(e) => setFormSubjectCode(e.target.value)}
+                      placeholder="e.g. COMP-12"
+                      className="h-9 text-xs font-mono bg-zinc-50/50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800"
+                      required
+                    />
+                  </div>
+                  <div className="sm:col-span-2 space-y-1.5">
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400">
+                      Subject / Experiment Title *
+                    </label>
+                    <Input
+                      value={formSubjectTitle}
+                      onChange={(e) => setFormSubjectTitle(e.target.value)}
+                      placeholder="e.g. Data Structures & Algorithms Lab"
+                      className="h-9 text-xs font-sans bg-zinc-50/50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800"
+                      required
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -1657,7 +1715,7 @@ export default function RoutineManager({ isEditModeUnlocked }: RoutineManagerPro
                     <option value="">Select Faculty...</option>
                     {faculty.map((f) => (
                       <option key={f.id} value={f.name}>
-                        {f.name} ({f.dept})
+                        {f.name} ({f.role || 'Faculty'})
                       </option>
                     ))}
                   </select>

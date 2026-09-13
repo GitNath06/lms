@@ -75,10 +75,10 @@ export default function UserProfileMenu({ profile }: UserProfileMenuProps) {
       label: 'Head of Department',
       sublabel: 'Academic & Incident Escalations',
       icon: '🏛️',
-      tagBadge: 'bg-purple-500/10 text-purple-700 dark:text-purple-300 border-purple-500/30',
-      avatarRing: 'ring-2 ring-purple-500/80 shadow-md shadow-purple-500/20',
-      avatarBg: 'bg-gradient-to-tr from-purple-600 to-pink-500 text-white',
-      accentText: 'text-purple-600 dark:text-purple-400',
+      tagBadge: 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/30',
+      avatarRing: 'ring-2 ring-indigo-500/80 shadow-md shadow-indigo-500/20',
+      avatarBg: 'bg-indigo-700 text-white',
+      accentText: 'text-indigo-600 dark:text-indigo-400',
       quickActionHref: '/incidents',
       quickActionLabel: 'Review Escalated Matters',
     },
@@ -86,10 +86,10 @@ export default function UserProfileMenu({ profile }: UserProfileMenuProps) {
       label: 'Teacher',
       sublabel: 'Academic Practical Instructor',
       icon: '👨‍🏫',
-      tagBadge: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30',
-      avatarRing: 'ring-2 ring-emerald-500/80 shadow-md shadow-emerald-500/20',
-      avatarBg: 'bg-gradient-to-tr from-emerald-600 to-teal-500 text-white',
-      accentText: 'text-emerald-600 dark:text-emerald-400',
+      tagBadge: 'bg-zinc-100 dark:bg-slate-800 text-zinc-700 dark:text-slate-300 border-zinc-200 dark:border-slate-700/60',
+      avatarRing: 'ring-2 ring-zinc-300 dark:ring-slate-700 shadow-md',
+      avatarBg: 'bg-zinc-700 dark:bg-slate-800 text-white',
+      accentText: 'text-zinc-700 dark:text-slate-300',
       quickActionHref: '/logs/new',
       quickActionLabel: 'Log Practical Session',
     },
@@ -161,7 +161,7 @@ export default function UserProfileMenu({ profile }: UserProfileMenuProps) {
             <div className="flex items-center justify-between text-[10px] font-mono text-zinc-400 uppercase">
               <span>Facility Scope</span>
               <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-bold">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                 Active Session
               </span>
             </div>

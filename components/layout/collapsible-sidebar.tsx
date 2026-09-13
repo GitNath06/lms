@@ -69,7 +69,7 @@ export default function CollapsibleSidebar({
       href: '/schedules',
       shortcut: '⌘2',
       icon: Calendar,
-      activeColor: 'text-cyan-600 dark:text-cyan-400',
+      activeColor: 'text-indigo-600 dark:text-indigo-400',
     },
     {
       label: 'Practical Logbook',
@@ -77,7 +77,7 @@ export default function CollapsibleSidebar({
       href: '/records',
       shortcut: '⌘3',
       icon: ClipboardList,
-      activeColor: 'text-emerald-600 dark:text-emerald-400',
+      activeColor: 'text-indigo-600 dark:text-indigo-400',
     },
     {
       label: 'Incidents & Repairs',
@@ -109,7 +109,7 @@ export default function CollapsibleSidebar({
       href: '/print/records',
       shortcut: '⌘6',
       icon: Printer,
-      activeColor: 'text-blue-600 dark:text-blue-400',
+      activeColor: 'text-indigo-600 dark:text-indigo-400',
     },
   ]
 
@@ -154,7 +154,7 @@ export default function CollapsibleSidebar({
               type="button"
               onClick={toggleCollapse}
               title="Expand sidebar (Ctrl + B)"
-              className="h-10 w-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-purple-600 hover:opacity-95 text-white flex items-center justify-center shadow-md shadow-indigo-500/25 transition-all cursor-pointer group hover:scale-105"
+              className="h-10 w-10 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center shadow-md shadow-indigo-500/25 transition-all cursor-pointer group hover:scale-105"
             >
               <PanelLeftOpen className="h-5 w-5 transition-transform group-hover:scale-110" />
             </button>
@@ -162,7 +162,7 @@ export default function CollapsibleSidebar({
         ) : (
           <>
             <Link href="/" className="flex items-center gap-3 overflow-hidden">
-              <div className="h-9 w-9 shrink-0 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-md shadow-indigo-500/20">
+              <div className="h-9 w-9 shrink-0 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-md shadow-indigo-500/20">
                 <FlaskConical className="h-4 w-4" />
               </div>
               <div className="overflow-hidden animate-in fade-in duration-200">

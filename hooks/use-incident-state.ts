@@ -124,14 +124,16 @@ export function useIncidentState() {
   }, [])
 
   const persistIncidents = useCallback(
-    (updater: LabIncidentRecord[] | ((prev: LabIncidentRecord[]) => LabIncidentRecord[])) => {
+    (updater: LabIncidentRecord[] | ((prev: LabIncidentRecord[]) => LabIncidentRecord[]), meta?: { action?: string; incidentId?: string; incident?: LabIncidentRecord; updates?: any }) => {
       setIncidents((prev) => {
         const updated = typeof updater === 'function' ? updater(prev) : updater
         try {
           if (typeof window !== 'undefined') {
             localStorage.setItem(INCIDENTS_KEY, JSON.stringify(updated))
             queueMicrotask(() => {
-              window.dispatchEvent(new Event('incidents-updated'))
+              window.dispatchEvent(new CustomEvent('incidents-updated', {
+                detail: meta || { action: 'refresh' },
+              }))
             })
           }
         } catch (e) {}
@@ -274,8 +276,12 @@ export function useIncidentState() {
       created_at: new Date().toISOString(),
     }
 
-    // 1. Optimistic save
-    persistIncidents((prev) => [newRecord, ...prev])
+    // 1. Optimistic save with targeted meta
+    persistIncidents((prev) => [newRecord, ...prev], {
+      action: 'created',
+      incidentId: recordId,
+      incident: newRecord,
+    })
 
     const labName =
       data.lab_id === 'chem'
@@ -357,18 +363,30 @@ export function useIncidentState() {
 
   // Action: Escalate to HOD
   const escalateToHOD = async (id: string, reason: string) => {
-    persistIncidents((prev) =>
-      prev.map((i) =>
-        i.id === id
-          ? {
-              ...i,
-              status: 'escalated_to_hod',
-              escalated_to_hod: true,
-              escalation_reason: reason,
-              escalated_at: new Date().toISOString(),
-            }
-          : i
-      )
+    const escNow = new Date().toISOString()
+    persistIncidents(
+      (prev) =>
+        prev.map((i) =>
+          i.id === id
+            ? {
+                ...i,
+                status: 'escalated_to_hod',
+                escalated_to_hod: true,
+                escalation_reason: reason,
+                escalated_at: escNow,
+              }
+            : i
+        ),
+      {
+        action: 'escalated',
+        incidentId: id,
+        updates: {
+          status: 'escalated_to_hod',
+          escalated_to_hod: true,
+          escalation_reason: reason,
+          escalated_at: escNow,
+        },
+      }
     )
 
     const targetItem = incidents.find((i) => i.id === id)
@@ -403,20 +421,32 @@ export function useIncidentState() {
       fine_receipt_no?: string
     }
   ) => {
-    persistIncidents((prev) =>
-      prev.map((i) =>
-        i.id === id
-          ? {
-              ...i,
-              status: data.status,
-              resolution_notes: data.resolution_notes || i.resolution_notes,
-              resolved_by: data.resolved_by,
-              resolved_at: new Date().toISOString(),
-              fine_paid: typeof data.fine_paid === 'boolean' ? data.fine_paid : i.fine_paid,
-              fine_receipt_no: data.fine_receipt_no || i.fine_receipt_no,
-            }
-          : i
-      )
+    const updateNow = new Date().toISOString()
+    persistIncidents(
+      (prev) =>
+        prev.map((i) =>
+          i.id === id
+            ? {
+                ...i,
+                status: data.status,
+                resolution_notes: data.resolution_notes || i.resolution_notes,
+                resolved_by: data.resolved_by,
+                resolved_at: updateNow,
+                fine_paid: typeof data.fine_paid === 'boolean' ? data.fine_paid : i.fine_paid,
+                fine_receipt_no: data.fine_receipt_no || i.fine_receipt_no,
+              }
+            : i
+        ),
+      {
+        action: 'status_updated',
+        incidentId: id,
+        updates: {
+          status: data.status,
+          resolution_notes: data.resolution_notes,
+          resolved_by: data.resolved_by,
+          resolved_at: updateNow,
+        },
+      }
     )
 
     if (navigator.onLine) {

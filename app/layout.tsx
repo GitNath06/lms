@@ -1,7 +1,13 @@
 import type { Metadata } from 'next'
-import { Plus_Jakarta_Sans, Inter, Noto_Sans_Devanagari, JetBrains_Mono } from 'next/font/google'
+import { Plus_Jakarta_Sans, Inter, Noto_Sans_Devanagari, JetBrains_Mono, Outfit } from 'next/font/google'
 import './globals.css'
 import Providers from '@/app/providers'
+
+const outfit = Outfit({
+  variable: '--font-display-source',
+  subsets: ['latin'],
+  display: 'swap',
+})
 
 const jakarta = Plus_Jakarta_Sans({
   variable: '--font-heading-source',
@@ -42,7 +48,7 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${jakarta.variable} ${inter.variable} ${notoDevanagari.variable} ${mono.variable} h-full antialiased`}
+      className={`${outfit.variable} ${jakarta.variable} ${inter.variable} ${notoDevanagari.variable} ${mono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-slate-50 dark:bg-[#0B0F19] text-zinc-900 dark:text-zinc-100 transition-colors duration-200">
         <Providers>

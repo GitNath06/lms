@@ -71,6 +71,7 @@ create table if not exists public.labs (
   code text,
   type lab_type not null default 'computer_lab',
   capacity int not null default 40,
+  status text not null default 'Operational' check (status in ('Operational', 'Under Maintenance', 'Inactive')),
   is_active boolean default true,
   created_at timestamptz default now()
 );
@@ -271,6 +272,12 @@ create table if not exists public.lab_incidents (
   resolved_at timestamptz,
   reported_by text not null default 'Faculty In-Charge',
   reported_by_id uuid references public.profiles(id) on delete set null,
+  circumstances text,
+  photo_url text,
+  is_fined boolean not null default false,
+  fine_amount numeric default 0,
+  fine_paid boolean not null default false,
+  fine_receipt_no text,
   resolved_by_id uuid references public.profiles(id) on delete set null,
   created_at timestamptz default now()
 );

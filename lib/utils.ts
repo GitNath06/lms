@@ -43,9 +43,32 @@ export function parseSlotTimeRange(labelOrSlot: string): ParsedTimeRange {
   const endTime = parts[1] || parts[0] || '11:00'
 
   const toMinutes = (t: string): number => {
-    const [h, m] = t.split(':').map((num) => parseInt(num, 10))
+    const raw = t.trim()
+    const isExplicitPm = /pm/i.test(raw)
+    const isExplicitAm = /am/i.test(raw)
+
+    const cleaned = raw.replace(/[^\d:]/g, '')
+    const [hStr, mStr] = cleaned.split(':')
+    let h = parseInt(hStr, 10)
+    const m = parseInt(mStr, 10) || 0
+
     if (isNaN(h)) return 0
-    return h * 60 + (isNaN(m) ? 0 : m)
+
+    if (isExplicitPm) {
+      if (h < 12) h += 12
+    } else if (isExplicitAm) {
+      if (h === 12) h = 0
+    } else {
+      // In academic day-school schedules (starts ~09:00 AM, concludes ~05:00 PM):
+      // Afternoon hours 1..7 (e.g. 01:15, 01:45, 02:30, 03:15, 04:05, 04:50) are PM (13:00 to 17:00).
+      // Morning hours 8..11 (e.g. 09:15, 10:10, 11:00, 11:45) are AM.
+      // Hour 12 (12:30) is Midday (12:00 PM).
+      if (h >= 1 && h <= 7) {
+        h += 12
+      }
+    }
+
+    return h * 60 + m
   }
 
   const startMin = toMinutes(startTime)
@@ -60,4 +83,11 @@ export function parseSlotTimeRange(labelOrSlot: string): ParsedTimeRange {
     durationMin,
     isBreak,
   }
+}
+
+/**
+ * Validates whether a given string is a standard RFC4122 v1-v5 UUID.
+ */
+export function isValidUuid(id?: string | null): boolean {
+  return typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)
 }

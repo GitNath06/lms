@@ -55,13 +55,13 @@ export default function LiveSessionCockpit({
   // SKELETON / STATIC FALLBACK DURING SSR HYDRATION
   if (!mounted) {
     return (
-      <div className="glass-card rounded-2xl p-5 border border-zinc-200/80 dark:border-zinc-800 animate-pulse min-h-[140px] flex items-center justify-between">
+      <div className="glass-card rounded-2xl p-3.5 sm:p-4 border border-zinc-200/80 dark:border-zinc-800 animate-pulse min-h-[100px] flex items-center justify-between">
         <div className="space-y-2">
           <div className="h-4 w-40 bg-zinc-200 dark:bg-zinc-800 rounded-md" />
-          <div className="h-6 w-72 bg-zinc-200 dark:bg-zinc-800 rounded-md" />
-          <div className="h-3 w-56 bg-zinc-200 dark:bg-zinc-800 rounded-md" />
+          <div className="h-5 w-64 bg-zinc-200 dark:bg-zinc-800 rounded-md" />
+          <div className="h-3 w-48 bg-zinc-200 dark:bg-zinc-800 rounded-md" />
         </div>
-        <div className="h-9 w-36 bg-zinc-200 dark:bg-zinc-800 rounded-xl" />
+        <div className="h-8.5 w-32 bg-zinc-200 dark:bg-zinc-800 rounded-xl" />
       </div>
     )
   }
@@ -90,17 +90,14 @@ export default function LiveSessionCockpit({
   // ==========================================
   if (activeSession) {
     return (
-      <div className="glass-card relative overflow-hidden rounded-2xl border-2 border-emerald-500/40 dark:border-emerald-500/30 p-5 shadow-md bg-gradient-to-br from-emerald-500/5 via-white/80 to-transparent dark:from-emerald-950/25 dark:via-surface-1 dark:to-surface-2 transition-all duration-300">
+      <div className="glass-card relative overflow-hidden rounded-2xl border border-emerald-500/35 dark:border-emerald-500/40 p-3.5 sm:p-4 shadow-xs bg-white dark:bg-surface-1 transition-all duration-200">
         {/* Milled Top Specular Sheen */}
-        <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-emerald-400/40 to-transparent pointer-events-none" />
-
-        {/* Subtle Ambient Live Glow */}
-        <div className="absolute -top-12 -right-12 h-36 w-36 rounded-full bg-emerald-500/15 dark:bg-emerald-500/20 blur-3xl pointer-events-none" />
+        <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-emerald-400/30 to-transparent pointer-events-none" />
 
         {/* Multi-Lab Horizontal Switcher for Admins/Coordinators */}
         {!isTeacher && ongoingSessions.length > 1 && (
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-2.5 mb-3 border-b border-emerald-500/20 dark:border-emerald-500/20">
-            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-300 mr-1 shrink-0">
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-2 mb-2.5 border-b border-zinc-100 dark:border-white/[0.06]">
+            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-500 dark:text-slate-400 mr-1 shrink-0">
               Active Rooms ({ongoingSessions.length}):
             </span>
             {ongoingSessions.map((s, idx) => (
@@ -110,26 +107,23 @@ export default function LiveSessionCockpit({
                 onClick={() => setSelectedLabIndex(idx)}
                 className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 active:scale-[0.97] motion-reduce:active:scale-100 ${
                   selectedLabIndex === idx
-                    ? 'bg-emerald-600 text-white shadow-xs'
-                    : 'bg-emerald-500/10 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-500/20'
+                    ? 'bg-zinc-900 text-white dark:bg-slate-800 dark:text-white border border-zinc-700 dark:border-slate-600 shadow-xs'
+                    : 'bg-zinc-100 dark:bg-surface-2 text-zinc-700 dark:text-slate-300 hover:bg-zinc-200 dark:hover:bg-surface-3 border border-zinc-200 dark:border-white/[0.06]'
                 }`}
               >
-                <span className="relative flex h-2 w-2 shrink-0">
-                  <span className="animate-radar-ripple absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 shadow-sm" />
-                </span>
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
                 <span>{s.lab}</span>
-                <span className="text-[10px] opacity-80">({s.grade})</span>
+                <span className="text-[10px] opacity-70">({s.grade})</span>
               </button>
             ))}
           </div>
         )}
 
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="space-y-1.5 min-w-0">
-            {/* Live Period Beacon & Countdown */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 sm:gap-4">
+          <div className="space-y-1 min-w-0">
+            {/* Live Period Beacon & Countdown (Sole Animated Micro-Accent) */}
             <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 border border-emerald-500/40 shadow-2xs">
+              <span className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full text-xs font-sans font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30">
                 <span className="relative flex h-2 w-2 shrink-0">
                   <span className="animate-radar-ripple absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 shadow-sm" />
@@ -137,13 +131,13 @@ export default function LiveSessionCockpit({
                 <span>LIVE IN-SESSION • {activePeriodName.toUpperCase()}</span>
               </span>
 
-              <span className="text-xs font-mono font-semibold text-zinc-600 dark:text-zinc-400">
+              <span className="text-xs font-mono font-semibold text-zinc-600 dark:text-slate-400">
                 {activeSession.timeSlot} • {activeSession.lab}
               </span>
 
               {minutesRemaining > 0 ? (
-                <span className="inline-flex items-center gap-1 text-xs font-mono font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded-md border border-emerald-300/60 dark:border-emerald-800/60 tabular-nums">
-                  <Timer className="h-3 w-3 animate-pulse" />
+                <span className="inline-flex items-center gap-1 text-xs font-mono font-medium text-zinc-600 dark:text-slate-300 bg-zinc-100 dark:bg-slate-800/80 px-2 py-0.5 rounded-md border border-zinc-200 dark:border-slate-700/60 tabular-nums">
+                  <Timer className="h-3 w-3 text-zinc-400 dark:text-slate-400" />
                   {minutesRemaining}m remaining
                 </span>
               ) : (
@@ -152,35 +146,35 @@ export default function LiveSessionCockpit({
             </div>
 
             {/* Experiment Subject Title */}
-            <h3 className="text-lg font-bold font-heading tracking-tight text-zinc-950 dark:text-white truncate">
+            <h3 className="text-base sm:text-lg font-bold font-heading tracking-tight text-zinc-950 dark:text-white truncate">
               {activeSession.subjectCode} — {activeSession.subjectTitle}
             </h3>
 
             {/* Class Grade, Faculty, Strength Details */}
-            <p className="text-xs text-zinc-600 dark:text-zinc-400 font-sans">
+            <p className="text-xs text-zinc-600 dark:text-slate-400 font-sans">
               <span className="font-semibold text-zinc-900 dark:text-zinc-200">{activeSession.grade}</span> • Faculty Supervisor:{' '}
               <strong className="text-zinc-900 dark:text-zinc-100 font-semibold">{activeSession.teacher}</strong> • Strength:{' '}
               <span className="font-mono font-bold text-zinc-800 dark:text-zinc-200">{activeSession.defaultStudents} Students</span>
             </p>
           </div>
 
-          {/* Action Station CTAs */}
-          <div className="flex items-center gap-2.5 shrink-0 self-start lg:self-center">
+          {/* Action Station CTAs: Log = Primary (Indigo), Skip = Secondary (Neutral Outline) */}
+          <div className="flex items-center gap-2 shrink-0 self-start lg:self-center">
             <Button
               variant="outline"
               size="sm"
-              className="h-9 px-3 text-xs font-semibold text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer active:scale-[0.97] transition-transform motion-reduce:active:scale-100"
+              className="h-8.5 px-3 text-xs font-semibold text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer active:scale-[0.97] transition-transform motion-reduce:active:scale-100 rounded-xl"
               onClick={() => onOpenAction(activeSession!, 'skip')}
             >
               Skip Session
             </Button>
             <Button
               size="sm"
-              className="h-9 px-4 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm flex items-center gap-1.5 cursor-pointer active:scale-[0.97] transition-transform motion-reduce:active:scale-100"
+              className="h-8.5 px-3.5 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs rounded-xl flex items-center gap-1.5 cursor-pointer active:scale-[0.97] transition-transform motion-reduce:active:scale-100"
               onClick={() => onOpenAction(activeSession!, 'log')}
             >
               <CheckCircle2 className="h-4 w-4" />
-              <span>Log Practical & Roll Call</span>
+              <span>Log Practical Session</span>
             </Button>
           </div>
         </div>
@@ -195,25 +189,25 @@ export default function LiveSessionCockpit({
   const allCompleted = upcomingSessions.length === 0 && effectiveSessionsCount > 0
 
   return (
-    <div className="glass-card relative overflow-hidden rounded-2xl border border-zinc-200/90 dark:border-border-card p-5 shadow-xs transition-all duration-300">
+    <div className="glass-card relative overflow-hidden rounded-2xl border border-zinc-200/90 dark:border-border-card p-3.5 sm:p-4 shadow-xs transition-all duration-300">
       {/* Milled Top Specular Sheen */}
       <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-white/15 to-transparent pointer-events-none" />
 
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-start gap-3.5">
-          <div className="h-10 w-10 rounded-xl bg-zinc-100 dark:bg-surface-2 flex items-center justify-center text-zinc-600 dark:text-slate-300 shrink-0 border border-zinc-200/60 dark:border-border-subtle shadow-2xs">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
+        <div className="flex items-start gap-3">
+          <div className="h-9 w-9 rounded-xl bg-zinc-100 dark:bg-surface-2 flex items-center justify-center text-zinc-500 dark:text-slate-400 shrink-0 border border-zinc-200/60 dark:border-border-subtle shadow-2xs">
             {todayHolidayName ? (
-              <Calendar className="h-5 w-5 text-amber-500" />
+              <Calendar className="h-4.5 w-4.5 text-zinc-500 dark:text-slate-400" />
             ) : allCompleted ? (
-              <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+              <CheckCircle2 className="h-4.5 w-4.5 text-zinc-500 dark:text-slate-400" />
             ) : (
-              <Clock className="h-5 w-5 text-indigo-500" />
+              <Clock className="h-4.5 w-4.5 text-zinc-500 dark:text-slate-400" />
             )}
           </div>
 
-          <div className="space-y-1">
+          <div className="space-y-0.5">
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-500 dark:text-slate-400">
+              <span className="text-[11px] font-semibold font-sans uppercase tracking-wider text-zinc-500 dark:text-slate-400">
                 {todayHolidayName
                   ? 'Institutional Recess Active'
                   : allCompleted
@@ -222,7 +216,7 @@ export default function LiveSessionCockpit({
               </span>
 
               {allCompleted && (
-                <span className="px-2 py-0.2 rounded-full text-[9px] font-mono font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                <span className="px-2 py-0.2 rounded-full text-[11px] font-sans font-semibold bg-zinc-100 dark:bg-surface-2 text-zinc-700 dark:text-slate-300 border border-zinc-200 dark:border-border-subtle">
                   {loggedSessionsCount}/{effectiveSessionsCount} Logged
                 </span>
               )}
@@ -230,7 +224,7 @@ export default function LiveSessionCockpit({
 
             {todayHolidayName ? (
               <div>
-                <h3 className="text-base font-bold font-heading text-zinc-950 dark:text-white">
+                <h3 className="text-sm sm:text-base font-bold font-heading text-zinc-950 dark:text-white">
                   {todayHolidayName}
                 </h3>
                 <p className="text-xs text-zinc-500 dark:text-slate-400 font-sans">
@@ -239,9 +233,9 @@ export default function LiveSessionCockpit({
               </div>
             ) : nextSession ? (
               <div>
-                <h3 className="text-base font-bold font-heading text-zinc-950 dark:text-white flex items-center gap-2">
+                <h3 className="text-sm sm:text-base font-bold font-heading text-zinc-950 dark:text-white flex items-center gap-2">
                   <span>Next Practical:</span>
-                  <span className="text-indigo-600 dark:text-indigo-400">
+                  <span className="text-zinc-800 dark:text-slate-200 font-bold">
                     {nextSession.subjectTitle} ({nextSession.grade})
                   </span>
                 </h3>
@@ -252,7 +246,7 @@ export default function LiveSessionCockpit({
               </div>
             ) : allCompleted ? (
               <div>
-                <h3 className="text-base font-bold font-heading text-zinc-950 dark:text-white">
+                <h3 className="text-sm sm:text-base font-bold font-heading text-zinc-950 dark:text-white">
                   All Scheduled Practical Sessions for Today Have Concluded
                 </h3>
                 <p className="text-xs text-zinc-500 dark:text-slate-400 font-sans">
@@ -263,7 +257,7 @@ export default function LiveSessionCockpit({
               </div>
             ) : (
               <div>
-                <h3 className="text-base font-bold font-heading text-zinc-950 dark:text-white">
+                <h3 className="text-sm sm:text-base font-bold font-heading text-zinc-950 dark:text-white">
                   No Practical Sessions Scheduled For Today
                 </h3>
                 <p className="text-xs text-zinc-500 dark:text-slate-400 font-sans">
@@ -279,11 +273,11 @@ export default function LiveSessionCockpit({
           <Button
             variant="outline"
             size="sm"
+            className="h-8 px-3 text-xs font-sans gap-1.5 text-zinc-700 dark:text-slate-300 border-zinc-200 dark:border-border-card hover:bg-zinc-100 dark:hover:bg-surface-2 shadow-2xs font-semibold cursor-pointer rounded-xl"
             onClick={onOpenTimetable}
-            className="h-8 text-xs font-semibold gap-1 text-zinc-700 dark:text-slate-200 border-zinc-200 dark:border-border-subtle dark:bg-surface-2 dark:hover:bg-surface-3 cursor-pointer active:scale-[0.97] transition-transform motion-reduce:active:scale-100"
           >
-            <span>View Schedule Grid</span>
-            <ChevronRight className="h-3.5 w-3.5" />
+            <span>View Timetable</span>
+            <ChevronRight className="h-3.5 w-3.5 text-zinc-400" />
           </Button>
         </div>
       </div>

@@ -55,7 +55,7 @@ export default function LiveClockHeader() {
 
           {/* Live Clock with Tabular Numbers */}
           <div className="flex items-center gap-1.5 text-zinc-800 dark:text-zinc-200 font-mono tabular-nums font-bold">
-            <Clock className="h-3.5 w-3.5 text-cyan-500 dark:text-cyan-400" />
+            <Clock className="h-3.5 w-3.5 text-zinc-400 dark:text-slate-400" />
             <span>{timeString}</span>
           </div>
         </button>

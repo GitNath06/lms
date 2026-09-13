@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { createPracticalLog } from '@/app/actions/logs'
 import { useLogsState } from '@/hooks/use-logs-state'
@@ -29,6 +29,7 @@ import {
   computeMultiPeriodLabel
 } from '@/lib/master-data'
 import { useInfrastructureState } from '@/hooks/use-infrastructure-state'
+import { matchesGrade } from '@/lib/context/institutional-relationships'
 
 type Lab = Database['public']['Tables']['labs']['Row']
 type Teacher = { id: string; full_name: string }
@@ -44,38 +45,96 @@ export default function LogForm({
 }) {
   const router = useRouter()
   const { saveLog } = useLogsState()
+  const {
+    classes: infraClasses,
+    subjects: infraSubjects,
+    faculty: infraFaculty,
+    labs: infraLabs,
+    getHolidayForDate
+  } = useInfrastructureState()
 
   const isTeacher = Boolean(scopedOptions && !scopedOptions.isPrivileged)
 
+  // Live classes pool with fallback
+  const rawClasses = useMemo(() => {
+    return infraClasses && infraClasses.length > 0 ? infraClasses : DEFAULT_CLASSES
+  }, [infraClasses])
+
   // Compute available classes: if non-privileged teacher, strictly filter to their assigned classes
-  const availableClasses =
-    isTeacher && scopedOptions?.assignedClasses?.length > 0
-      ? DEFAULT_CLASSES.filter((c) => scopedOptions.assignedClasses.includes(c.name))
-      : DEFAULT_CLASSES
+  const availableClasses = useMemo(() => {
+    if (isTeacher && scopedOptions?.assignedClasses?.length > 0) {
+      return rawClasses.filter((c: any) =>
+        scopedOptions.assignedClasses.some((ac: string) => ac === c.name || matchesGrade(ac, c.name))
+      )
+    }
+    return rawClasses
+  }, [isTeacher, scopedOptions, rawClasses])
+
+  // Live subjects pool with fallback
+  const rawSubjects = useMemo(() => {
+    return infraSubjects && infraSubjects.length > 0 ? infraSubjects : DEFAULT_SUBJECTS
+  }, [infraSubjects])
+
+  // Merged effective labs (server labs + live infra labs)
+  const effectiveLabs = useMemo(() => {
+    const map = new Map<string, { id: string; name: string }>()
+    labs.forEach((l) => map.set(l.id, { id: l.id, name: l.name }))
+    if (infraLabs) {
+      infraLabs.forEach((l) => map.set(l.id, { id: l.id, name: l.name }))
+    }
+    return Array.from(map.values())
+  }, [labs, infraLabs])
+
+  // Merged effective teachers (server teachers + live infra faculty)
+  const effectiveTeachers = useMemo(() => {
+    const map = new Map<string, { id: string; full_name: string }>()
+    teachers.forEach((t) => map.set(t.id, { id: t.id, full_name: t.full_name }))
+    if (infraFaculty) {
+      infraFaculty.forEach((f) => map.set(f.id, { id: f.id, full_name: f.name }))
+    }
+    return Array.from(map.values())
+  }, [teachers, infraFaculty])
 
   // 4. Class / Batch & Subject (Initialized to teacher's first class)
   const defaultClass = availableClasses[0] || DEFAULT_CLASSES[0]
   const [selectedClassId, setSelectedClassId] = useState<string>(defaultClass.id)
-  const activeClassObj = availableClasses.find((c) => c.id === selectedClassId) || defaultClass
+  const activeClassObj = availableClasses.find((c: any) => c.id === selectedClassId) || defaultClass
+
+  // Helper to dynamically filter subjects for a class
+  const getSubjectsForClassObj = useCallback(
+    (clsName: string) => {
+      if (!clsName) return rawSubjects
+      const direct = rawSubjects.filter((s: any) => s.grade === clsName)
+      if (direct.length > 0) return direct
+      const fuzzy = rawSubjects.filter((s: any) => matchesGrade(s.grade, clsName))
+      if (fuzzy.length > 0) return fuzzy
+      return rawSubjects
+    },
+    [rawSubjects]
+  )
 
   // Filter subjects strictly for the selected class and teacher
-  const classSubjects =
-    isTeacher && scopedOptions?.assignedSubjects?.length > 0
-      ? scopedOptions.assignedSubjects.filter((s: any) => s.grade === activeClassObj.name)
-      : DEFAULT_SUBJECTS.filter((s) => s.grade === activeClassObj.name)
-  const initialSub = classSubjects[0] || DEFAULT_SUBJECTS[0]
+  const classSubjects = useMemo(() => {
+    if (isTeacher && scopedOptions?.assignedSubjects?.length > 0) {
+      const teacherSubs = scopedOptions.assignedSubjects.filter((s: any) =>
+        s.grade === activeClassObj?.name || matchesGrade(s.grade, activeClassObj?.name)
+      )
+      if (teacherSubs.length > 0) return teacherSubs
+    }
+    return getSubjectsForClassObj(activeClassObj?.name)
+  }, [isTeacher, scopedOptions, activeClassObj, getSubjectsForClassObj])
+
+  const initialSub = classSubjects[0] || rawSubjects[0] || DEFAULT_SUBJECTS[0]
 
   const [selectedSubjectCode, setSelectedSubjectCode] = useState<string>(initialSub.code)
 
   // 1. Facility & In-Charge (Auto-synced to subject's designated teacher & room)
-  const [selectedLabId, setSelectedLabId] = useState<string>(initialSub.labId || labs[0]?.id || 'comp')
+  const [selectedLabId, setSelectedLabId] = useState<string>(initialSub.labId || effectiveLabs[0]?.id || 'comp')
   const [selectedTeacherId, setSelectedTeacherId] = useState<string>(
     isTeacher
       ? scopedOptions?.teacher?.id || 't1'
-      : initialSub.teacherId || teachers[0]?.id || 't1'
+      : initialSub.teacherId || effectiveTeachers[0]?.id || 't1'
   )
-
-  const { getHolidayForDate } = useInfrastructureState()
 
   // 2. Session Date
   const [sessionDate, setSessionDate] = useState<string>(
@@ -89,7 +148,9 @@ export default function LogForm({
 
   // 5. Attendance State: Roll Grid by default + Quick Count Mode Available
   const [attendanceMode, setAttendanceMode] = useState<'grid' | 'counter'>('grid')
-  const [totalStudents, setTotalStudents] = useState<number>(activeClassObj.strength)
+  const [totalStudents, setTotalStudents] = useState<number>(
+    'strength' in activeClassObj ? (activeClassObj as any).strength : ('students' in activeClassObj ? (activeClassObj as any).students : 40)
+  )
   const [absentRolls, setAbsentRolls] = useState<number[]>([14, 28])
   const [absentCountInput, setAbsentCountInput] = useState<number>(2)
 
@@ -98,7 +159,7 @@ export default function LogForm({
     initialSub.defaultTopic || 'Verification of Binary Search Tree Operations & Node Insertion'
   )
   const [remarks, setRemarks] = useState<string>(
-    'Workstations functioning normally. Apparatus cleaned and restored after practical.'
+    'Workstations functioning normally. Equipment cleaned and restored after practical.'
   )
 
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -142,23 +203,20 @@ export default function LogForm({
   // Reactive class change: Auto-selects corresponding subjects
   const handleClassChange = (classId: string) => {
     setSelectedClassId(classId)
-    const targetClass = availableClasses.find((c) => c.id === classId) || DEFAULT_CLASSES.find((c) => c.id === classId)
+    const targetClass = availableClasses.find((c: any) => c.id === classId) || rawClasses.find((c: any) => c.id === classId)
     if (targetClass) {
-      setTotalStudents(targetClass.strength)
+      const cap = (targetClass as any).capacity || (targetClass as any).strength || 36
+      setTotalStudents(cap)
       setAbsentCountInput(2)
-      setAbsentRolls([14, 28].filter((r) => r <= targetClass.strength))
+      setAbsentRolls([14, 28].filter((r) => r <= cap))
 
-      const validSubs =
-        isTeacher && scopedOptions?.assignedSubjects?.length > 0
-          ? scopedOptions.assignedSubjects.filter((s: any) => s.grade === targetClass.name)
-          : DEFAULT_SUBJECTS.filter((s) => s.grade === targetClass.name)
-
+      const validSubs = getSubjectsForClassObj(targetClass.name)
       if (validSubs.length > 0) {
         const firstSub = validSubs[0]
         setSelectedSubjectCode(firstSub.code)
         if (!isTeacher && firstSub.teacherId) setSelectedTeacherId(firstSub.teacherId)
         if (firstSub.labId) setSelectedLabId(firstSub.labId)
-        if (firstSub.defaultTopic) setPracticalTitle(firstSub.defaultTopic)
+        if ((firstSub as any).defaultTopic) setPracticalTitle((firstSub as any).defaultTopic)
       }
     }
   }
@@ -169,12 +227,12 @@ export default function LogForm({
     const sub =
       (isTeacher && scopedOptions?.assignedSubjects?.length > 0
         ? scopedOptions.assignedSubjects.find((s: any) => s.code === code)
-        : null) || DEFAULT_SUBJECTS.find((s) => s.code === code)
+        : null) || rawSubjects.find((s: any) => s.code === code)
 
     if (sub) {
       if (!isTeacher && sub.teacherId) setSelectedTeacherId(sub.teacherId)
       if (sub.labId) setSelectedLabId(sub.labId)
-      if (sub.defaultTopic) setPracticalTitle(sub.defaultTopic)
+      if ((sub as any).defaultTopic) setPracticalTitle((sub as any).defaultTopic)
     }
   }
 
@@ -197,8 +255,10 @@ export default function LogForm({
       return
     }
 
-    const chosenSubject = DEFAULT_SUBJECTS.find((s) => s.code === selectedSubjectCode)
-    const finalSubjectName = chosenSubject ? chosenSubject.fullName : selectedSubjectCode
+    const chosenSubject = rawSubjects.find((s: any) => s.code === selectedSubjectCode) || DEFAULT_SUBJECTS.find((s) => s.code === selectedSubjectCode)
+    const finalSubjectName = chosenSubject
+      ? (('fullName' in chosenSubject ? (chosenSubject as any).fullName : (chosenSubject as any).title) || selectedSubjectCode)
+      : selectedSubjectCode
 
     const sanitizedRolls = Array.from(
       new Set(
@@ -212,11 +272,11 @@ export default function LogForm({
     const safeAbsent = Math.max(0, Math.min(safeTotal, effectiveAbsentCount))
     const safePresent = Math.max(0, Math.min(safeTotal, safeTotal - safeAbsent))
 
-    const teacherObj = teachers.find((t) => t.id === selectedTeacherId)
+    const teacherObj = effectiveTeachers.find((t) => t.id === selectedTeacherId)
     const teacherName = isTeacher
       ? (scopedOptions?.teacher?.name || teacherObj?.full_name || 'Assigned Subject Teacher')
       : (teacherObj ? teacherObj.full_name : 'Assigned Subject Teacher')
-    const labObj = labs.find((l) => l.id === selectedLabId)
+    const labObj = effectiveLabs.find((l) => l.id === selectedLabId)
 
     try {
       const res = await createPracticalLog({
@@ -327,7 +387,7 @@ export default function LogForm({
                   onChange={(e) => setSelectedLabId(e.target.value)}
                   className="h-8.5 text-xs"
                 >
-                  {labs.map((lab) => (
+                  {effectiveLabs.map((lab) => (
                     <option key={lab.id} value={lab.id}>
                       {lab.name}
                     </option>
@@ -358,7 +418,7 @@ export default function LogForm({
                     onChange={(e) => setSelectedTeacherId(e.target.value)}
                     className="h-8.5 text-xs"
                   >
-                    {teachers.map((t) => (
+                    {effectiveTeachers.map((t) => (
                       <option key={t.id} value={t.id}>
                         {t.full_name}
                       </option>
@@ -405,9 +465,9 @@ export default function LogForm({
                   onChange={(e) => handleClassChange(e.target.value)}
                   className="h-8.5 text-xs"
                 >
-                  {availableClasses.map((c) => (
+                  {availableClasses.map((c: any) => (
                     <option key={c.id} value={c.id}>
-                      {c.name} — {c.stream} ({c.strength} Students)
+                      {c.name} {c.stream ? `— ${c.stream}` : ''} ({c.capacity || c.strength || 36} Students)
                     </option>
                   ))}
                 </Select>
@@ -438,9 +498,9 @@ export default function LogForm({
                     </option>
                   ))
                 ) : (
-                  DEFAULT_SUBJECTS.map((s) => (
+                  rawSubjects.map((s: any) => (
                     <option key={s.code} value={s.code}>
-                      {s.code} — {s.title} ({s.lab})
+                      {s.code} — {s.title} ({s.lab || s.labName || 'Laboratory'})
                     </option>
                   ))
                 )}

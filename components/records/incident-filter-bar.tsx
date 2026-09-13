@@ -42,7 +42,7 @@ export default function IncidentFilterBar({
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
           <Input
-            placeholder="Search incident title, apparatus name, student roll or notes..."
+            placeholder="Search incident title, equipment name, student roll or notes..."
             value={filters.search || ''}
             onChange={(e) => handleChange('search', e.target.value)}
             className="pl-9 bg-zinc-50/70 dark:bg-zinc-950/50 border-zinc-200 dark:border-zinc-800 rounded-xl text-xs h-9"
@@ -126,7 +126,7 @@ export default function IncidentFilterBar({
             className="w-full h-8 px-2 bg-zinc-50/80 dark:bg-zinc-950/60 border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs font-medium text-zinc-900 dark:text-zinc-200 focus:outline-hidden focus:ring-1 focus:ring-rose-500"
           >
             <option value="all">All Types</option>
-            <option value="breakage">Apparatus Breakage</option>
+            <option value="breakage">Equipment Breakage</option>
             <option value="burnt_apparatus">Burnt / Short Circuit</option>
             <option value="malfunction">Technical Malfunction</option>
             <option value="chemical_hazard">Chemical Hazard</option>

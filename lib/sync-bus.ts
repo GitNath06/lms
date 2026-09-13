@@ -42,11 +42,19 @@ export function broadcastSync(domain: SyncDomain, payload?: any) {
     try {
       const supabase = createClient()
       const channel = supabase.channel(BROADCAST_CHANNEL_NAME)
-      channel.send({
-        type: 'broadcast',
-        event: domain,
-        payload: { domain, payload, timestamp },
-      })
+      if (typeof (channel as any).httpSend === 'function') {
+        ;(channel as any)
+          .httpSend(domain, { domain, payload, timestamp })
+          .catch(() => {})
+      } else {
+        channel
+          .send({
+            type: 'broadcast',
+            event: domain,
+            payload: { domain, payload, timestamp },
+          })
+          .catch(() => {})
+      }
     } catch (err) {
       console.warn('Realtime broadcast warning:', err)
     }

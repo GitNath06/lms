@@ -37,15 +37,15 @@ export default function SidebarNav({
       label: 'Lab Timetable',
       href: '/schedules',
       icon: Calendar,
-      activeColor: 'text-cyan-600 dark:text-cyan-400',
+      activeColor: 'text-indigo-600 dark:text-indigo-400',
     },
     {
       label: 'Practical Logbook',
       href: '/records',
       icon: ClipboardList,
-      activeColor: 'text-emerald-600 dark:text-emerald-400',
+      activeColor: 'text-indigo-600 dark:text-indigo-400',
       badge: 'Official',
-      badgeColor: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
+      badgeColor: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20',
     },
     {
       label: 'Incidents & Repairs',
@@ -71,7 +71,7 @@ export default function SidebarNav({
       label: 'Daily Lab Report',
       href: '/print/records',
       icon: Printer,
-      activeColor: 'text-blue-600 dark:text-blue-400',
+      activeColor: 'text-indigo-600 dark:text-indigo-400',
     },
   ]
 

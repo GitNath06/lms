@@ -21,7 +21,7 @@ export const INSTITUTION_CONFIG = {
     left: {
       role: 'Lab In-Charge',
       title: 'Lab In-Charge Signature',
-      subtitle: 'Faculty Verification & Apparatus Audit',
+      subtitle: 'Faculty Verification & Equipment Audit',
     },
     right: {
       role: 'HOD / Principal',

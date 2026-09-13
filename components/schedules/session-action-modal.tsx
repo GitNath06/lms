@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useMemo, useCallback } from 'react'
 import {
   X,
   CheckCircle2,
@@ -15,6 +15,7 @@ import {
   AlertTriangle,
   Receipt,
   RotateCcw,
+  Wrench,
 } from 'lucide-react'
 import {
   MasterRoutineItem,
@@ -27,6 +28,7 @@ import {
   formatGradeBadge
 } from '@/lib/master-data'
 import { getNepalDateStr } from '@/lib/nepali-date'
+import { matchesGrade } from '@/lib/context/institutional-relationships'
 import { PracticalLogRecord } from '@/hooks/use-logs-state'
 import { createPracticalLog } from '@/app/actions/logs'
 import { Button } from '@/components/ui/button'
@@ -147,29 +149,47 @@ function SessionActionModalContent({
     ? (scopedClasses.find((c) => c.name === rawInitialGrade)?.name || scopedClasses[0]?.name || userScope.assignedClasses[0])
     : rawInitialGrade
 
-  const getSubjectsForGrade = (gradeName: string) => {
-    const allGradeSubs = (infraSubjects.length > 0 ? infraSubjects : DEFAULT_SUBJECTS).filter((s) => s.grade === gradeName)
+  const getSubjectsForGrade = useCallback((gradeName: string) => {
+    const rawSubs = (infraSubjects && infraSubjects.length > 0) ? infraSubjects : DEFAULT_SUBJECTS
+    // 1. Direct match
+    const direct = rawSubs.filter((s) => s.grade === gradeName)
+    let candidate = direct
+    // 2. If no direct match, fuzzy match
+    if (candidate.length === 0) {
+      const fuzzy = rawSubs.filter((s) => matchesGrade(s.grade, gradeName))
+      if (fuzzy.length > 0) candidate = fuzzy
+    }
+    // 3. If still empty, return all raw subjects
+    if (candidate.length === 0) {
+      candidate = rawSubs
+    }
+
     if (isTeacher && userScope.assignedSubjects.length > 0) {
-      const filtered = allGradeSubs.filter((s) =>
+      const filtered = candidate.filter((s) =>
         userScope.assignedSubjects.some((asub) =>
           asub.code.toLowerCase() === s.code.toLowerCase() ||
           asub.title.toLowerCase().includes(s.title.toLowerCase()) ||
           s.title.toLowerCase().includes(asub.title.toLowerCase())
         )
       )
-      return filtered.length > 0 ? filtered : allGradeSubs
+      return filtered.length > 0 ? filtered : candidate
     }
-    return allGradeSubs
-  }
-
-  const bookClassSubjects = getSubjectsForGrade(initialGrade)
-  const initialBookSub = bookClassSubjects[0] || infraSubjects[0] || DEFAULT_SUBJECTS[0]
-  const initialCls = scopedClasses.find((c) => c.name === initialGrade) || allClasses.find((c) => c.name === initialGrade)
+    return candidate
+  }, [infraSubjects, isTeacher, userScope.assignedSubjects])
 
   // Booking form state
   const [bookDayKey, setBookDayKey] = useState<DayKey>(session?.dayKey || 'mon')
   const [bookSlotId, setBookSlotId] = useState<string>(session?.slotId || 't2')
   const [bookGrade, setBookGrade] = useState<string>(initialGrade)
+
+  // Reactive bookClassSubjects dependent on bookGrade
+  const bookClassSubjects = useMemo(() => {
+    return getSubjectsForGrade(bookGrade)
+  }, [getSubjectsForGrade, bookGrade])
+
+  const initialBookSub = bookClassSubjects[0] || (infraSubjects && infraSubjects[0]) || DEFAULT_SUBJECTS[0]
+  const initialCls = scopedClasses.find((c: any) => c.name === initialGrade) || allClasses.find((c: any) => c.name === initialGrade)
+
   const [bookSubjectCode, setBookSubjectCode] = useState<string>(session?.subjectCode || initialBookSub.code)
   const [bookSubjectTitle, setBookSubjectTitle] = useState<string>(session?.subjectTitle || initialBookSub.title)
   const [bookLabKey, setBookLabKey] = useState<MasterRoutineItem['labKey']>(
@@ -240,6 +260,12 @@ function SessionActionModalContent({
   const [skipReason, setSkipReason] = useState<string>(
     existingLog?.skipReason || 'Theory Class Conducted in Classroom'
   )
+
+  const currentLabKey = isBookingMode ? bookLabKey : (session?.labKey || 'comp')
+  const targetLabInfo = (infraLabs || []).find(
+    (l) => l.id === currentLabKey || l.name?.toLowerCase().includes(currentLabKey.toLowerCase())
+  )
+  const isLabUnderMaintenance = targetLabInfo?.status === 'Under Maintenance'
   const mergedCode = nextSession ? `${session?.subjectCode} + ${nextSession.subjectCode}` : (session?.subjectCode || '')
   const mergedTitle = nextSession ? `${session?.subjectTitle} & ${nextSession.subjectTitle}` : (session?.subjectTitle || '')
   const [remarks, setRemarks] = useState<string>(existingLog?.remarks || '')
@@ -284,7 +310,12 @@ function SessionActionModalContent({
     setIsSubmitting(true)
     setSubError(null)
 
-    if (activeTab === 'book' && onAddSession) {
+    if (activeTab === 'book') {
+      if (isLabUnderMaintenance) {
+        setSubError(`Cannot book slot: "${targetLabInfo?.name || 'Selected laboratory'}" is currently Under Maintenance.`)
+        setIsSubmitting(false)
+        return
+      }
       const dayObj = DAYS.find((d) => d.id === bookDayKey)
       const slotObj = MASTER_TIME_SLOTS.find((s) => s.id === bookSlotId)
       const labObj = LAB_ROOMS.find((l) => l.id === bookLabKey) || LAB_ROOMS[0]
@@ -358,7 +389,9 @@ function SessionActionModalContent({
         requestedBy: isTeacher ? (currentUser?.full_name || 'Subject Teacher') : undefined,
       }
 
-      onAddSession(newSessionItem)
+      if (onAddSession) {
+        onAddSession(newSessionItem)
+      }
       if (onSuccess) {
         if (isTeacher) {
           onSuccess(`Practical slot booking request submitted for ${dayObj?.label} (${assignedTeacher})!`)
@@ -573,6 +606,19 @@ function SessionActionModalContent({
             <X className="h-4 w-4" />
           </button>
         </div>
+
+        {/* Maintenance Warning Banner */}
+        {isLabUnderMaintenance && (
+          <div className="mx-6 mt-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 flex items-start gap-2.5 text-xs font-sans">
+            <Wrench className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <div className="space-y-0.5">
+              <p className="font-bold">Notice: Laboratory Under Scheduled Maintenance</p>
+              <p className="text-[11px] text-amber-700 dark:text-amber-300/90 leading-relaxed">
+                {targetLabInfo?.name || 'This laboratory'} is currently designated as Under Maintenance. Practical session booking and routine execution are restricted until servicing is completed.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Tab Navigation (Only shown for existing scheduled sessions) */}
         {!isBookingMode && (
@@ -823,7 +869,7 @@ function SessionActionModalContent({
                     >
                       {infraFaculty.map((f) => (
                         <option key={f.id} value={f.name}>
-                          {f.name} ({f.dept.split(' ')[0]})
+                          {f.name} ({f.role || 'Faculty'})
                         </option>
                       ))}
                     </Select>
@@ -1022,7 +1068,7 @@ function SessionActionModalContent({
                   rows={2}
                   value={remarks}
                   onChange={(e) => setRemarks(e.target.value)}
-                  placeholder="Apparatus status, student notes..."
+                  placeholder="Equipment status, student notes..."
                   className="flex w-full rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-2 text-xs text-zinc-900 dark:text-zinc-100"
                 />
               </div>
@@ -1250,7 +1296,7 @@ function SessionActionModalContent({
               <div className="p-3 rounded-xl bg-rose-50/70 dark:bg-rose-950/40 border border-rose-200/80 dark:border-rose-900/60 text-xs space-y-1">
                 <div className="flex items-center gap-1.5 font-bold text-rose-950 dark:text-rose-200">
                   <AlertTriangle className="h-4 w-4 text-rose-600" />
-                  <span>Report Laboratory Incident or Apparatus Breakage</span>
+                  <span>Report Laboratory Incident or Equipment Breakage</span>
                 </div>
                 <p className="text-[11px] text-zinc-600 dark:text-zinc-300 font-sans">
                   Instantly notifies <strong>Admin</strong>, <strong>Lab In-Charge</strong>, and routes major damages to <strong>Head of Department (HOD)</strong>.
@@ -1266,11 +1312,11 @@ function SessionActionModalContent({
                     value={incType}
                     onChange={(e) => setIncType(e.target.value as any)}
                   >
-                    <option value="breakage">Apparatus Breakage (Glassware/Tools)</option>
+                    <option value="breakage">Equipment Breakage (Tools/Glassware)</option>
                     <option value="malfunction">Equipment Malfunction (No Power/Faulty)</option>
                     <option value="burnt_apparatus">Burnt Component / Overload</option>
                     <option value="chemical_hazard">Chemical Spill / Hazard</option>
-                    <option value="missing">Missing Apparatus / Consumable</option>
+                    <option value="missing">Missing Equipment / Tool</option>
                     <option value="other">Other Operational Incident</option>
                   </Select>
                 </div>
@@ -1307,14 +1353,14 @@ function SessionActionModalContent({
               <div className="space-y-1">
                 <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200 flex items-center justify-between">
                   <span>What Happened & Damage Circumstances *</span>
-                  <span className="text-[10px] text-zinc-400 font-normal">Specify apparatus, cause, and safety steps</span>
+                  <span className="text-[10px] text-zinc-400 font-normal">Specify equipment, cause, and safety steps</span>
                 </label>
                 <textarea
                   required
                   rows={3}
                   value={incRemarks}
                   onChange={(e) => setIncRemarks(e.target.value)}
-                  placeholder="Describe what apparatus broke or malfunctioned, how it occurred, broken pieces cleared, workshop/store replacement needed..."
+                  placeholder="Describe what equipment broke or malfunctioned, how it occurred, safety steps taken, replacement needed..."
                   className="flex w-full rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-2 text-xs text-zinc-900 dark:text-zinc-100 font-sans"
                 />
               </div>

@@ -3,6 +3,7 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme inline {
+  --font-display: var(--font-display);
   --font-heading: var(--font-heading);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
@@ -12,9 +13,15 @@
   --color-surface-3: var(--surface-3);
   --color-border-subtle: var(--border-subtle);
   --color-border-card: var(--border-card);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
 }
 
 :root {
+  --font-display: var(--font-display-source), var(--font-heading-source), sans-serif;
   --font-heading: var(--font-heading-source), var(--font-devanagari), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-sans: var(--font-sans-source), var(--font-devanagari), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: var(--font-mono-source), 'JetBrains Mono', monospace;
@@ -33,6 +40,13 @@
   --text-primary: #09090b;
   --text-secondary: #475569;
   --text-tertiary: #64748b;
+
+  /* Enterprise Semantic Tokens (Light) - WCAG AA Compliant */
+  --accent: #4f46e5;       /* Indigo 600: 5.8:1 contrast on white */
+  --accent-hover: #4338ca; /* Indigo 700 */
+  --success: #059669;      /* Emerald 600 - active operations only */
+  --warning: #d97706;      /* Amber 600 - pending roll-call only */
+  --danger: #dc2626;       /* Rose 600 - faults & critical */
 }
 
 .dark {
@@ -50,6 +64,13 @@
   --text-primary: #ffffff;
   --text-secondary: #cbd5e1; /* Slate-300: crisp contrast with deep slate backing */
   --text-tertiary: #94a3b8;  /* Slate-400 */
+
+  /* Enterprise Semantic Tokens (Dark) - WCAG AA Compliant */
+  --accent: #6366f1;       /* Indigo 500: high contrast on deep obsidian */
+  --accent-hover: #818cf8; /* Indigo 400 */
+  --success: #10b981;      /* Emerald 500 - active operations only */
+  --warning: #f59e0b;      /* Amber 500 - pending roll-call only */
+  --danger: #ef4444;       /* Rose 500 - faults & critical */
 }
 
 body {
@@ -145,6 +166,69 @@ body {
 .surface-well {
   background-color: var(--surface-2);
   border: 1px solid var(--border-subtle);
+}
+
+/* Unified Semantic Badges & Course Pills */
+.badge-neutral {
+  background-color: rgba(241, 245, 249, 0.8);
+  border: 1px solid rgba(203, 213, 225, 0.7);
+  color: #334155;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
+.dark .badge-neutral {
+  background-color: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(51, 65, 85, 0.6);
+  color: #cbd5e1;
+}
+
+.badge-accent {
+  background-color: rgba(79, 70, 229, 0.1);
+  border: 1px solid rgba(79, 70, 229, 0.25);
+  color: var(--accent);
+}
+
+.dark .badge-accent {
+  background-color: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  color: #a5b4fc;
+}
+
+.badge-success {
+  background-color: rgba(5, 150, 105, 0.1);
+  border: 1px solid rgba(5, 150, 105, 0.25);
+  color: var(--success);
+}
+
+.dark .badge-success {
+  background-color: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #34d399;
+}
+
+.badge-warning {
+  background-color: rgba(217, 119, 6, 0.12);
+  border: 1px solid rgba(217, 119, 6, 0.25);
+  color: var(--warning);
+}
+
+.dark .badge-warning {
+  background-color: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: #fbbf24;
+}
+
+.badge-danger {
+  background-color: rgba(220, 38, 38, 0.1);
+  border: 1px solid rgba(220, 38, 38, 0.25);
+  color: var(--danger);
+}
+
+.dark .badge-danger {
+  background-color: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #f87171;
 }
 
 /* Scoped Micro-Glow Pips (OLED Beacon highlights without GPU table lag) */
@@ -436,11 +520,67 @@ body {
   inset: -1px;
   border-radius: inherit;
   padding: 1px;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.4), rgba(244, 63, 94, 0.2), rgba(16, 185, 129, 0.3));
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.4), rgba(99, 102, 241, 0.1), rgba(129, 140, 248, 0.3));
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
   pointer-events: none;
+}
+
+/* Enterprise Semantic Utility Badges */
+.badge-neutral {
+  background-color: rgba(148, 163, 184, 0.1);
+  color: #475569;
+  border: 1px solid rgba(203, 213, 225, 0.8);
+}
+.dark .badge-neutral {
+  background-color: rgba(30, 41, 59, 0.8);
+  color: #cbd5e1;
+  border-color: rgba(51, 65, 85, 0.6);
+}
+
+.badge-accent {
+  background-color: rgba(79, 70, 229, 0.1);
+  color: #4f46e5;
+  border: 1px solid rgba(79, 70, 229, 0.25);
+}
+.dark .badge-accent {
+  background-color: rgba(99, 102, 241, 0.15);
+  color: #818cf8;
+  border-color: rgba(99, 102, 241, 0.3);
+}
+
+.badge-success {
+  background-color: rgba(5, 150, 105, 0.1);
+  color: #059669;
+  border: 1px solid rgba(5, 150, 105, 0.25);
+}
+.dark .badge-success {
+  background-color: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+.badge-warning {
+  background-color: rgba(217, 119, 6, 0.1);
+  color: #d97706;
+  border: 1px solid rgba(217, 119, 6, 0.25);
+}
+.dark .badge-warning {
+  background-color: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+.badge-danger {
+  background-color: rgba(220, 38, 38, 0.1);
+  color: #dc2626;
+  border: 1px solid rgba(220, 38, 38, 0.25);
+}
+.dark .badge-danger {
+  background-color: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.3);
 }
 
 /* Strict Print Shield: Clean black ink on white paper, no toner waste */

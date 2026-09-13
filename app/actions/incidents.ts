@@ -6,6 +6,8 @@ import { createClient } from '@/lib/supabase/server'
 import { isSupabaseConfigured } from '@/lib/supabase/config'
 import { getServerUserScope } from '@/lib/context/user-scope'
 import { dispatchIncidentEmailAlert } from '@/app/actions/notifications'
+import { getPgPool } from '@/lib/db'
+import { isValidUuid } from '@/lib/utils'
 
 export interface LabIncidentRecord {
   id: string
@@ -81,7 +83,7 @@ const IN_MEMORY_NOTIFICATIONS: LabNotificationRecord[] = [
     incident_id: 'inc-seed-1',
     target_role: 'lab_incharge',
     target_lab_id: 'chem',
-    title: 'Apparatus Breakage: 50ml Burette',
+    title: 'Equipment Breakage: 50ml Burette',
     message: 'Chemistry Lab: Glass burette broken during Period 2 & 3 (Class 12C). Safety cleared.',
     severity: 'warning',
     is_read: false,
@@ -100,34 +102,45 @@ const IN_MEMORY_NOTIFICATIONS: LabNotificationRecord[] = [
   },
 ]
 
+declare global {
+  var __INCIDENT_RECORDS_STORE__: any[] | undefined
+  var __LAB_NOTIFICATIONS__: LabNotificationRecord[] | undefined
+}
+
 function getIncStore(): LabIncidentRecord[] {
-  if (!(globalThis as any).__LAB_INCIDENTS__) {
-    ;(globalThis as any).__LAB_INCIDENTS__ = [...IN_MEMORY_INCIDENTS]
+  if (!globalThis.__INCIDENT_RECORDS_STORE__) {
+    globalThis.__INCIDENT_RECORDS_STORE__ = [...IN_MEMORY_INCIDENTS]
   }
-  return (globalThis as any).__LAB_INCIDENTS__
+  return globalThis.__INCIDENT_RECORDS_STORE__ as LabIncidentRecord[]
 }
 
 function getNotifStore(): LabNotificationRecord[] {
-  if (!(globalThis as any).__LAB_NOTIFICATIONS__) {
-    ;(globalThis as any).__LAB_NOTIFICATIONS__ = [...IN_MEMORY_NOTIFICATIONS]
+  if (!globalThis.__LAB_NOTIFICATIONS__) {
+    globalThis.__LAB_NOTIFICATIONS__ = [...IN_MEMORY_NOTIFICATIONS]
   }
-  return (globalThis as any).__LAB_NOTIFICATIONS__
+  return globalThis.__LAB_NOTIFICATIONS__
 }
 
-export async function reportIncident(data: Omit<LabIncidentRecord, 'id' | 'created_at' | 'status' | 'escalated_to_hod' | 'fine_paid'> & { id?: string }): Promise<{ success: boolean; incident?: LabIncidentRecord; error?: string }> {
+export async function reportIncident(data: Omit<LabIncidentRecord, 'id' | 'created_at' | 'status' | 'escalated_to_hod'> & { id?: string; reported_by_id?: string | null; resolved_by_id?: string | null; fine_paid?: boolean }): Promise<{ success: boolean; incident?: LabIncidentRecord; error?: string }> {
   try {
     const recordId = data.id || `inc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`
     const isCritical = data.severity === 'major_critical'
+    const validReportedById = isValidUuid(data.reported_by_id) ? data.reported_by_id : null
+    const validResolvedById = isValidUuid(data.resolved_by_id) ? data.resolved_by_id : null
 
     const newRecord: LabIncidentRecord = {
       ...data,
       id: recordId,
-      status: 'reported',
+      status: isCritical ? 'escalated_to_hod' : 'reported',
       escalated_to_hod: isCritical,
-      fine_paid: false,
+      escalation_reason: isCritical ? (data.escalation_reason || 'Critical equipment damage requiring immediate institutional inspection') : null,
+      escalated_at: isCritical ? new Date().toISOString() : null,
+      fine_paid: Boolean(data.fine_paid),
       created_at: new Date().toISOString(),
+      reported_by_id: validReportedById,
     }
 
+    // 1. Shared in-memory store
     const store = getIncStore()
     const existingIdx = store.findIndex((i) => i.id === recordId)
     if (existingIdx !== -1) {
@@ -189,17 +202,97 @@ export async function reportIncident(data: Omit<LabIncidentRecord, 'id' | 'creat
 
     notifsToInsert.forEach((n) => notifStore.unshift(n))
 
-    // Write to Supabase if configured
+    // 2. Primary Database Persistence: Direct PostgreSQL via pool
+    if (process.env.DATABASE_URL) {
+      try {
+        const pool = getPgPool()
+        await pool.query(`
+          INSERT INTO public.lab_incidents (
+            id, lab_id, schedule_id, date, session_label, subject_name,
+            subject_teacher_name, batch_name, title, circumstances,
+            incident_type, severity, equipment_name, quantity, student_rolls,
+            status, escalated_to_hod, escalation_reason, escalated_at,
+            resolution_notes, resolved_by, resolved_by_id, resolved_at,
+            reported_by, reported_by_id, is_fined, fine_amount, fine_paid,
+            fine_receipt_no, created_at
+          ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+            $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+            $21, $22, $23, $24, $25, $26, $27, $28, $29, $30
+          )
+          ON CONFLICT (id) DO UPDATE SET
+            title = EXCLUDED.title,
+            circumstances = EXCLUDED.circumstances,
+            status = EXCLUDED.status,
+            resolution_notes = EXCLUDED.resolution_notes;
+        `, [
+          recordId,
+          data.lab_id,
+          data.schedule_id || null,
+          data.date || new Date().toISOString().split('T')[0],
+          data.session_label,
+          data.subject_name,
+          data.subject_teacher_name,
+          data.batch_name,
+          data.title,
+          data.circumstances || null,
+          data.incident_type || 'breakage',
+          data.severity,
+          data.equipment_name,
+          Math.max(1, data.quantity || 1),
+          data.student_rolls || null,
+          newRecord.status,
+          newRecord.escalated_to_hod,
+          newRecord.escalation_reason || null,
+          newRecord.escalated_at || null,
+          newRecord.resolution_notes || null,
+          newRecord.resolved_by || null,
+          validResolvedById,
+          newRecord.resolved_at || null,
+          data.reported_by,
+          validReportedById,
+          Boolean(data.is_fined),
+          data.fine_amount || 0,
+          Boolean(data.fine_paid),
+          data.fine_receipt_no || null,
+          newRecord.created_at
+        ])
+
+        for (const n of notifsToInsert) {
+          await pool.query(`
+            INSERT INTO public.lab_notifications (
+              id, incident_id, target_role, target_lab_id, title, message, severity, is_read, created_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT (id) DO NOTHING;
+          `, [
+            n.id, n.incident_id, n.target_role, n.target_lab_id, n.title, n.message, n.severity, n.is_read, n.created_at
+          ])
+        }
+      } catch (pgErr) {
+        console.warn('Direct PostgreSQL pool incident insert failed, continuing to Supabase:', pgErr)
+      }
+    }
+
+    // 3. Dual-Write to Supabase if configured (for realtime subscriptions)
     if (isSupabaseConfigured()) {
       try {
         const supabase = await createClient()
-        await (supabase.from('lab_incidents') as any).upsert(newRecord, { onConflict: 'id' })
+        await (supabase.from('lab_incidents') as any).upsert({
+          ...newRecord,
+          reported_by_id: validReportedById,
+          resolved_by_id: validResolvedById,
+        }, { onConflict: 'id' })
         await (supabase.from('lab_notifications') as any).insert(notifsToInsert)
       } catch (err) {
         console.warn('Supabase incident insert fallback active:', err)
       }
     }
 
+    // 4. Exhaustive cache revalidation across all related routes
+    revalidatePath('/records/incidents')
+    revalidatePath('/incidents')
+    revalidatePath('/records')
+    revalidatePath('/print/incidents')
     revalidatePath('/schedules')
     revalidatePath('/admin')
     revalidatePath('/')
@@ -223,10 +316,11 @@ export async function escalateIncidentToHOD(id: string, reason: string): Promise
     const item = store.find((i) => i.id === id)
     if (!item) return { success: false, error: 'Incident record not found' }
 
+    const now = new Date().toISOString()
     item.status = 'escalated_to_hod'
     item.escalated_to_hod = true
     item.escalation_reason = reason
-    item.escalated_at = new Date().toISOString()
+    item.escalated_at = now
 
     // Create high-priority HOD notification
     const notifStore = getNotifStore()
@@ -239,9 +333,30 @@ export async function escalateIncidentToHOD(id: string, reason: string): Promise
       message: `Escalated for HOD Intervention: "${reason}". Session: ${item.session_label} (${item.batch_name}).`,
       severity: 'critical',
       is_read: false,
-      created_at: new Date().toISOString(),
+      created_at: now,
     }
     notifStore.unshift(hodNotif)
+
+    // Primary: Direct PostgreSQL pool
+    if (process.env.DATABASE_URL) {
+      try {
+        const pool = getPgPool()
+        await pool.query(`
+          UPDATE public.lab_incidents
+          SET status = 'escalated_to_hod', escalated_to_hod = true, escalation_reason = $1, escalated_at = $2
+          WHERE id = $3;
+        `, [reason, now, id])
+
+        await pool.query(`
+          INSERT INTO public.lab_notifications (
+            id, incident_id, target_role, target_lab_id, title, message, severity, is_read, created_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          ON CONFLICT (id) DO NOTHING;
+        `, [hodNotif.id, hodNotif.incident_id, hodNotif.target_role, hodNotif.target_lab_id, hodNotif.title, hodNotif.message, hodNotif.severity, hodNotif.is_read, hodNotif.created_at])
+      } catch (err) {
+        console.warn('Direct PostgreSQL escalation update failed:', err)
+      }
+    }
 
     if (isSupabaseConfigured()) {
       try {
@@ -250,12 +365,16 @@ export async function escalateIncidentToHOD(id: string, reason: string): Promise
           status: 'escalated_to_hod',
           escalated_to_hod: true,
           escalation_reason: reason,
-          escalated_at: item.escalated_at,
+          escalated_at: now,
         }).eq('id', id)
         await (supabase.from('lab_notifications') as any).insert([hodNotif])
       } catch (e) {}
     }
 
+    revalidatePath('/records/incidents')
+    revalidatePath('/incidents')
+    revalidatePath('/records')
+    revalidatePath('/print/incidents')
     revalidatePath('/admin')
     revalidatePath('/')
 
@@ -285,16 +404,44 @@ export async function updateIncidentStatus(
   try {
     const store = getIncStore()
     const idx = store.findIndex((i) => i.id === id)
-    if (idx === -1) return { success: false, error: 'Incident not found' }
+    const now = new Date().toISOString()
+    if (idx !== -1) {
+      store[idx] = {
+        ...store[idx],
+        status: data.status,
+        resolution_notes: data.resolution_notes || store[idx].resolution_notes,
+        resolved_by: data.resolved_by,
+        resolved_at: now,
+        fine_paid: typeof data.fine_paid === 'boolean' ? data.fine_paid : store[idx].fine_paid,
+        fine_receipt_no: data.fine_receipt_no || store[idx].fine_receipt_no,
+      }
+    }
 
-    store[idx] = {
-      ...store[idx],
-      status: data.status,
-      resolution_notes: data.resolution_notes || store[idx].resolution_notes,
-      resolved_by: data.resolved_by,
-      resolved_at: new Date().toISOString(),
-      fine_paid: typeof data.fine_paid === 'boolean' ? data.fine_paid : store[idx].fine_paid,
-      fine_receipt_no: data.fine_receipt_no || store[idx].fine_receipt_no,
+    // Primary: Direct PostgreSQL pool
+    if (process.env.DATABASE_URL) {
+      try {
+        const pool = getPgPool()
+        await pool.query(`
+          UPDATE public.lab_incidents
+          SET status = $1,
+              resolution_notes = COALESCE($2, resolution_notes),
+              resolved_by = $3,
+              resolved_at = $4,
+              fine_paid = $5,
+              fine_receipt_no = COALESCE($6, fine_receipt_no)
+          WHERE id = $7;
+        `, [
+          data.status,
+          data.resolution_notes || null,
+          data.resolved_by,
+          now,
+          Boolean(data.fine_paid),
+          data.fine_receipt_no || null,
+          id
+        ])
+      } catch (err) {
+        console.warn('Direct PostgreSQL status update failed:', err)
+      }
     }
 
     if (isSupabaseConfigured()) {
@@ -304,14 +451,17 @@ export async function updateIncidentStatus(
           status: data.status,
           resolution_notes: data.resolution_notes,
           resolved_by: data.resolved_by,
-          resolved_at: new Date().toISOString(),
+          resolved_at: now,
           fine_paid: data.fine_paid,
           fine_receipt_no: data.fine_receipt_no,
         }).eq('id', id)
       } catch (e) {}
     }
 
+    revalidatePath('/records/incidents')
     revalidatePath('/incidents')
+    revalidatePath('/records')
+    revalidatePath('/print/incidents')
     revalidatePath('/admin')
     revalidatePath('/')
 
@@ -334,7 +484,28 @@ export async function getIncidents(filters?: {
   const store = getIncStore()
   let list = [...store]
 
-  if (isSupabaseConfigured()) {
+  if (process.env.DATABASE_URL) {
+    try {
+      const pool = getPgPool()
+      const res = await pool.query(`
+        SELECT 
+          id, lab_id, schedule_id, to_char(date, 'YYYY-MM-DD') as date,
+          session_label, subject_name, subject_teacher_name, batch_name,
+          title, circumstances, incident_type, severity, equipment_name,
+          quantity, student_rolls, status, escalated_to_hod, escalation_reason,
+          escalated_at, resolution_notes, resolved_by, resolved_by_id,
+          resolved_at, reported_by, reported_by_id, is_fined, fine_amount,
+          fine_paid, fine_receipt_no, created_at
+        FROM public.lab_incidents
+        ORDER BY created_at DESC;
+      `)
+      if (res.rows && res.rows.length > 0) {
+        list = res.rows as LabIncidentRecord[]
+      }
+    } catch (e) {
+      console.warn('Postgres getIncidents query fallback active:', e)
+    }
+  } else if (isSupabaseConfigured()) {
     try {
       const supabase = await createClient()
       let query = supabase.from('lab_incidents').select('*').order('created_at', { ascending: false })

@@ -2,7 +2,6 @@
 
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
-import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import { isSupabaseConfigured } from '@/lib/supabase/config'
 import pg from 'pg'
@@ -291,7 +290,7 @@ export async function signOut() {
 }
 
 // 4. Get Current User Profile with Permissions
-export const getCurrentUserProfile = cache(async (): Promise<UserProfile | null> => {
+export async function getCurrentUserProfile(): Promise<UserProfile | null> {
   if (!isSupabaseConfigured()) {
     return {
       id: 'local-admin',
@@ -371,7 +370,7 @@ export const getCurrentUserProfile = cache(async (): Promise<UserProfile | null>
       created_at: new Date().toISOString(),
     }
   }
-})
+}
 
 // 5. SUPER ADMIN: Get All Users
 export async function getAllUsers(): Promise<UserProfile[]> {

@@ -79,6 +79,7 @@ export interface IncidentCategoryItem {
   description: string
   severity: 'minor' | 'moderate' | 'major_critical'
   targetLab?: 'all' | 'phys' | 'chem' | 'comp'
+  is_active?: boolean
 }
 
 export interface IncidentGovernanceSettings {
@@ -96,10 +97,11 @@ export const DEFAULT_INCIDENT_CATEGORIES: IncidentCategoryItem[] = [
   {
     id: 'cat-1',
     code: 'breakage',
-    name: 'Apparatus Breakage / Glassware',
-    description: 'Glassware fracture, burette/pipette crack, beaker collapse, optical lens drop',
+    name: 'Equipment / Glassware Breakage',
+    description: 'Hardware damage, glassware fracture, tool breakage, or peripheral collapse',
     severity: 'moderate',
     targetLab: 'all',
+    is_active: true,
   },
   {
     id: 'cat-2',
@@ -108,6 +110,7 @@ export const DEFAULT_INCIDENT_CATEGORIES: IncidentCategoryItem[] = [
     description: 'PC system fault, monitor blackout, multimeter no-response, power pack fuse issue',
     severity: 'minor',
     targetLab: 'all',
+    is_active: true,
   },
   {
     id: 'cat-3',
@@ -116,6 +119,7 @@ export const DEFAULT_INCIDENT_CATEGORIES: IncidentCategoryItem[] = [
     description: 'Resistor overheat, capacitor burst, IC circuit short, burning odor from PSU',
     severity: 'moderate',
     targetLab: 'all',
+    is_active: true,
   },
   {
     id: 'cat-4',
@@ -124,6 +128,7 @@ export const DEFAULT_INCIDENT_CATEGORIES: IncidentCategoryItem[] = [
     description: 'Corrosive reagent spillage, hazardous acid leak, fume hood failure, mercury vapor leak',
     severity: 'major_critical',
     targetLab: 'chem',
+    is_active: true,
   },
   {
     id: 'cat-5',
@@ -132,6 +137,7 @@ export const DEFAULT_INCIDENT_CATEGORIES: IncidentCategoryItem[] = [
     description: 'Unaccounted station tool, missing patch cord, missing micro-pipette, unreturned specimen slide',
     severity: 'minor',
     targetLab: 'all',
+    is_active: true,
   },
   {
     id: 'cat-6',
@@ -140,6 +146,7 @@ export const DEFAULT_INCIDENT_CATEGORIES: IncidentCategoryItem[] = [
     description: 'Any miscellaneous station damage or safety hazard during scheduled practical session',
     severity: 'minor',
     targetLab: 'all',
+    is_active: true,
   },
 ]
 
@@ -294,37 +301,39 @@ export function useInfrastructureState() {
       try {
         localStorage.setItem(key, JSON.stringify(data))
         notifyUpdated()
-        if (key === STORAGE_KEYS.HOLIDAYS) {
-          cachedHolidaysPromise = Promise.resolve(data)
-          infraSubscribers.forEach((sub) => sub.setHolidays(data))
-          broadcastSync('holidays', data)
-        } else if (key === STORAGE_KEYS.LABS) {
-          cachedLabsPromise = Promise.resolve(data)
-          infraSubscribers.forEach((sub) => sub.setLabs(data))
-          broadcastSync('infrastructure', { key, data })
-        } else if (key === STORAGE_KEYS.PERIODS) {
-          cachedPeriodsPromise = Promise.resolve(data)
-          infraSubscribers.forEach((sub) => sub.setPeriods(data))
-          broadcastSync('infrastructure', { key, data })
-        } else if (key === STORAGE_KEYS.CLASSES) {
-          cachedClassesPromise = Promise.resolve(data)
-          infraSubscribers.forEach((sub) => sub.setClasses(data))
-          broadcastSync('infrastructure', { key, data })
-        } else if (key === STORAGE_KEYS.SUBJECTS) {
-          cachedSubjectsPromise = Promise.resolve(data)
-          infraSubscribers.forEach((sub) => sub.setSubjects(data))
-          broadcastSync('infrastructure', { key, data })
-        } else if (key === STORAGE_KEYS.INCIDENT_CATEGORIES) {
-          cachedIncidentCategoriesPromise = Promise.resolve(data)
-          infraSubscribers.forEach((sub) => sub.setIncidentCategories(data))
-          broadcastSync('infrastructure', { key, data })
-        } else if (key === STORAGE_KEYS.INCIDENT_SETTINGS) {
-          cachedIncidentSettingsPromise = Promise.resolve(data)
-          infraSubscribers.forEach((sub) => sub.setIncidentSettings(data))
-          broadcastSync('infrastructure', { key, data })
-        } else {
-          broadcastSync('infrastructure', { key, data })
-        }
+        queueMicrotask(() => {
+          if (key === STORAGE_KEYS.HOLIDAYS) {
+            cachedHolidaysPromise = Promise.resolve(data)
+            infraSubscribers.forEach((sub) => sub.setHolidays(data))
+            broadcastSync('holidays', data)
+          } else if (key === STORAGE_KEYS.LABS) {
+            cachedLabsPromise = Promise.resolve(data)
+            infraSubscribers.forEach((sub) => sub.setLabs(data))
+            broadcastSync('infrastructure', { key, data })
+          } else if (key === STORAGE_KEYS.PERIODS) {
+            cachedPeriodsPromise = Promise.resolve(data)
+            infraSubscribers.forEach((sub) => sub.setPeriods(data))
+            broadcastSync('infrastructure', { key, data })
+          } else if (key === STORAGE_KEYS.CLASSES) {
+            cachedClassesPromise = Promise.resolve(data)
+            infraSubscribers.forEach((sub) => sub.setClasses(data))
+            broadcastSync('infrastructure', { key, data })
+          } else if (key === STORAGE_KEYS.SUBJECTS) {
+            cachedSubjectsPromise = Promise.resolve(data)
+            infraSubscribers.forEach((sub) => sub.setSubjects(data))
+            broadcastSync('infrastructure', { key, data })
+          } else if (key === STORAGE_KEYS.INCIDENT_CATEGORIES) {
+            cachedIncidentCategoriesPromise = Promise.resolve(data)
+            infraSubscribers.forEach((sub) => sub.setIncidentCategories(data))
+            broadcastSync('infrastructure', { key, data })
+          } else if (key === STORAGE_KEYS.INCIDENT_SETTINGS) {
+            cachedIncidentSettingsPromise = Promise.resolve(data)
+            infraSubscribers.forEach((sub) => sub.setIncidentSettings(data))
+            broadcastSync('infrastructure', { key, data })
+          } else {
+            broadcastSync('infrastructure', { key, data })
+          }
+        })
       } catch (e) {
         console.error('Failed to persist infrastructure state', e)
       }
@@ -359,7 +368,6 @@ export function useInfrastructureState() {
         supabase
           .from('labs')
           .select('*')
-          .eq('is_active', true)
           .order('name')
           .then(({ data: dbLabs, error }) => {
             if (!error && dbLabs && dbLabs.length > 0) {
@@ -369,7 +377,7 @@ export function useInfrastructureState() {
                 code: l.code || l.id.toUpperCase(),
                 capacity: l.capacity || 40,
                 type: l.type || 'computer_lab',
-                status: l.is_active ? 'Operational' : 'Maintenance',
+                status: l.status || (l.is_active ? 'Operational' : 'Inactive'),
               }))
               try {
                 localStorage.setItem(STORAGE_KEYS.LABS, JSON.stringify(mappedLabs))
@@ -554,7 +562,7 @@ export function useInfrastructureState() {
           supabase
             .from('labs')
             .select('*')
-            .eq('is_active', true)
+            .order('name')
             .then(({ data: updatedLabs }) => {
               if (updatedLabs) {
                 const mapped: LabFacilityItem[] = updatedLabs.map((l: any) => ({
@@ -563,7 +571,7 @@ export function useInfrastructureState() {
                   code: l.code || l.id.toUpperCase(),
                   capacity: l.capacity || 40,
                   type: l.type || 'computer_lab',
-                  status: l.is_active ? 'Operational' : 'Maintenance',
+                  status: l.status || (l.is_active ? 'Operational' : 'Inactive'),
                 }))
                 try {
                   localStorage.setItem(STORAGE_KEYS.LABS, JSON.stringify(mapped))
@@ -681,8 +689,10 @@ export function useInfrastructureState() {
   const addPeriod = useCallback((period: PeriodSlotItem) => {
     setPeriods((prev) => {
       const updated = [...prev, period]
-      saveToStorage(STORAGE_KEYS.PERIODS, updated)
-      updateInstitutionSetting('infrastructure_periods', updated).catch(() => {})
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.PERIODS, updated)
+        updateInstitutionSetting('infrastructure_periods', updated).catch(() => {})
+      })
       return updated
     })
   }, [])
@@ -690,8 +700,10 @@ export function useInfrastructureState() {
   const updatePeriod = useCallback((id: string, updates: Partial<PeriodSlotItem>) => {
     setPeriods((prev) => {
       const updated = prev.map((p) => (p.id === id ? { ...p, ...updates } : p))
-      saveToStorage(STORAGE_KEYS.PERIODS, updated)
-      updateInstitutionSetting('infrastructure_periods', updated).catch(() => {})
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.PERIODS, updated)
+        updateInstitutionSetting('infrastructure_periods', updated).catch(() => {})
+      })
       return updated
     })
   }, [])
@@ -699,55 +711,65 @@ export function useInfrastructureState() {
   const deletePeriod = useCallback((id: string) => {
     setPeriods((prev) => {
       const updated = prev.filter((p) => p.id !== id)
-      saveToStorage(STORAGE_KEYS.PERIODS, updated)
-      updateInstitutionSetting('infrastructure_periods', updated).catch(() => {})
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.PERIODS, updated)
+        updateInstitutionSetting('infrastructure_periods', updated).catch(() => {})
+      })
       return updated
     })
   }, [])
 
   const resetPeriods = useCallback(() => {
     setPeriods([...MASTER_TIME_SLOTS])
-    saveToStorage(STORAGE_KEYS.PERIODS, [...MASTER_TIME_SLOTS])
-    updateInstitutionSetting('infrastructure_periods', [...MASTER_TIME_SLOTS]).catch(() => {})
+    queueMicrotask(() => {
+      saveToStorage(STORAGE_KEYS.PERIODS, [...MASTER_TIME_SLOTS])
+      updateInstitutionSetting('infrastructure_periods', [...MASTER_TIME_SLOTS]).catch(() => {})
+    })
   }, [])
 
   // 2. Labs Management
   const addLab = useCallback((lab: LabFacilityItem) => {
     setLabs((prev) => {
       const updated = [...prev, lab]
-      saveToStorage(STORAGE_KEYS.LABS, updated)
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.LABS, updated)
+        cachedLabsPromise = null
+        lastInfraFetchTime = 0
+        createLabFacility(lab).catch((err) => {
+          console.error('[LMR] Remote createLabFacility failed:', err)
+        })
+      })
       return updated
-    })
-    cachedLabsPromise = null
-    lastInfraFetchTime = 0
-    createLabFacility(lab).catch((err) => {
-      console.error('[LMR] Remote createLabFacility failed:', err)
     })
   }, [])
 
   const updateLab = useCallback((id: string, updates: Partial<LabFacilityItem>) => {
     setLabs((prev) => {
       const updated = prev.map((l) => (l.id === id ? { ...l, ...updates } : l))
-      saveToStorage(STORAGE_KEYS.LABS, updated)
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.LABS, updated)
+        cachedLabsPromise = null
+        lastInfraFetchTime = 0
+        updateLabFacility(id, updates).catch((err) => {
+          console.error('[LMR] Remote updateLabFacility failed:', err)
+        })
+      })
       return updated
-    })
-    cachedLabsPromise = null
-    lastInfraFetchTime = 0
-    updateLabFacility(id, updates).catch((err) => {
-      console.error('[LMR] Remote updateLabFacility failed:', err)
     })
   }, [])
 
   const deleteLab = useCallback((id: string) => {
     setLabs((prev) => {
       const updated = prev.filter((l) => l.id !== id)
-      saveToStorage(STORAGE_KEYS.LABS, updated)
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.LABS, updated)
+        cachedLabsPromise = null
+        lastInfraFetchTime = 0
+        deleteLabFacility(id).catch((err) => {
+          console.error('[LMR] Remote deleteLabFacility failed:', err)
+        })
+      })
       return updated
-    })
-    cachedLabsPromise = null
-    lastInfraFetchTime = 0
-    deleteLabFacility(id).catch((err) => {
-      console.error('[LMR] Remote deleteLabFacility failed:', err)
     })
   }, [])
 
@@ -755,8 +777,10 @@ export function useInfrastructureState() {
   const addClass = useCallback((cls: ClassEnrollmentItem) => {
     setClasses((prev) => {
       const updated = [...prev, cls]
-      saveToStorage(STORAGE_KEYS.CLASSES, updated)
-      updateInstitutionSetting('infrastructure_classes', updated).catch(() => {})
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.CLASSES, updated)
+        updateInstitutionSetting('infrastructure_classes', updated).catch(() => {})
+      })
       return updated
     })
   }, [])
@@ -764,8 +788,10 @@ export function useInfrastructureState() {
   const updateClass = useCallback((id: string, updates: Partial<ClassEnrollmentItem>) => {
     setClasses((prev) => {
       const updated = prev.map((c) => (c.id === id ? { ...c, ...updates } : c))
-      saveToStorage(STORAGE_KEYS.CLASSES, updated)
-      updateInstitutionSetting('infrastructure_classes', updated).catch(() => {})
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.CLASSES, updated)
+        updateInstitutionSetting('infrastructure_classes', updated).catch(() => {})
+      })
       return updated
     })
   }, [])
@@ -773,8 +799,10 @@ export function useInfrastructureState() {
   const deleteClass = useCallback((id: string) => {
     setClasses((prev) => {
       const updated = prev.filter((c) => c.id !== id)
-      saveToStorage(STORAGE_KEYS.CLASSES, updated)
-      updateInstitutionSetting('infrastructure_classes', updated).catch(() => {})
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.CLASSES, updated)
+        updateInstitutionSetting('infrastructure_classes', updated).catch(() => {})
+      })
       return updated
     })
   }, [])
@@ -783,7 +811,9 @@ export function useInfrastructureState() {
   const addFaculty = useCallback((fac: FacultyMemberItem) => {
     setFaculty((prev) => {
       const updated = [...prev, fac]
-      saveToStorage(STORAGE_KEYS.FACULTY, updated)
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.FACULTY, updated)
+      })
       return updated
     })
   }, [])
@@ -791,7 +821,9 @@ export function useInfrastructureState() {
   const updateFaculty = useCallback((id: string, updates: Partial<FacultyMemberItem>) => {
     setFaculty((prev) => {
       const updated = prev.map((f) => (f.id === id ? { ...f, ...updates } : f))
-      saveToStorage(STORAGE_KEYS.FACULTY, updated)
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.FACULTY, updated)
+      })
       return updated
     })
   }, [])
@@ -799,7 +831,9 @@ export function useInfrastructureState() {
   const deleteFaculty = useCallback((id: string) => {
     setFaculty((prev) => {
       const updated = prev.filter((f) => f.id !== id)
-      saveToStorage(STORAGE_KEYS.FACULTY, updated)
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.FACULTY, updated)
+      })
       return updated
     })
   }, [])
@@ -808,8 +842,10 @@ export function useInfrastructureState() {
   const addSubject = useCallback((sub: SubjectCurriculumItem) => {
     setSubjects((prev) => {
       const updated = [...prev, sub]
-      saveToStorage(STORAGE_KEYS.SUBJECTS, updated)
-      updateInstitutionSetting('infrastructure_subjects', updated).catch(() => {})
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.SUBJECTS, updated)
+        updateInstitutionSetting('infrastructure_subjects', updated).catch(() => {})
+      })
       return updated
     })
   }, [])
@@ -817,8 +853,10 @@ export function useInfrastructureState() {
   const updateSubject = useCallback((code: string, updates: Partial<SubjectCurriculumItem>) => {
     setSubjects((prev) => {
       const updated = prev.map((s) => (s.code === code ? { ...s, ...updates } : s))
-      saveToStorage(STORAGE_KEYS.SUBJECTS, updated)
-      updateInstitutionSetting('infrastructure_subjects', updated).catch(() => {})
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.SUBJECTS, updated)
+        updateInstitutionSetting('infrastructure_subjects', updated).catch(() => {})
+      })
       return updated
     })
   }, [])
@@ -826,8 +864,10 @@ export function useInfrastructureState() {
   const deleteSubject = useCallback((code: string) => {
     setSubjects((prev) => {
       const updated = prev.filter((s) => s.code !== code)
-      saveToStorage(STORAGE_KEYS.SUBJECTS, updated)
-      updateInstitutionSetting('infrastructure_subjects', updated).catch(() => {})
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.SUBJECTS, updated)
+        updateInstitutionSetting('infrastructure_subjects', updated).catch(() => {})
+      })
       return updated
     })
   }, [])
@@ -839,7 +879,6 @@ export function useInfrastructureState() {
       if (targetTeacher) {
         teacherName = targetTeacher.name
       }
-      // Update assignedSubjectCodes in faculty roster
       const updatedFaculty = prevFaculty.map((f) => {
         const codes = f.assignedSubjectCodes || []
         if (f.id === teacherId) {
@@ -848,7 +887,9 @@ export function useInfrastructureState() {
           return { ...f, assignedSubjectCodes: codes.filter((c) => c !== subjectCode) }
         }
       })
-      saveToStorage(STORAGE_KEYS.FACULTY, updatedFaculty)
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.FACULTY, updatedFaculty)
+      })
       return updatedFaculty
     })
 
@@ -856,8 +897,10 @@ export function useInfrastructureState() {
       const updatedSubjects = prevSubjects.map((s) =>
         s.code === subjectCode ? { ...s, teacherId, teacherName } : s
       )
-      saveToStorage(STORAGE_KEYS.SUBJECTS, updatedSubjects)
-      updateInstitutionSetting('infrastructure_subjects', updatedSubjects).catch(() => {})
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.SUBJECTS, updatedSubjects)
+        updateInstitutionSetting('infrastructure_subjects', updatedSubjects).catch(() => {})
+      })
       return updatedSubjects
     })
   }, [])
@@ -867,9 +910,11 @@ export function useInfrastructureState() {
     setHolidays((prev) => {
       const filtered = prev.filter((h) => h.id !== hol.id)
       const updated = [hol, ...filtered]
-      saveToStorage(STORAGE_KEYS.HOLIDAYS, updated)
-      addAcademicHoliday(hol).catch((err) => {
-        console.error('Failed to save academic holiday remotely:', err)
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.HOLIDAYS, updated)
+        addAcademicHoliday(hol).catch((err) => {
+          console.error('Failed to save academic holiday remotely:', err)
+        })
       })
       return updated
     })
@@ -878,9 +923,11 @@ export function useInfrastructureState() {
   const updateHoliday = useCallback((id: string, updates: Partial<HolidayItem>) => {
     setHolidays((prev) => {
       const updated = prev.map((h) => (h.id === id ? { ...h, ...updates } : h))
-      saveToStorage(STORAGE_KEYS.HOLIDAYS, updated)
-      updateAcademicHoliday(id, updates).catch((err) => {
-        console.error('Failed to update academic holiday remotely:', err)
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.HOLIDAYS, updated)
+        updateAcademicHoliday(id, updates).catch((err) => {
+          console.error('Failed to update academic holiday remotely:', err)
+        })
       })
       return updated
     })
@@ -889,9 +936,11 @@ export function useInfrastructureState() {
   const deleteHoliday = useCallback((id: string) => {
     setHolidays((prev) => {
       const updated = prev.filter((h) => h.id !== id)
-      saveToStorage(STORAGE_KEYS.HOLIDAYS, updated)
-      deleteAcademicHoliday(id).catch((err) => {
-        console.error('Failed to delete academic holiday remotely:', err)
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.HOLIDAYS, updated)
+        deleteAcademicHoliday(id).catch((err) => {
+          console.error('Failed to delete academic holiday remotely:', err)
+        })
       })
       return updated
     })
@@ -907,9 +956,11 @@ export function useInfrastructureState() {
 
   const resetHolidaysToOfficialGazette = useCallback(() => {
     setHolidays(DEFAULT_HOLIDAYS)
-    saveToStorage(STORAGE_KEYS.HOLIDAYS, DEFAULT_HOLIDAYS)
-    DEFAULT_HOLIDAYS.forEach((dh) => {
-      addAcademicHoliday(dh).catch(() => {})
+    queueMicrotask(() => {
+      saveToStorage(STORAGE_KEYS.HOLIDAYS, DEFAULT_HOLIDAYS)
+      DEFAULT_HOLIDAYS.forEach((dh) => {
+        addAcademicHoliday(dh).catch(() => {})
+      })
     })
   }, [])
 
@@ -917,8 +968,10 @@ export function useInfrastructureState() {
   const addIncidentCategory = useCallback((cat: IncidentCategoryItem) => {
     setIncidentCategories((prev) => {
       const updated = [...prev, cat]
-      saveToStorage(STORAGE_KEYS.INCIDENT_CATEGORIES, updated)
-      updateInstitutionSetting('infrastructure_incident_categories', updated).catch(() => {})
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.INCIDENT_CATEGORIES, updated)
+        updateInstitutionSetting('infrastructure_incident_categories', updated).catch(() => {})
+      })
       return updated
     })
   }, [])
@@ -926,8 +979,10 @@ export function useInfrastructureState() {
   const updateIncidentCategory = useCallback((id: string, updates: Partial<IncidentCategoryItem>) => {
     setIncidentCategories((prev) => {
       const updated = prev.map((c) => (c.id === id ? { ...c, ...updates } : c))
-      saveToStorage(STORAGE_KEYS.INCIDENT_CATEGORIES, updated)
-      updateInstitutionSetting('infrastructure_incident_categories', updated).catch(() => {})
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.INCIDENT_CATEGORIES, updated)
+        updateInstitutionSetting('infrastructure_incident_categories', updated).catch(() => {})
+      })
       return updated
     })
   }, [])
@@ -935,16 +990,31 @@ export function useInfrastructureState() {
   const deleteIncidentCategory = useCallback((id: string) => {
     setIncidentCategories((prev) => {
       const updated = prev.filter((c) => c.id !== id)
-      saveToStorage(STORAGE_KEYS.INCIDENT_CATEGORIES, updated)
-      updateInstitutionSetting('infrastructure_incident_categories', updated).catch(() => {})
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.INCIDENT_CATEGORIES, updated)
+        updateInstitutionSetting('infrastructure_incident_categories', updated).catch(() => {})
+      })
+      return updated
+    })
+  }, [])
+
+  const deactivateIncidentCategory = useCallback((id: string) => {
+    setIncidentCategories((prev) => {
+      const updated = prev.map((c) => (c.id === id ? { ...c, is_active: false } : c))
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.INCIDENT_CATEGORIES, updated)
+        updateInstitutionSetting('infrastructure_incident_categories', updated).catch(() => {})
+      })
       return updated
     })
   }, [])
 
   const resetIncidentCategories = useCallback(() => {
     setIncidentCategories(DEFAULT_INCIDENT_CATEGORIES)
-    saveToStorage(STORAGE_KEYS.INCIDENT_CATEGORIES, DEFAULT_INCIDENT_CATEGORIES)
-    updateInstitutionSetting('infrastructure_incident_categories', DEFAULT_INCIDENT_CATEGORIES).catch(() => {})
+    queueMicrotask(() => {
+      saveToStorage(STORAGE_KEYS.INCIDENT_CATEGORIES, DEFAULT_INCIDENT_CATEGORIES)
+      updateInstitutionSetting('infrastructure_incident_categories', DEFAULT_INCIDENT_CATEGORIES).catch(() => {})
+    })
   }, [])
 
   const updateIncidentSettings = useCallback((updates: Partial<IncidentGovernanceSettings>) => {
@@ -957,8 +1027,10 @@ export function useInfrastructureState() {
           ...(updates.emergencyContacts || {}),
         },
       }
-      saveToStorage(STORAGE_KEYS.INCIDENT_SETTINGS, updated)
-      updateInstitutionSetting('infrastructure_incident_settings', updated).catch(() => {})
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.INCIDENT_SETTINGS, updated)
+        updateInstitutionSetting('infrastructure_incident_settings', updated).catch(() => {})
+      })
       return updated
     })
   }, [])
@@ -998,6 +1070,7 @@ export function useInfrastructureState() {
     addIncidentCategory,
     updateIncidentCategory,
     deleteIncidentCategory,
+    deactivateIncidentCategory,
     resetIncidentCategories,
     updateIncidentSettings,
   }

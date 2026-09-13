@@ -84,7 +84,7 @@ export default function PrintIncidentsPage({ searchParams }: PrintIncidentsPageP
             Official Incident & Damage Register Sheet
           </h2>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-            Certified apparatus damage report, HOD escalations & repair verification audit for institutional records.
+            Certified equipment damage report, HOD escalations & repair verification audit for institutional records.
           </p>
         </div>
 
@@ -120,7 +120,7 @@ export default function PrintIncidentsPage({ searchParams }: PrintIncidentsPageP
             {INSTITUTION_CONFIG.department} • {INSTITUTION_CONFIG.location}
           </p>
           <div className="inline-block mt-3 px-4 py-1 border border-zinc-900 rounded-md font-sans text-xs font-bold uppercase tracking-wider bg-zinc-50">
-            OFFICIAL LABORATORY APPARATUS DAMAGE & SAFETY INCIDENT REGISTER
+            OFFICIAL LABORATORY EQUIPMENT DAMAGE & SAFETY INCIDENT REGISTER
           </div>
         </div>
 
@@ -157,7 +157,7 @@ export default function PrintIncidentsPage({ searchParams }: PrintIncidentsPageP
               <tr className="bg-zinc-100 border-b border-zinc-900 text-zinc-900 uppercase font-mono font-bold text-[10px]">
                 <th className="py-2.5 px-3 border-r border-zinc-300 w-24">Date & Case</th>
                 <th className="py-2.5 px-3 border-r border-zinc-300 w-24">Facility</th>
-                <th className="py-2.5 px-3 border-r border-zinc-300">Apparatus & Circumstances</th>
+                <th className="py-2.5 px-3 border-r border-zinc-300">Equipment & Circumstances</th>
                 <th className="py-2.5 px-3 border-r border-zinc-300 w-20 text-center">Severity</th>
                 <th className="py-2.5 px-3 border-r border-zinc-300 w-28">Subject Teacher</th>
                 <th className="py-2.5 px-3 border-r border-zinc-300 w-28 text-center">Status</th>
@@ -265,7 +265,7 @@ export default function PrintIncidentsPage({ searchParams }: PrintIncidentsPageP
 
         {/* Verification Footer */}
         <div suppressHydrationWarning className="text-center mt-12 pt-4 border-t border-zinc-200 text-[10px] text-zinc-400 font-mono">
-          {INSTITUTION_CONFIG.systemTitle} • Certified Apparatus Damage Register
+          {INSTITUTION_CONFIG.systemTitle} • Certified Equipment Damage Register
         </div>
       </div>
     </div>

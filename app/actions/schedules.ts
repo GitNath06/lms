@@ -9,10 +9,10 @@ type ScheduleInsert = Database['public']['Tables']['schedules']['Insert']
 type LabRow = Database['public']['Tables']['labs']['Row']
 
 const DEFAULT_LABS: LabRow[] = [
-  { id: 'comp', name: 'Computer Lab 01', type: 'computer_lab', capacity: 40, is_active: true },
-  { id: 'phys', name: 'Physics Laboratory', type: 'physics_lab', capacity: 38, is_active: true },
-  { id: 'chem', name: 'Chemistry Laboratory', type: 'chemistry_lab', capacity: 40, is_active: true },
-  { id: 'bio', name: 'Biology Laboratory', type: 'biology_lab', capacity: 35, is_active: true },
+  { id: 'comp', name: 'Computer Lab 01', type: 'computer_lab', capacity: 40, status: 'Operational', is_active: true },
+  { id: 'phys', name: 'Physics Laboratory', type: 'physics_lab', capacity: 38, status: 'Operational', is_active: true },
+  { id: 'chem', name: 'Chemistry Laboratory', type: 'chemistry_lab', capacity: 40, status: 'Operational', is_active: true },
+  { id: 'bio', name: 'Biology Laboratory', type: 'biology_lab', capacity: 35, status: 'Operational', is_active: true },
 ]
 
 const SLOT_ORDER = ['t1', 't2', 't3', 't4', 't5', 't6', 't7', 't8', 't9', 't10']
@@ -113,6 +113,26 @@ export async function createSchedule(data: {
 
   try {
     const supabase = await createClient()
+
+    // Validate target lab status server-side (blocking booking if Under Maintenance or Inactive)
+    const { data: targetLab } = await (supabase
+      .from('labs') as any)
+      .select('id, name, status, is_active')
+      .eq('id', data.lab_id)
+      .maybeSingle()
+
+    if (targetLab) {
+      if (targetLab.status === 'Under Maintenance') {
+        return {
+          error: `Booking Rejected: "${targetLab.name || data.lab_id}" is currently Under Maintenance and cannot be booked for practical sessions.`,
+        }
+      }
+      if (!targetLab.is_active || targetLab.status === 'Inactive') {
+        return {
+          error: `Booking Rejected: "${targetLab.name || data.lab_id}" is currently Inactive / Decommissioned.`,
+        }
+      }
+    }
 
     // 3-Way Multi-Period Span Conflict Detection (Room, Teacher, Batch)
     const targetRange = getSlotRange(data.slot_id, data.span || 1)

@@ -24,7 +24,6 @@ import {
   UserPlus,
   Phone,
   Mail,
-  Building,
   Calendar,
   X,
   ChevronRight,
@@ -86,7 +85,6 @@ export default function UserAccessManager({
   const [newPhone, setNewPhone] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [newRole, setNewRole] = useState<UserRole>('teacher')
-  const [newDept, setNewDept] = useState('Science Department')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   // Edit Credentials Form State
@@ -95,7 +93,6 @@ export default function UserAccessManager({
   const [editPhone, setEditPhone] = useState('')
   const [editPassword, setEditPassword] = useState('')
   const [editRole, setEditRole] = useState<UserRole>('teacher')
-  const [editDept, setEditDept] = useState('')
 
   // Permissions Form State
   const [activePerms, setActivePerms] = useState<UserPermissions>({})
@@ -162,7 +159,6 @@ export default function UserAccessManager({
         phone: newPhone.trim() || undefined,
         password: newPassword,
         role: newRole,
-        department: newDept.trim(),
       })
 
       if (res.success) {
@@ -194,7 +190,6 @@ export default function UserAccessManager({
         phone: editPhone.trim() || undefined,
         new_password: editPassword.trim() || undefined,
         role: editRole,
-        department: editDept.trim(),
       })
 
       if (res.success) {
@@ -209,7 +204,6 @@ export default function UserAccessManager({
                   email: editEmail.trim(),
                   phone: editPhone.trim() || null,
                   role: editRole,
-                  department: editDept.trim(),
                 }
               : null
           )
@@ -342,7 +336,7 @@ export default function UserAccessManager({
             <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
             <Input
               type="text"
-              placeholder="Search by name, email, phone, or department..."
+              placeholder="Search by name, email, phone, or role..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-9 h-9 text-xs bg-zinc-50 dark:bg-zinc-950 font-sans"
@@ -451,7 +445,6 @@ export default function UserAccessManager({
                   <th className="py-3 px-4">Staff Member & Email</th>
                   <th className="py-3 px-4">Contact Phone</th>
                   <th className="py-3 px-4">Institutional Role</th>
-                  <th className="py-3 px-4">Department</th>
                   <th className="py-3 px-4">Access Status</th>
                   <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
@@ -537,11 +530,6 @@ export default function UserAccessManager({
                         </span>
                       </td>
 
-                      {/* Department */}
-                      <td className="py-3 px-4 text-zinc-700 dark:text-zinc-300 font-medium">
-                        <span>{u.department || 'Science Department'}</span>
-                      </td>
-
                       {/* Access Status */}
                       <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
                         {u.approval_status === 'pending' ? (
@@ -622,7 +610,6 @@ export default function UserAccessManager({
                                   setEditEmail(u.email || '')
                                   setEditPhone(u.phone || '')
                                   setEditRole(u.role)
-                                  setEditDept(u.department || '')
                                   setEditPassword('')
                                 }}
                                 className="h-7 px-2.5 text-xs gap-1 cursor-pointer font-medium"
@@ -738,16 +725,6 @@ export default function UserAccessManager({
 
                   <div className="flex items-center justify-between">
                     <span className="text-zinc-500 flex items-center gap-1.5">
-                      <Building className="h-3.5 w-3.5 text-zinc-400" />
-                      Department
-                    </span>
-                    <strong className="text-zinc-900 dark:text-zinc-100">
-                      {selectedDrawerUser.department || 'Science Department'}
-                    </strong>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <span className="text-zinc-500 flex items-center gap-1.5">
                       <Calendar className="h-3.5 w-3.5 text-zinc-400" />
                       Account Status
                     </span>
@@ -793,7 +770,7 @@ export default function UserAccessManager({
                     can_create_logs: 'Create & Endorse Practical Logs',
                     can_delete_logs: 'Delete Certified Logs',
                     can_view_incidents: 'View Incident & Damage Registry',
-                    can_report_incidents: 'Report Incident & Apparatus Breakage',
+                    can_report_incidents: 'Report Incident & Equipment Damage',
                     can_manage_incidents: 'Manage Repairs & Resolutions',
                     can_manage_schedules: 'Edit Master Timetable Schedules',
                     can_manage_maintenance: 'Manage Lab Maintenance & PC Servicing',
@@ -836,7 +813,6 @@ export default function UserAccessManager({
                   setEditPhone(selectedDrawerUser.phone || '')
                   setEditPassword('')
                   setEditRole(selectedDrawerUser.role)
-                  setEditDept(selectedDrawerUser.department || '')
                 }}
                 className="text-xs font-semibold"
               >
@@ -922,34 +898,20 @@ export default function UserAccessManager({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="font-bold text-zinc-700 dark:text-zinc-300">
-                    Role Binding *
-                  </label>
-                  <Select
-                    value={newRole}
-                    onChange={(e) => setNewRole(e.target.value as UserRole)}
-                    className="h-8.5 text-xs font-sans"
-                  >
-                    <option value="teacher">Teacher</option>
-                    <option value="lab_incharge">Lab Incharge</option>
-                    <option value="hod">HOD</option>
-                    <option value="super_admin">Super Admin</option>
-                  </Select>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="font-bold text-zinc-700 dark:text-zinc-300">
-                    Department
-                  </label>
-                  <Input
-                    placeholder="e.g. Physics Department"
-                    value={newDept}
-                    onChange={(e) => setNewDept(e.target.value)}
-                    className="h-8.5 text-xs font-sans"
-                  />
-                </div>
+              <div className="space-y-1">
+                <label className="font-bold text-zinc-700 dark:text-zinc-300">
+                  Role Binding *
+                </label>
+                <Select
+                  value={newRole}
+                  onChange={(e) => setNewRole(e.target.value as UserRole)}
+                  className="h-8.5 text-xs font-sans"
+                >
+                  <option value="teacher">Teacher</option>
+                  <option value="lab_incharge">Lab Incharge</option>
+                  <option value="hod">HOD</option>
+                  <option value="super_admin">Super Admin</option>
+                </Select>
               </div>
 
               <div className="space-y-1">
@@ -1051,33 +1013,20 @@ export default function UserAccessManager({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="font-bold text-zinc-700 dark:text-zinc-300">
-                    Role
-                  </label>
-                  <Select
-                    value={editRole}
-                    onChange={(e) => setEditRole(e.target.value as UserRole)}
-                    className="h-8.5 text-xs font-sans"
-                  >
-                    <option value="teacher">Teacher</option>
-                    <option value="lab_incharge">Lab Incharge</option>
-                    <option value="hod">HOD</option>
-                    <option value="super_admin">Super Admin</option>
-                  </Select>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="font-bold text-zinc-700 dark:text-zinc-300">
-                    Department
-                  </label>
-                  <Input
-                    value={editDept}
-                    onChange={(e) => setEditDept(e.target.value)}
-                    className="h-8.5 text-xs font-sans"
-                  />
-                </div>
+              <div className="space-y-1">
+                <label className="font-bold text-zinc-700 dark:text-zinc-300">
+                  Role
+                </label>
+                <Select
+                  value={editRole}
+                  onChange={(e) => setEditRole(e.target.value as UserRole)}
+                  className="h-8.5 text-xs font-sans"
+                >
+                  <option value="teacher">Teacher</option>
+                  <option value="lab_incharge">Lab Incharge</option>
+                  <option value="hod">HOD</option>
+                  <option value="super_admin">Super Admin</option>
+                </Select>
               </div>
 
               <div className="space-y-1">
@@ -1147,7 +1096,7 @@ export default function UserAccessManager({
                   { key: 'can_view_logs', label: 'View Practical Logs Register', desc: 'Can inspect historical practical sessions & attendance' },
                   { key: 'can_create_logs', label: 'Create & Submit Practical Logs', desc: 'Can record student attendance & practical experiments' },
                   { key: 'can_delete_logs', label: 'Delete Practical Logs', desc: 'Can remove practical log entries' },
-                  { key: 'can_view_incidents', label: 'View Incident and Damage Logs', desc: 'Can inspect apparatus breakages across laboratories' },
+                  { key: 'can_view_incidents', label: 'View Incident and Damage Logs', desc: 'Can inspect equipment breakages across laboratories' },
                   { key: 'can_report_incidents', label: 'Report Damage & Incidents', desc: 'Can file new breakage cases and trigger broadcasts' },
                   { key: 'can_manage_incidents', label: 'Manage Repairs & Statuses', desc: 'Can mark cases Under Repair, Replaced, or Resolved' },
                   { key: 'can_resolve_incidents', label: 'Resolve & Close Incidents', desc: 'Can sign off on final incident resolutions' },

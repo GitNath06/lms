@@ -53,6 +53,7 @@ export interface Database {
           name: string
           type: 'computer_lab' | 'physics_lab' | 'chemistry_lab' | 'biology_lab' | 'electronics_lab'
           capacity: number
+          status: 'Operational' | 'Under Maintenance' | 'Inactive'
           is_active: boolean
           created_at?: string
         }
@@ -61,6 +62,7 @@ export interface Database {
           name: string
           type: 'computer_lab' | 'physics_lab' | 'chemistry_lab' | 'biology_lab' | 'electronics_lab'
           capacity?: number
+          status?: 'Operational' | 'Under Maintenance' | 'Inactive'
           is_active?: boolean
           created_at?: string
         }
@@ -69,6 +71,7 @@ export interface Database {
           name?: string
           type?: 'computer_lab' | 'physics_lab' | 'chemistry_lab' | 'biology_lab' | 'electronics_lab'
           capacity?: number
+          status?: 'Operational' | 'Under Maintenance' | 'Inactive'
           is_active?: boolean
           created_at?: string
         }
@@ -220,6 +223,12 @@ export interface Database {
           resolved_at: string | null
           reported_by: string
           reported_by_id: string | null
+          circumstances: string | null
+          photo_url: string | null
+          is_fined: boolean
+          fine_amount: number | null
+          fine_paid: boolean
+          fine_receipt_no: string | null
           created_at: string
         }
         Insert: {
@@ -247,6 +256,12 @@ export interface Database {
           resolved_at?: string | null
           reported_by?: string
           reported_by_id?: string | null
+          circumstances?: string | null
+          photo_url?: string | null
+          is_fined?: boolean
+          fine_amount?: number
+          fine_paid?: boolean
+          fine_receipt_no?: string | null
           created_at?: string
         }
         Update: {
@@ -274,6 +289,12 @@ export interface Database {
           resolved_at?: string | null
           reported_by?: string
           reported_by_id?: string | null
+          circumstances?: string | null
+          photo_url?: string | null
+          is_fined?: boolean
+          fine_amount?: number
+          fine_paid?: boolean
+          fine_receipt_no?: string | null
           created_at?: string
         }
       }

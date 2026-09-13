@@ -236,7 +236,7 @@ export default function IncidentDetailDrawer({
                     <span>Status: {incident.status === 'under_repair' ? 'Under Repair' : 'Replaced'}</span>
                   </div>
                   <p className="text-[11px] text-zinc-500 mt-0.5">
-                    Apparatus triage in progress by laboratory technical team.
+                    Equipment triage in progress by laboratory technical team.
                   </p>
                 </div>
               )}
@@ -281,9 +281,11 @@ export default function IncidentDetailDrawer({
             </div>
 
             <div className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200 dark:border-zinc-800">
-              <span className="text-[10px] font-mono text-zinc-400 uppercase">Apparatus & Qty</span>
+              <span className="text-[10px] font-mono text-zinc-400 uppercase">Equipment & Quantity</span>
               <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100 mt-0.5 truncate">
-                {incident.equipment_name} (x{incident.quantity})
+                {incident.equipment_name
+                  ? incident.equipment_name.replace(/Apparatus\s*\/\s*Station\s*Equipment/gi, 'Lab Equipment / Workstation').replace(/Apparatus/gi, 'Equipment')
+                  : 'Lab Equipment'} (x{incident.quantity})
               </div>
             </div>
 
@@ -322,7 +324,7 @@ export default function IncidentDetailDrawer({
                 <textarea
                   value={resolutionNotes}
                   onChange={(e) => setResolutionNotes(e.target.value)}
-                  placeholder="Record actions taken, e.g. repaired apparatus, replaced from buffer store, or sent for vendor calibration..."
+                  placeholder="Record actions taken, e.g. repaired equipment, replaced from buffer store, or sent for vendor calibration..."
                   className="w-full h-20 p-2.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs font-sans text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 resize-none"
                 />
               </div>

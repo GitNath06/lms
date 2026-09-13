@@ -63,7 +63,7 @@ const DEMO_ACCOUNTS = [
     password: 'Incharge@12345',
     icon: '🔬',
     accentColor: 'border-indigo-500/50 text-indigo-600 dark:text-indigo-400 bg-indigo-500/10 hover:bg-indigo-500/20',
-    desc: 'Apparatus inventory, repairs & laboratory oversight',
+    desc: 'Equipment inventory, repairs & laboratory oversight',
   },
   {
     roleLabel: 'HOD',

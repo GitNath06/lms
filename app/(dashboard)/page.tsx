@@ -8,6 +8,8 @@ import {
   Users,
   Sparkles,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   CheckCircle2,
   AlertCircle,
   Timer,
@@ -27,6 +29,8 @@ import {
   User,
   Building2,
   GraduationCap,
+  ShieldCheck,
+  Wrench,
 } from 'lucide-react'
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -41,34 +45,17 @@ import { useRoutineState } from '@/hooks/use-routine-state'
 import { useLogsState, PracticalLogRecord } from '@/hooks/use-logs-state'
 import { useInfrastructureState } from '@/hooks/use-infrastructure-state'
 import { useUserScope } from '@/hooks/use-user-scope'
-import SyllabusProgress from '@/components/dashboard/syllabus-progress'
 import IncidentRegistryCard from '@/components/dashboard/incident-registry-card'
 import LiveSessionCockpit from '@/components/dashboard/live-session-cockpit'
 import FacilityTelemetryCard from '@/components/dashboard/facility-telemetry-card'
 import { useIncidentState } from '@/hooks/use-incident-state'
 import { getMaintenanceHealthSummary } from '@/app/actions/maintenance'
 import DashboardLoading from './loading'
+import { TodaysActivityCard, QuickOperationsCard } from '@/components/dashboard/executive-kpi-summary'
 import { SlidingSegmentedTabs, SegmentedTab } from '@/components/ui/sliding-segmented-tabs'
 
-function getLabRibbon(labName?: string) {
-  if (!labName) return 'border-l-[3px] border-l-zinc-300 dark:border-l-zinc-700'
-  const lower = labName.toLowerCase()
-  if (lower.includes('comp') || lower.includes('software') || lower.includes('tech')) {
-    return 'border-l-[3px] border-l-indigo-500'
-  }
-  if (lower.includes('phys')) {
-    return 'border-l-[3px] border-l-cyan-500'
-  }
-  if (lower.includes('chem')) {
-    return 'border-l-[3px] border-l-rose-500'
-  }
-  if (lower.includes('bio') || lower.includes('life')) {
-    return 'border-l-[3px] border-l-emerald-500'
-  }
-  if (lower.includes('elec') || lower.includes('hardw')) {
-    return 'border-l-[3px] border-l-amber-500'
-  }
-  return 'border-l-[3px] border-l-zinc-300 dark:border-l-zinc-700'
+function getLabRibbon(_labName?: string) {
+  return 'border-l-[3px] border-l-transparent'
 }
 
 const SessionActionModal = dynamic(() => import('@/components/schedules/session-action-modal'), {
@@ -100,6 +87,7 @@ export default function DashboardPage() {
 
   const {
     mounted,
+    now,
     timeString,
     nepaliDate,
     activeSlotId,
@@ -122,6 +110,8 @@ export default function DashboardPage() {
   // Segmented Tab and Lab Filter State
   const [activeTab, setActiveTab] = useState<'upcoming' | 'backlog' | 'completed' | 'all'>('upcoming')
   const [labFilter, setLabFilter] = useState<'all' | 'comp' | 'phys' | 'chem'>('all')
+  const [showAllUpcoming, setShowAllUpcoming] = useState(false)
+  const MAX_UPCOMING_DEFAULT = 4
 
   // Lab Health & Dynamic Overdue Maintenance Integration
   const { incidents } = useIncidentState()
@@ -136,11 +126,11 @@ export default function DashboardPage() {
       .catch((err) => console.error('Failed to load maintenance health summary:', err))
   }, [])
 
-  const todayDateStr = getNepalDateStr(new Date())
+  const todayDateStr = getNepalDateStr(now)
   const { getHolidayForDate } = useInfrastructureState()
   const todayHoliday = getHolidayForDate(todayDateStr)
   const currentSlotIdx = MASTER_TIME_SLOTS.findIndex((s) => s.id === activeSlotId)
-  const currentMinutes = new Date().getHours() * 60 + new Date().getMinutes()
+  const currentMinutes = now.getHours() * 60 + now.getMinutes()
   const isBeforeSchool = currentMinutes < 9 * 60 + 15
   const isAfterSchool = currentMinutes >= 16 * 60 + 50
 
@@ -280,11 +270,20 @@ export default function DashboardPage() {
   // Hydration-guarded dynamic time-of-day greeting (client-only computation)
   const [greeting, setGreeting] = useState('Welcome to Lab Operations')
   useEffect(() => {
-    const hr = new Date().getHours()
+    const hr = now.getHours()
     if (hr < 12) setGreeting('Good morning')
     else if (hr < 17) setGreeting('Good afternoon')
     else setGreeting('Good evening')
-  }, [])
+  }, [now])
+
+  const displayName = profile?.full_name || userScope?.fullName || 'Admin'
+  const roleBadgeLabel = profile?.role === 'super_admin'
+    ? 'Super Admin'
+    : profile?.role === 'lab_incharge'
+    ? 'Lab In-Charge'
+    : profile?.role === 'hod'
+    ? 'Head of Department'
+    : 'Subject Teacher'
 
   // Hydration guard: render stable identical skeleton during SSR and pre-hydration
   if (!mounted) {
@@ -292,7 +291,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="space-y-5 w-full animate-in fade-in duration-300 relative select-none overflow-x-clip">
+    <div className="space-y-3.5 sm:space-y-4 w-full animate-in fade-in duration-300 relative select-none overflow-x-clip">
       {/* Toast Feedback */}
       {toastMessage && (
         <div className="fixed top-20 right-8 z-50 bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 px-4 py-2.5 rounded-xl shadow-2xl text-xs font-medium animate-in slide-in-from-top-2 duration-200 flex items-center gap-2 border border-zinc-700 dark:border-zinc-300">
@@ -305,267 +304,69 @@ export default function DashboardPage() {
       {todayHoliday && (
         <div
           onClick={() => setIsCalendarModalOpen(true)}
-          className="p-4 px-5 rounded-2xl bg-gradient-to-r from-amber-500/15 via-amber-500/10 to-amber-500/5 border border-amber-500/30 text-amber-950 dark:text-amber-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs animate-in fade-in duration-300 cursor-pointer hover:border-amber-500/50 transition-all group"
+          className="p-3.5 px-4 sm:px-5 rounded-2xl glass-card border border-zinc-200/80 dark:border-white/[0.08] text-zinc-900 dark:text-zinc-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs animate-in fade-in duration-300 cursor-pointer hover:border-zinc-300 dark:hover:border-white/15 transition-all group"
           title="Click to view Academic Calendar & Official National Holidays"
         >
           <div className="flex items-center gap-3.5">
-            <div className="h-10 w-10 rounded-2xl bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition-transform">
-              <Palmtree className="h-5 w-5" />
+            <div className="h-9 w-9 rounded-xl bg-zinc-100 dark:bg-surface-2 text-zinc-600 dark:text-slate-300 border border-zinc-200/60 dark:border-white/[0.06] flex items-center justify-center shrink-0 shadow-xs">
+              <Palmtree className="h-4.5 w-4.5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-xs font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400 font-mono">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-slate-400 font-sans">
                   Official Institutional Recess
                 </span>
-                <span className="text-xs font-mono font-bold bg-amber-500/20 text-amber-900 dark:text-amber-200 px-2 py-0.5 rounded-full border border-amber-500/30">
+                <span className="text-[11px] font-mono font-medium bg-zinc-100 dark:bg-slate-800 border border-zinc-200 dark:border-slate-700/60 text-zinc-700 dark:text-slate-300 px-2 py-0.5 rounded-md">
                   {todayHoliday.startDateNp} {todayHoliday.endDateNp ? `to ${todayHoliday.endDateNp}` : ''}
                 </span>
               </div>
               <h3 className="text-sm font-bold text-zinc-950 dark:text-white mt-0.5 font-heading">
                 {todayHoliday.name}
               </h3>
-              <p className="text-xs text-zinc-600 dark:text-zinc-300 mt-0.5">
+              <p className="text-xs text-zinc-500 dark:text-slate-400 mt-0.5 font-sans">
                 All laboratory practical sessions are automatically suspended today (No logs created). Click to view full calendar.
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2 self-start sm:self-center">
-            <span className="px-3 py-1 rounded-xl bg-amber-500/20 text-amber-900 dark:text-amber-200 border border-amber-500/30 text-xs font-bold font-mono shrink-0">
+            <span className="px-2.5 py-0.5 rounded-lg bg-zinc-100 dark:bg-surface-2 text-zinc-700 dark:text-slate-300 border border-zinc-200 dark:border-white/[0.08] text-xs font-semibold font-sans shrink-0">
               Recess Active
             </span>
-            <span className="text-xs font-mono font-bold text-amber-600 dark:text-amber-400 underline underline-offset-2">
-              View Calendar ➔
+            <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1">
+              <span>View Calendar</span>
+              <ArrowUpRight className="h-3 w-3" />
             </span>
           </div>
         </div>
       )}
 
-      {/* 1. TOP EXECUTIVE KPI CARDS (ULTRA-MODERN GLASS-GLOW COMMAND TILES) */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {/* Tile 1: Today's Practical Timetable */}
-        <div className="glass-glow-card hover-card-lift relative overflow-hidden rounded-2xl p-4 shadow-sm group">
-          <div className="absolute -top-10 -right-10 h-24 w-24 rounded-full bg-indigo-500/10 dark:bg-indigo-500/15 blur-2xl group-hover:bg-indigo-500/20 transition-all pointer-events-none" />
-
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center border border-indigo-200/60 dark:border-indigo-800/50 shadow-2xs">
-                <BookOpen className="h-4 w-4" />
-              </div>
-              <span className="font-mono text-[10px] text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
-                Today's Schedule
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setIsCalendarModalOpen(true)}
-              className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/50 font-semibold hover:bg-indigo-100 dark:hover:bg-indigo-900 transition-colors cursor-pointer"
-              title="Click to view Academic & National Holidays Calendar"
-            >
-              2083 Routine ▾
-            </button>
-          </div>
-
-          <div className="mt-3 mb-2 flex items-baseline justify-between" suppressHydrationWarning>
-            <div className="flex items-baseline gap-1.5" suppressHydrationWarning>
-              <span suppressHydrationWarning className="text-3xl font-extrabold font-heading tracking-tight text-zinc-950 dark:text-white tabular-nums">
-                {effectiveSessions.length}
-              </span>
-              <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                Practical Slots
-              </span>
-            </div>
-            <span suppressHydrationWarning className="text-xs font-mono font-bold text-zinc-700 dark:text-zinc-300">
-              {ongoingSessions.length > 0 ? (
-                <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1 text-[11px]">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-ping" />
-                  {ongoingSessions.length} In-Session
-                </span>
-              ) : (
-                <span className="text-zinc-400 text-[11px]">Scheduled</span>
-              )}
-            </span>
-          </div>
-
-          {/* Session Distribution Footer */}
-          <div className="pt-2 border-t border-zinc-100 dark:border-white/[0.08] flex items-center justify-between text-[11px] font-mono text-zinc-500 dark:text-zinc-400">
-            <span className="flex items-center gap-1">
-              <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
-              {nepaliDate.dayNameNp}
-            </span>
-            <span>{nepaliDate.dayName} Timetable</span>
-          </div>
-        </div>
-
-        {/* Tile 2: Operational Session Compliance */}
-        <div className="glass-glow-card hover-card-lift relative overflow-hidden rounded-2xl p-4 shadow-sm group">
-          <div className="absolute -top-10 -right-10 h-24 w-24 rounded-full bg-emerald-500/10 dark:bg-emerald-500/15 blur-2xl group-hover:bg-emerald-500/20 transition-all pointer-events-none" />
-
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-200/60 dark:border-emerald-800/50 shadow-2xs">
-                <FileCheck className="h-4 w-4" />
-              </div>
-              <span className="font-mono text-[10px] text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
-                Session Compliance
-              </span>
-            </div>
-            <span suppressHydrationWarning className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/50 font-bold tabular-nums">
-              {compliancePct}% Done
-            </span>
-          </div>
-
-          <div className="mt-3 mb-2 flex items-baseline justify-between" suppressHydrationWarning>
-            <div className="flex items-baseline gap-1.5" suppressHydrationWarning>
-              <span suppressHydrationWarning className="text-3xl font-extrabold font-heading tracking-tight text-emerald-600 dark:text-emerald-400 tabular-nums">
-                {loggedCount}
-              </span>
-              <span suppressHydrationWarning className="text-xs font-mono text-zinc-400">
-                / {totalSlotsCount} Logged
-              </span>
-            </div>
-            {passedUnloggedSessions.length > 0 ? (
-              <span suppressHydrationWarning className="text-[11px] font-mono text-amber-600 dark:text-amber-400 font-semibold">
-                {passedUnloggedSessions.length} Pending
-              </span>
-            ) : (
-              <span suppressHydrationWarning className="text-[11px] font-mono text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5 font-semibold">
-                <CheckCircle2 className="h-3 w-3" /> Up to date
-              </span>
-            )}
-          </div>
-
-          {/* Micro Progress Track */}
-          <div className="h-1.5 w-full bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden mt-1.5 mb-2">
-            <div
-              className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500"
-              style={{ width: `${compliancePct}%` }}
-            />
-          </div>
-
-          <div className="border-t border-zinc-100 dark:border-white/[0.08] pt-1.5 flex items-center justify-between text-[11px] font-mono text-zinc-500 dark:text-zinc-400">
-            <span>Status:</span>
-            <span className="font-semibold text-zinc-700 dark:text-zinc-300">
-              {passedUnloggedSessions.length === 0 ? 'Verified Complete' : `${passedUnloggedSessions.length} Pending Action`}
-            </span>
-          </div>
-        </div>
-
-        {/* Tile 3: Student Attendance Rate (Reclaimed from redundant BS picker) */}
-        <div className="glass-glow-card hover-card-lift relative overflow-hidden rounded-2xl p-4 shadow-sm group">
-          <div className="absolute -top-10 -right-10 h-24 w-24 rounded-full bg-indigo-500/10 dark:bg-indigo-500/15 blur-2xl group-hover:bg-indigo-500/20 transition-all pointer-events-none" />
-
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center border border-indigo-200/60 dark:border-indigo-800/50 shadow-2xs">
-                <Users className="h-4 w-4" />
-              </div>
-              <span className="font-mono text-[10px] text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
-                Attendance Rate
-              </span>
-            </div>
-            <span suppressHydrationWarning className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/50 font-bold tabular-nums">
-              {totalPresentToday > 0 ? 'Verified Roll' : 'Expected'}
-            </span>
-          </div>
-
-          <div className="mt-3 mb-2 flex items-baseline justify-between" suppressHydrationWarning>
-            <div className="flex items-baseline gap-1.5" suppressHydrationWarning>
-              <span suppressHydrationWarning className="text-3xl font-extrabold font-heading tracking-tight text-indigo-600 dark:text-indigo-400 tabular-nums">
-                {attendanceRate}%
-              </span>
-              <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                Avg Present
-              </span>
-            </div>
-            <span suppressHydrationWarning className="text-xs font-mono font-semibold text-zinc-600 dark:text-zinc-400">
-              {totalPresentToday > 0 ? `${totalPresentToday}/${totalEnrolledToday}` : 'Class 11/12'}
-            </span>
-          </div>
-
-          {/* Micro Attendance Track */}
-          <div className="h-1.5 w-full bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden mt-1.5 mb-2">
-            <div
-              className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-500"
-              style={{ width: `${Math.min(100, attendanceRate)}%` }}
-            />
-          </div>
-
-          <div className="border-t border-zinc-100 dark:border-white/[0.08] pt-1.5 flex items-center justify-between text-[11px] font-mono text-zinc-500 dark:text-zinc-400">
-            <span>Roll-call Tally:</span>
-            <span className="font-semibold text-zinc-700 dark:text-zinc-300">
-              {totalPresentToday > 0 ? `${totalPresentToday} Students Logged` : 'Awaiting Session Roll'}
-            </span>
-          </div>
-        </div>
-
-        {/* Tile 4: Lab Health & Maintenance (Reclaimed from redundant clock, dynamically combining breakages + overdue routines) */}
-        <div className="glass-glow-card hover-card-lift relative overflow-hidden rounded-2xl p-4 shadow-sm group">
-          <div className="absolute -top-10 -right-10 h-24 w-24 rounded-full bg-rose-500/10 dark:bg-rose-500/15 blur-2xl group-hover:bg-rose-500/20 transition-all pointer-events-none" />
-
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className={`h-8 w-8 rounded-xl flex items-center justify-center border shadow-2xs ${
-                totalHealthIssues > 0
-                  ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 border-rose-200/60 dark:border-rose-800/50'
-                  : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border-emerald-200/60 dark:border-emerald-800/50'
-              }`}>
-                {totalHealthIssues > 0 ? <AlertTriangle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
-              </div>
-              <span className="font-mono text-[10px] text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
-                Lab Health & Servicing
-              </span>
-            </div>
-            <span suppressHydrationWarning className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-bold border ${
-              totalHealthIssues > 0
-                ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200/60 dark:border-rose-800/50'
-                : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200/60 dark:border-emerald-800/50'
-            }`}>
-              {totalHealthIssues > 0 ? `${totalHealthIssues} Flagged` : 'All Clear'}
-            </span>
-          </div>
-
-          <div className="mt-3 mb-2 flex items-baseline justify-between" suppressHydrationWarning>
-            <div className="flex items-baseline gap-1.5" suppressHydrationWarning>
-              <span suppressHydrationWarning className={`text-3xl font-extrabold font-heading tracking-tight tabular-nums ${
-                totalHealthIssues > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'
-              }`}>
-                {totalHealthIssues}
-              </span>
-              <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                {totalHealthIssues > 0 ? 'Open Issues' : 'Optimal Health'}
-              </span>
-            </div>
-            <span suppressHydrationWarning className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400 font-semibold">
-              {activeIncidents.length} Fault{activeIncidents.length === 1 ? '' : 's'}
-            </span>
-          </div>
-
-          {/* Micro Health Track */}
-          <div className="h-1.5 w-full bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden mt-1.5 mb-2">
-            <div
-              className={`h-full rounded-full transition-all duration-500 ${
-                totalHealthIssues > 0
-                  ? 'bg-gradient-to-r from-rose-500 to-amber-500'
-                  : 'bg-gradient-to-r from-emerald-500 to-teal-400'
-              }`}
-              style={{ width: totalHealthIssues > 0 ? `${Math.min(100, totalHealthIssues * 25)}%` : '100%' }}
-            />
-          </div>
-
-          <div className="border-t border-zinc-100 dark:border-white/[0.08] pt-1.5 flex items-center justify-between text-[11px] font-mono text-zinc-500 dark:text-zinc-400">
-            <span>Servicing Status:</span>
-            <span className="font-semibold text-zinc-700 dark:text-zinc-300">
-              {overdueServicing > 0 ? `${overdueServicing} Overdue Task${overdueServicing === 1 ? '' : 's'}` : 'Routines Up to Date'}
-            </span>
-          </div>
-        </div>
+      {/* 🌟 1. EXECUTIVE WELCOME MESSAGE (CRISP NEUTRAL OFF-WHITE - NO GRADIENT) */}
+      <div className="pt-1 pb-0.5">
+        <h1 className="text-[28px] sm:text-[34px] md:text-[38px] lg:text-[40px] leading-tight font-extrabold font-heading tracking-[-0.025em] text-zinc-950 dark:text-slate-100">
+          {greeting}, <span className="text-zinc-800 dark:text-slate-300 font-bold">{displayName}</span>
+        </h1>
       </div>
 
-      {/* 2. MAIN COMMAND CENTER (2-COLUMN ARCHITECTURE) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+      {/* 2. MAIN COMMAND CENTER (UNIFIED 2-COLUMN FLOW) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3.5 sm:gap-4 items-start">
         {/* LEFT COLUMN (65% / 8 Cols): Operational Station & Session Matrix */}
-        <div className="lg:col-span-8 space-y-5">
-          {/* A. Live Session Cockpit (Hydration-Safe Two-State Dispatch Station) */}
+        <div className="lg:col-span-8 space-y-3.5 sm:space-y-4">
+          {/* A. Today's Activity KPI Summary */}
+          <TodaysActivityCard
+            effectiveSlotsCount={effectiveSessions.length}
+            loggedCount={loggedCount}
+            totalSlotsCount={totalSlotsCount}
+            attendanceRate={attendanceRate}
+            totalPresentToday={totalPresentToday}
+            totalEnrolledToday={totalEnrolledToday}
+            passedUnloggedCount={passedUnloggedSessions.length}
+            dayName={nepaliDate.dayName}
+            dayNameNp={nepaliDate.dayNameNp}
+            isHoliday={!!todayHoliday}
+            holidayName={todayHoliday?.name}
+          />
+
+          {/* B. Live Session Cockpit (Hydration-Safe Two-State Dispatch Station) */}
           <LiveSessionCockpit
             ongoingSessions={ongoingSessions}
             upcomingSessions={upcomingSessions}
@@ -594,8 +395,8 @@ export default function DashboardPage() {
                 tabs={[
                   {
                     id: 'upcoming',
-                    label: 'Live & Upcoming',
-                    badge: upcomingSessions.length + ongoingSessions.length,
+                    label: 'Upcoming',
+                    badge: upcomingSessions.length,
                   },
                   {
                     id: 'backlog',
@@ -616,7 +417,10 @@ export default function DashboardPage() {
                   },
                 ]}
                 activeTab={activeTab}
-                onChange={(id) => setActiveTab(id)}
+                onChange={(id) => {
+                  setActiveTab(id)
+                  setShowAllUpcoming(false)
+                }}
               />
 
               {/* Lab Filter Selector */}
@@ -624,7 +428,10 @@ export default function DashboardPage() {
                 <Filter className="h-3 w-3 text-zinc-400" />
                 <select
                   value={labFilter}
-                  onChange={(e) => setLabFilter(e.target.value as any)}
+                  onChange={(e) => {
+                    setLabFilter(e.target.value as any)
+                    setShowAllUpcoming(false)
+                  }}
                   className="bg-transparent text-xs font-mono font-medium text-zinc-800 dark:text-zinc-200 border-none focus:outline-none cursor-pointer"
                 >
                   <option value="all">All Labs</option>
@@ -637,190 +444,223 @@ export default function DashboardPage() {
 
             {/* Tab Contents */}
             <CardContent className="p-0">
-              {/* 1. UPCOMING / LIVE TAB */}
-              {activeTab === 'upcoming' && (
-                <div className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
-                  {upcomingSessions.filter(filterByLab).length === 0 && ongoingSessions.filter(filterByLab).length === 0 ? (
-                    <div className="py-12 text-center text-zinc-400 font-mono text-xs space-y-1">
-                      <Clock className="h-5 w-5 mx-auto text-zinc-300 dark:text-zinc-600 mb-1" />
-                      <p className="font-semibold text-zinc-700 dark:text-zinc-300">
-                        No upcoming sessions remaining for today.
+              {/* 1. UPCOMING TAB (DEDICATED QUEUE - ACTIVE SESSIONS ARE IN COCKPIT ABOVE) */}
+              {activeTab === 'upcoming' && (() => {
+                const filteredUpcoming = upcomingSessions.filter(filterByLab)
+                const visibleUpcoming = showAllUpcoming ? filteredUpcoming : filteredUpcoming.slice(0, MAX_UPCOMING_DEFAULT)
+                const remainingUpcoming = filteredUpcoming.length - visibleUpcoming.length
+
+                if (filteredUpcoming.length === 0) {
+                  return (
+                    <div className="py-12 text-center text-zinc-400 font-sans text-xs space-y-1">
+                      <Clock className="h-5 w-5 mx-auto text-zinc-400 dark:text-zinc-500 mb-1" />
+                      <p className="font-semibold text-zinc-800 dark:text-zinc-200 text-sm">
+                        No upcoming practical sessions remaining for today.
                       </p>
-                      <p className="text-[11px]">Check the Pending tab to review unlogged past sessions.</p>
+                      <p className="text-xs text-zinc-500 dark:text-slate-400">
+                        {ongoingSessions.length > 0
+                          ? 'Current session is actively running in the cockpit above.'
+                          : 'Check the Pending tab to review unlogged past sessions.'}
+                      </p>
                     </div>
-                  ) : (
-                    <>
-                      {ongoingSessions.filter(filterByLab).map((s) => (
-                        <div
-                          key={s.id}
-                          className={`p-3.5 px-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 font-mono bg-emerald-50/20 dark:bg-emerald-950/10 hover:bg-emerald-50/40 dark:hover:bg-emerald-950/20 transition-all duration-150 ease-out hover:-translate-y-0.5 motion-reduce:hover:translate-y-0 hover:shadow-xs ${getLabRibbon(s.lab)}`}
-                        >
-                          <div className="space-y-0.5">
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
-                                LIVE NOW
-                              </span>
-                              <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
-                                {s.timeSlot}
-                              </span>
-                              <span className="text-[10px] px-1.5 py-0.2 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700">
-                                {s.grade}
-                              </span>
-                              <span className="text-[10px] text-zinc-400">{s.lab}</span>
-                            </div>
-                            <h4 className="text-xs font-bold text-zinc-950 dark:text-white font-sans">
-                              {s.subjectCode} — {s.subjectTitle}
-                            </h4>
-                            <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                              Subject Teacher: <strong>{s.teacher}</strong> • Strength: {s.defaultStudents}
-                            </p>
+                  )
+                }
+
+                return (
+                  <div className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
+                    {/* Upcoming Sessions (Capped at 4 by default) */}
+                    {visibleUpcoming.map((s) => (
+                      <div
+                        key={s.id}
+                        className={`py-2.5 sm:py-3 px-4 sm:px-5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4 font-sans hover:bg-zinc-50/70 dark:hover:bg-surface-2/60 transition-all duration-150 ease-out hover:-translate-y-0.5 motion-reduce:hover:translate-y-0 hover:shadow-xs ${getLabRibbon(s.lab)}`}
+                      >
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                            <span className="text-xs sm:text-[13px] font-bold font-mono text-zinc-800 dark:text-zinc-200 tabular-nums shrink-0">
+                              {s.timeSlot}
+                            </span>
+                            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-surface-2 text-zinc-700 dark:text-zinc-300 border border-zinc-200/80 dark:border-white/[0.08] font-sans shrink-0">
+                              {s.grade}
+                            </span>
+                            <span className="text-[11px] font-medium text-zinc-500 dark:text-slate-400 font-sans shrink-0">
+                              {s.lab}
+                            </span>
                           </div>
 
-                          <div className="flex items-center gap-2 shrink-0">
-                            {canManageSession(s) ? (
+                          <h4 className="text-sm sm:text-[15px] font-bold font-heading text-zinc-950 dark:text-white leading-snug truncate flex items-center gap-1.5">
+                            <span className="px-1.5 py-0.5 rounded font-mono text-xs font-semibold bg-zinc-100 dark:bg-slate-800/80 border border-zinc-200 dark:border-slate-700/60 text-zinc-700 dark:text-slate-300 shrink-0">
+                              {s.subjectCode}
+                            </span>
+                            <span className="truncate">{s.subjectTitle}</span>
+                          </h4>
+
+                          <p className="text-xs sm:text-[13px] text-zinc-600 dark:text-slate-300 font-sans leading-tight flex flex-wrap items-center gap-1 sm:gap-1.5">
+                            <span>Faculty:</span>
+                            <strong className="font-semibold text-zinc-900 dark:text-white">{s.teacher}</strong>
+                            <span className="text-zinc-300 dark:text-zinc-600">•</span>
+                            <span>Strength:</span>
+                            <span className="font-mono font-medium text-zinc-800 dark:text-zinc-200">{s.defaultStudents}</span>
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0 self-start sm:self-center">
+                          {canManageSession(s) && (
+                            <>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8 px-3 text-xs font-semibold text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl active:scale-95 transition-transform motion-reduce:active:scale-100 cursor-pointer"
+                                onClick={() => handleOpenAction(s, 'skip')}
+                              >
+                                Skip
+                              </Button>
+                              <Button
+                                size="sm"
+                                className="h-8 px-3.5 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-2xs active:scale-95 transition-transform motion-reduce:active:scale-100 cursor-pointer flex items-center gap-1.5"
+                                onClick={() => handleOpenAction(s, 'log')}
+                              >
+                                <CheckCircle2 className="h-3.5 w-3.5" />
+                                <span>Log</span>
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* On-Demand Expansion Control & Timetable Link */}
+                    {filteredUpcoming.length > MAX_UPCOMING_DEFAULT ? (
+                      <div className="p-3 px-4 sm:px-5 bg-zinc-50/60 dark:bg-surface-1/50 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs font-sans">
+                        <div className="flex items-center gap-2 text-zinc-600 dark:text-slate-300">
+                          <span>
+                            Showing {visibleUpcoming.length} of {filteredUpcoming.length} upcoming sessions
+                          </span>
+                          {!showAllUpcoming && remainingUpcoming > 0 && (
+                            <span className="px-2 py-0.5 rounded-md font-mono text-[11px] font-semibold bg-zinc-200/80 dark:bg-surface-3 text-zinc-700 dark:text-zinc-300">
+                              {remainingUpcoming} more
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2 self-start sm:self-auto">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setShowAllUpcoming((prev) => !prev)}
+                            className="h-8 px-3 rounded-xl border-zinc-200 dark:border-zinc-700/80 hover:bg-zinc-100 dark:hover:bg-surface-2 text-zinc-800 dark:text-zinc-200 font-medium text-xs gap-1.5 cursor-pointer"
+                          >
+                            {showAllUpcoming ? (
                               <>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-7 text-xs text-zinc-600 dark:text-zinc-300"
-                                  onClick={() => handleOpenAction(s, 'skip')}
-                                >
-                                  Skip
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
-                                  onClick={() => handleOpenAction(s, 'log')}
-                                >
-                                  Log
-                                </Button>
+                                <ChevronUp className="h-3.5 w-3.5 text-zinc-500" />
+                                <span>Show next {MAX_UPCOMING_DEFAULT} only</span>
                               </>
                             ) : (
-                              <span className="text-[11px] text-zinc-400 font-mono italic">
-                                {s.teacher}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-
-                      {upcomingSessions.filter(filterByLab).map((s) => (
-                        <div
-                          key={s.id}
-                          className={`p-3.5 px-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 font-mono hover:bg-zinc-50/70 dark:hover:bg-surface-2/60 transition-all duration-150 ease-out hover:-translate-y-0.5 motion-reduce:hover:translate-y-0 hover:shadow-xs ${getLabRibbon(s.lab)}`}
-                        >
-                          <div className="space-y-0.5">
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
-                                {s.timeSlot}
-                              </span>
-                              <span className="text-[10px] px-1.5 py-0.2 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 font-bold">
-                                {s.grade}
-                              </span>
-                              <span className="text-[10px] text-zinc-400">{s.lab}</span>
-                            </div>
-                            <h4 className="text-xs font-bold text-zinc-950 dark:text-white font-sans">
-                              {s.subjectCode} — {s.subjectTitle}
-                            </h4>
-                            <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                              Subject Teacher: <strong>{s.teacher}</strong> • Strength: {s.defaultStudents}
-                            </p>
-                          </div>
-
-                          <div className="flex items-center gap-2 shrink-0">
-                            {canManageSession(s) ? (
                               <>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-7 text-xs text-zinc-600 dark:text-zinc-300 border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                                  onClick={() => handleOpenAction(s, 'skip')}
-                                >
-                                  Skip
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  className="h-7 text-xs bg-zinc-900 hover:bg-zinc-800 text-white dark:bg-zinc-100 dark:hover:bg-zinc-200 dark:text-zinc-900 font-semibold"
-                                  onClick={() => handleOpenAction(s, 'log')}
-                                >
-                                  Log
-                                </Button>
+                                <ChevronDown className="h-3.5 w-3.5 text-zinc-500" />
+                                <span>View all ({filteredUpcoming.length})</span>
                               </>
-                            ) : (
-                              <span className="text-[11px] text-zinc-400 font-mono italic">
-                                {s.teacher}
-                              </span>
                             )}
-                          </div>
+                          </Button>
+
+                          <Link
+                            href="/schedules"
+                            className="inline-flex items-center gap-1.5 h-8 px-3 rounded-xl text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50/60 dark:hover:bg-indigo-950/30 transition-colors"
+                          >
+                            <Calendar className="h-3.5 w-3.5" />
+                            <span>Lab Timetable</span>
+                            <ArrowUpRight className="h-3 w-3" />
+                          </Link>
                         </div>
-                      ))}
-                    </>
-                  )}
-                </div>
-              )}
+                      </div>
+                    ) : (
+                      filteredUpcoming.length > 0 && (
+                        <div className="py-2.5 px-4 sm:px-5 bg-zinc-50/40 dark:bg-surface-1/30 flex items-center justify-between text-xs font-sans text-zinc-500 dark:text-slate-400">
+                          <span>All {filteredUpcoming.length} upcoming sessions shown</span>
+                          <Link
+                            href="/schedules"
+                            className="inline-flex items-center gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                          >
+                            <span>Lab Timetable</span>
+                            <ArrowUpRight className="h-3.5 w-3.5" />
+                          </Link>
+                        </div>
+                      )
+                    )}
+                  </div>
+                )
+              })()}
 
               {/* 2. PENDING / BACKLOG TAB (CALM, NON-ALARMIST STYLING) */}
               {activeTab === 'backlog' && (
                 <div className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
                   {passedUnloggedSessions.filter(filterByLab).length === 0 ? (
-                    <div className="py-12 text-center text-zinc-400 font-mono text-xs space-y-1">
+                    <div className="py-12 text-center text-zinc-400 font-sans text-xs space-y-1">
                       <CheckCircle2 className="h-5 w-5 mx-auto text-emerald-500 mb-1" />
-                      <p className="font-semibold text-zinc-800 dark:text-zinc-200">
+                      <p className="font-semibold text-zinc-800 dark:text-zinc-200 text-sm">
                         No pending session logs!
                       </p>
-                      <p className="text-[11px]">All passed practical slots have been properly recorded or marked.</p>
+                      <p className="text-xs text-zinc-500 dark:text-slate-400">
+                        All passed practical slots have been properly recorded or marked.
+                      </p>
                     </div>
                   ) : (
                     passedUnloggedSessions.filter(filterByLab).map((s) => (
                       <div
                         key={s.id}
-                        className={`p-3.5 px-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 font-mono hover:bg-zinc-50/70 dark:hover:bg-surface-2/60 transition-all duration-150 ease-out hover:-translate-y-0.5 motion-reduce:hover:translate-y-0 hover:shadow-xs ${getLabRibbon(s.lab)}`}
+                        className={`py-2.5 sm:py-3 px-4 sm:px-5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4 font-sans hover:bg-zinc-50/70 dark:hover:bg-surface-2/60 transition-all duration-150 ease-out hover:-translate-y-0.5 motion-reduce:hover:translate-y-0 hover:shadow-xs ${getLabRibbon(s.lab)}`}
                       >
-                        <div className="space-y-0.5">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                            <span className="text-xs sm:text-[13px] font-bold font-mono text-zinc-800 dark:text-zinc-200 tabular-nums shrink-0">
                               {s.timeSlot}
                             </span>
-                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 font-bold">
+                            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-surface-2 text-zinc-700 dark:text-zinc-300 border border-zinc-200/80 dark:border-white/[0.08] font-sans shrink-0">
                               {s.grade}
                             </span>
-                            <span className="text-[10px] text-zinc-400">{s.lab}</span>
-                            <span className="text-[9px] px-1.5 py-0.2 rounded bg-zinc-100 dark:bg-zinc-800/80 text-zinc-500 border border-zinc-200 dark:border-zinc-800">
-                              Pending Record
+                            <span className="text-[11px] font-medium text-zinc-500 dark:text-slate-400 font-sans shrink-0">
+                              {s.lab}
+                            </span>
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 font-sans shrink-0">
+                              Pending Roll-Call
                             </span>
                           </div>
-                          <h4 className="text-xs font-bold text-zinc-950 dark:text-white font-sans">
-                            {s.subjectCode} — {s.subjectTitle}
+
+                          <h4 className="text-sm sm:text-[15px] font-bold font-heading text-zinc-950 dark:text-white leading-snug truncate flex items-center gap-1.5">
+                            <span className="px-1.5 py-0.5 rounded font-mono text-xs font-semibold bg-zinc-100 dark:bg-slate-800/80 border border-zinc-200 dark:border-slate-700/60 text-zinc-700 dark:text-slate-300 shrink-0">
+                              {s.subjectCode}
+                            </span>
+                            <span className="truncate">{s.subjectTitle}</span>
                           </h4>
-                          <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                            Subject Teacher: <strong>{s.teacher}</strong> • Strength: {s.defaultStudents}
+
+                          <p className="text-xs sm:text-[13px] text-zinc-600 dark:text-slate-300 font-sans leading-tight flex flex-wrap items-center gap-1 sm:gap-1.5">
+                            <span>Faculty:</span>
+                            <strong className="font-semibold text-zinc-900 dark:text-white">{s.teacher}</strong>
+                            <span className="text-zinc-300 dark:text-zinc-600">•</span>
+                            <span>Strength:</span>
+                            <span className="font-mono font-medium text-zinc-800 dark:text-zinc-200">{s.defaultStudents}</span>
                           </p>
                         </div>
 
-                        <div className="flex items-center gap-2 shrink-0">
-                          {canManageSession(s) ? (
+                        <div className="flex items-center gap-2 shrink-0 self-start sm:self-center">
+                          {canManageSession(s) && (
                             <>
                               <Button
                                 variant="outline"
                                 size="sm"
-                                className="h-7 text-xs text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                                className="h-8 px-3 text-xs font-semibold text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl active:scale-95 transition-transform motion-reduce:active:scale-100 cursor-pointer"
                                 onClick={() => handleOpenAction(s, 'skip')}
                               >
                                 Mark Skipped
                               </Button>
                               <Button
                                 size="sm"
-                                className="h-7 text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-2xs"
+                                className="h-8 px-3.5 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-2xs active:scale-95 transition-transform motion-reduce:active:scale-100 cursor-pointer flex items-center gap-1.5"
                                 onClick={() => handleOpenAction(s, 'log')}
                               >
-                                <CheckCircle2 className="h-3 w-3 mr-1" />
-                                Log Attendance
+                                <CheckCircle2 className="h-3.5 w-3.5" />
+                                <span>Log Attendance</span>
                               </Button>
                             </>
-                          ) : (
-                            <span className="text-[11px] text-zinc-400 font-mono italic">
-                              {s.teacher}
-                            </span>
                           )}
                         </div>
                       </div>
@@ -833,9 +673,11 @@ export default function DashboardPage() {
               {activeTab === 'completed' && (
                 <div className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
                   {loggedSessions.filter(({ session }) => filterByLab(session)).length === 0 ? (
-                    <div className="py-12 text-center text-zinc-400 font-mono text-xs space-y-1">
-                      <FileCheck className="h-5 w-5 mx-auto text-zinc-300 dark:text-zinc-600 mb-1" />
-                      <p>No practical logs recorded yet for today.</p>
+                    <div className="py-12 text-center text-zinc-400 font-sans text-xs space-y-1">
+                      <FileCheck className="h-5 w-5 mx-auto text-zinc-400 dark:text-zinc-500 mb-1" />
+                      <p className="font-semibold text-zinc-800 dark:text-zinc-200 text-sm">
+                        No practical logs recorded yet for today.
+                      </p>
                     </div>
                   ) : (
                     loggedSessions
@@ -850,53 +692,64 @@ export default function DashboardPage() {
                         return (
                           <div
                             key={log.id}
-                            className={`p-3.5 px-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 font-mono hover:bg-zinc-50/70 dark:hover:bg-surface-2/60 transition-all duration-150 ease-out hover:-translate-y-0.5 motion-reduce:hover:translate-y-0 hover:shadow-xs ${getLabRibbon(log.lab || session?.lab)}`}
+                            className={`py-2.5 sm:py-3 px-4 sm:px-5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4 font-sans hover:bg-zinc-50/70 dark:hover:bg-surface-2/60 transition-all duration-150 ease-out hover:-translate-y-0.5 motion-reduce:hover:translate-y-0 hover:shadow-xs ${getLabRibbon(log.lab || session?.lab)}`}
                           >
-                            <div className="space-y-0.5">
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs font-bold text-zinc-950 dark:text-white">
-                                  {log.subjectCode} — {log.subjectTitle}
+                            <div className="min-w-0 flex-1 space-y-1">
+                              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                                <span className="text-xs sm:text-[13px] font-bold font-mono text-zinc-800 dark:text-zinc-200 tabular-nums shrink-0">
+                                  {log.timeSlot}
                                 </span>
-                                <span className="text-[10px] px-1.5 py-0.2 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 font-bold">
+                                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-surface-2 text-zinc-700 dark:text-zinc-300 border border-zinc-200/80 dark:border-white/[0.08] font-sans shrink-0">
                                   {log.grade}
                                 </span>
+                                <span className="text-[11px] font-medium text-zinc-500 dark:text-slate-400 font-sans shrink-0">
+                                  {log.lab}
+                                </span>
                                 {isSkipped ? (
-                                  <span className="px-1.5 py-0.2 rounded text-[10px] bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700">
+                                  <span className="px-2 py-0.5 rounded-md text-xs font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-sans shrink-0">
                                     Skipped • {log.skipReason || 'Class in Room'}
                                   </span>
                                 ) : (
-                                  <span className="px-1.5 py-0.2 rounded text-[10px] bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-bold">
+                                  <span className="px-2 py-0.5 rounded-md text-xs font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-mono tabular-nums shrink-0">
                                     {log.presentStudents}/{log.totalStudents} Present ({attendancePct}%)
                                   </span>
                                 )}
                               </div>
 
-                              {!isSkipped && log.topicLearned && (
-                                <p className="text-xs text-zinc-600 dark:text-zinc-300 font-medium font-sans">
-                                  Topic: <strong className="text-zinc-900 dark:text-zinc-100">{log.topicLearned}</strong>
+                              <h4 className="text-sm sm:text-[15px] font-bold font-heading text-zinc-950 dark:text-white leading-snug truncate flex items-center gap-1.5">
+                                <span className="px-1.5 py-0.5 rounded font-mono text-xs font-semibold bg-zinc-100 dark:bg-slate-800/80 border border-zinc-200 dark:border-slate-700/60 text-zinc-700 dark:text-slate-300 shrink-0">
+                                  {log.subjectCode}
+                                </span>
+                                <span className="truncate">{log.subjectTitle}</span>
+                              </h4>
+
+                              {!isSkipped && log.topicLearned ? (
+                                <p className="text-xs sm:text-[13px] text-zinc-600 dark:text-slate-300 font-sans leading-tight truncate">
+                                  <span>Topic:</span>{' '}
+                                  <strong className="font-semibold text-zinc-900 dark:text-white">{log.topicLearned}</strong>
+                                  <span className="text-zinc-300 dark:text-zinc-600 mx-1">•</span>
+                                  <span>Faculty:</span>{' '}
+                                  <strong className="font-semibold text-zinc-900 dark:text-white">{log.teacher}</strong>
+                                </p>
+                              ) : (
+                                <p className="text-xs sm:text-[13px] text-zinc-600 dark:text-slate-300 font-sans leading-tight">
+                                  <span>Faculty:</span>{' '}
+                                  <strong className="font-semibold text-zinc-900 dark:text-white">{log.teacher}</strong>
                                 </p>
                               )}
-
-                              <p className="text-[11px] text-zinc-400">
-                                {log.timeSlot} • {log.lab} • Subject Teacher: <strong>{log.teacher}</strong>
-                              </p>
                             </div>
 
-                            <div className="flex items-center gap-2 shrink-0">
-                              {canManageSession(session) ? (
+                            <div className="flex items-center gap-2 shrink-0 self-start sm:self-center">
+                              {canManageSession(session) && (
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  className="h-7 text-xs font-semibold gap-1 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800 shadow-2xs"
+                                  className="h-8 px-3 text-xs font-semibold gap-1.5 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl shadow-2xs active:scale-95 transition-transform motion-reduce:active:scale-100 cursor-pointer flex items-center"
                                   onClick={() => handleOpenAction(session, 'edit', log)}
                                 >
-                                  <Edit3 className="h-3 w-3 text-zinc-500" />
+                                  <Edit3 className="h-3.5 w-3.5 text-zinc-400" />
                                   <span>Modify</span>
                                 </Button>
-                              ) : (
-                                <span className="text-[11px] text-zinc-400 font-mono italic">
-                                  {session.teacher}
-                                </span>
                               )}
                             </div>
                           </div>
@@ -909,124 +762,102 @@ export default function DashboardPage() {
               {/* 4. ALL SESSIONS TIMELINE TAB */}
               {activeTab === 'all' && (
                 <div className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
-                  {todaySessions.filter(filterByLab).map((s) => {
-                    const existingLog = getLogForSession(s.id, todayDateStr)
-                    return (
-                      <div
-                        key={s.id}
-                        className={`p-3.5 px-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 font-mono hover:bg-zinc-50/70 dark:hover:bg-surface-2/60 transition-all duration-150 ease-out hover:-translate-y-0.5 motion-reduce:hover:translate-y-0 hover:shadow-xs ${getLabRibbon(s.lab)}`}
-                      >
-                        <div className="space-y-0.5">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
-                              {s.timeSlot}
-                            </span>
-                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 font-bold">
-                              {s.grade}
-                            </span>
-                            <span className="text-[10px] text-zinc-400">{s.lab}</span>
-                            {existingLog && (
-                              <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 border border-emerald-200 dark:border-emerald-800">
-                                Logged
+                  {todaySessions.filter(filterByLab).length === 0 ? (
+                    <div className="py-12 text-center text-zinc-400 font-sans text-xs space-y-1">
+                      <Calendar className="h-5 w-5 mx-auto text-zinc-400 dark:text-zinc-500 mb-1" />
+                      <p className="font-semibold text-zinc-800 dark:text-zinc-200 text-sm">
+                        No scheduled practical sessions found.
+                      </p>
+                    </div>
+                  ) : (
+                    todaySessions.filter(filterByLab).map((s) => {
+                      const existingLog = getLogForSession(s.id, todayDateStr)
+                      return (
+                        <div
+                          key={s.id}
+                          className={`py-2.5 sm:py-3 px-4 sm:px-5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4 font-sans hover:bg-zinc-50/70 dark:hover:bg-surface-2/60 transition-all duration-150 ease-out hover:-translate-y-0.5 motion-reduce:hover:translate-y-0 hover:shadow-xs ${getLabRibbon(s.lab)}`}
+                        >
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                              <span className="text-xs sm:text-[13px] font-bold font-mono text-zinc-800 dark:text-zinc-200 tabular-nums shrink-0">
+                                {s.timeSlot}
                               </span>
+                              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-surface-2 text-zinc-700 dark:text-zinc-300 border border-zinc-200/80 dark:border-white/[0.08] font-sans shrink-0">
+                                {s.grade}
+                              </span>
+                              <span className="text-[11px] font-medium text-zinc-500 dark:text-slate-400 font-sans shrink-0">
+                                {s.lab}
+                              </span>
+                              {existingLog && (
+                                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-sans shrink-0">
+                                  Logged
+                                </span>
+                              )}
+                            </div>
+
+                            <h4 className="text-sm sm:text-[15px] font-bold font-heading text-zinc-950 dark:text-white leading-snug truncate flex items-center gap-1.5">
+                              <span className="px-1.5 py-0.5 rounded font-mono text-xs font-semibold bg-zinc-100 dark:bg-slate-800/80 border border-zinc-200 dark:border-slate-700/60 text-zinc-700 dark:text-slate-300 shrink-0">
+                                {s.subjectCode}
+                              </span>
+                              <span className="truncate">{s.subjectTitle}</span>
+                            </h4>
+
+                            <p className="text-xs sm:text-[13px] text-zinc-600 dark:text-slate-300 font-sans leading-tight flex flex-wrap items-center gap-1 sm:gap-1.5">
+                              <span>Faculty:</span>
+                              <strong className="font-semibold text-zinc-900 dark:text-white">{s.teacher}</strong>
+                              <span className="text-zinc-300 dark:text-zinc-600">•</span>
+                              <span>Strength:</span>
+                              <span className="font-mono font-medium text-zinc-800 dark:text-zinc-200">{s.defaultStudents}</span>
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0 self-start sm:self-center">
+                            {canManageSession(s) && (
+                              existingLog ? (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 px-3 text-xs font-semibold gap-1.5 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl shadow-2xs active:scale-95 transition-transform motion-reduce:active:scale-100 cursor-pointer flex items-center"
+                                  onClick={() => handleOpenAction(s, 'edit', existingLog)}
+                                >
+                                  <Edit3 className="h-3.5 w-3.5 text-zinc-400" />
+                                  <span>Modify</span>
+                                </Button>
+                              ) : (
+                                <Button
+                                  size="sm"
+                                  className="h-8 px-3.5 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-2xs active:scale-95 transition-transform motion-reduce:active:scale-100 cursor-pointer flex items-center gap-1.5"
+                                  onClick={() => handleOpenAction(s, 'log')}
+                                >
+                                  <CheckCircle2 className="h-3.5 w-3.5" />
+                                  <span>Log</span>
+                                </Button>
+                              )
                             )}
                           </div>
-                          <h4 className="text-xs font-bold text-zinc-950 dark:text-white font-sans">
-                            {s.subjectCode} — {s.subjectTitle}
-                          </h4>
-                          <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                            Subject Teacher: <strong>{s.teacher}</strong> • Strength: {s.defaultStudents}
-                          </p>
                         </div>
-
-                        <div className="flex items-center gap-2 shrink-0">
-                          {canManageSession(s) ? (
-                            existingLog ? (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-7 text-xs text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-800"
-                                onClick={() => handleOpenAction(s, 'edit', existingLog)}
-                              >
-                                <Edit3 className="h-3 w-3 mr-1 text-zinc-400" />
-                                Modify
-                              </Button>
-                            ) : (
-                              <Button
-                                size="sm"
-                                className="h-7 text-xs bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                                onClick={() => handleOpenAction(s, 'log')}
-                              >
-                                Log
-                              </Button>
-                            )
-                          ) : (
-                            <span className="text-[11px] text-zinc-400 font-mono italic">
-                              {s.teacher}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })}
+                      )
+                    })
+                  )}
                 </div>
               )}
             </CardContent>
           </Card>
         </div>
 
-        {/* RIGHT COLUMN (35% / 4 Cols): Facility Telemetry & Quick Dock */}
-        <div className="lg:col-span-4 space-y-5">
-          {/* 1. Consolidated Facility Telemetry */}
+        {/* RIGHT COLUMN (35% / 4 Cols): Quick Actions, Facility Rooms & Incidents */}
+        <div className="lg:col-span-4 space-y-3.5 sm:space-y-4">
+          {/* 1. Quick Operations (Print & New Session Log) */}
+          <QuickOperationsCard />
+
+          {/* 2. Consolidated Facility Telemetry (Laboratory Rooms & Availability) */}
           <FacilityTelemetryCard
             ongoingSessions={ongoingSessions}
             onOpenSession={(session) => handleOpenAction(session, 'log')}
             onQuickBook={handleQuickBook}
           />
 
-          {/* 2. Quick Operations & Certified Audit Action Strip */}
-          <div className="glass-card p-3 rounded-2xl border border-zinc-200/80 dark:border-zinc-800 shadow-2xs space-y-2">
-            <div className="flex items-center justify-between px-1">
-              <span className="text-[10px] font-mono font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">
-                <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
-                Quick Operations
-              </span>
-              <Link
-                href="/print/daily-log"
-                className="text-[10px] font-mono font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
-              >
-                Daily Sheet ↗
-              </Link>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <Link href="/print/records" className="w-full">
-                <Button
-                  size="sm"
-                  className="w-full h-8 px-2.5 text-xs font-bold gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white shadow-2xs rounded-xl cursor-pointer"
-                >
-                  <Printer className="h-3.5 w-3.5" />
-                  <span>Print Report</span>
-                </Button>
-              </Link>
-
-              <Link href="/logs/new" className="w-full">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full h-8 px-2.5 text-xs font-semibold gap-1.5 rounded-xl border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200 cursor-pointer"
-                >
-                  <Plus className="h-3.5 w-3.5 text-emerald-500" />
-                  <span>New Log</span>
-                </Button>
-              </Link>
-            </div>
-          </div>
-
-          {/* 3. Syllabus & Practical Progress */}
-          <SyllabusProgress />
-
-          {/* 4. Laboratory Incidents & Breakage Register */}
+          {/* 2. Laboratory Incidents & Repair Register */}
           <IncidentRegistryCard />
         </div>
       </div>

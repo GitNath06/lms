@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { isSupabaseConfigured } from '@/lib/supabase/config'
 import { getServerUserScope, UserScopeContext } from '@/lib/context/user-scope'
 import { getPgPool } from '@/lib/db'
+import { isValidUuid } from '@/lib/utils'
 import {
   PracticalRecordItem,
   PracticalRecordFilters,
@@ -525,6 +526,7 @@ export async function getIncidentRecords(
 }> {
   try {
     const userCtx = await getCurrentUserContext()
+    const isInstitutionalView = userCtx.isPrivileged || !userCtx.userId || userCtx.userId === 'local-admin' || (filters as any).scope !== 'my_incidents'
     let rawIncidents: any[] = []
 
     // 1. First priority: Direct PostgreSQL connection via DATABASE_URL
@@ -544,6 +546,8 @@ export async function getIncidentRecords(
             li.subject_teacher_name,
             li.batch_name,
             li.title,
+            li.circumstances,
+            li.photo_url,
             li.incident_type,
             li.severity,
             li.equipment_name,
@@ -559,6 +563,10 @@ export async function getIncidentRecords(
             li.resolved_at,
             li.reported_by,
             li.reported_by_id,
+            li.is_fined,
+            li.fine_amount,
+            li.fine_paid,
+            li.fine_receipt_no,
             li.created_at,
             json_build_object('id', l.id, 'name', l.name, 'type', l.type) as labs,
             json_build_object('id', p.id, 'full_name', p.full_name, 'email', p.email, 'role', p.role) as reporter_profile
@@ -568,7 +576,7 @@ export async function getIncidentRecords(
           WHERE ($1::boolean OR li.reported_by_id::text = $2::text OR li.subject_teacher_name = $3 OR li.reported_by = $3)
           ORDER BY li.created_at DESC;
         `,
-          [userCtx.isPrivileged, userCtx.userId, userCtx.fullName]
+          [isInstitutionalView, userCtx.userId, userCtx.fullName]
         )
 
         if (res.rows && res.rows.length > 0) {
@@ -591,7 +599,7 @@ export async function getIncidentRecords(
           `)
           .order('created_at', { ascending: false })
 
-        if (!userCtx.isPrivileged && userCtx.userId) {
+        if (!isInstitutionalView && userCtx.userId) {
           query = query.or(`reported_by_id.eq.${userCtx.userId},subject_teacher_name.eq.${userCtx.fullName},reported_by.eq.${userCtx.fullName}`)
         }
 
@@ -611,8 +619,8 @@ export async function getIncidentRecords(
 
     // Filter memory store if fallback was used
     const filtered = rawIncidents.filter((inc) => {
-      // RBAC check
-      if (!userCtx.isPrivileged && inc.reported_by_id && inc.reported_by_id !== userCtx.userId) {
+      // RBAC check: only restrict if explicitly asked for personal scope
+      if (!isInstitutionalView && inc.reported_by_id && inc.reported_by_id !== userCtx.userId) {
         return false
       }
       if (filters.lab_id && filters.lab_id !== 'all') {
@@ -776,6 +784,7 @@ export async function reportIncidentRecord(payload: {
     const qty = Math.max(1, parseInt(String(payload.quantity), 10) || 1)
     const incidentId = `inc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`
     const isCritical = payload.severity === 'major_critical'
+    const validReportedById = isValidUuid(userCtx.userId) ? userCtx.userId : null
 
     const newRecord = {
       id: incidentId,
@@ -792,7 +801,7 @@ export async function reportIncidentRecord(payload: {
       equipment_name: payload.equipment_name,
       quantity: qty,
       student_rolls: payload.student_rolls || null,
-      status: 'reported',
+      status: isCritical ? 'escalated_to_hod' : 'reported',
       escalated_to_hod: isCritical,
       escalation_reason: isCritical ? 'Critical damage requiring immediate HOD inspection' : null,
       escalated_at: isCritical ? new Date().toISOString() : null,
@@ -801,15 +810,45 @@ export async function reportIncidentRecord(payload: {
       resolved_by_id: null,
       resolved_at: null,
       reported_by: userCtx.fullName,
-      reported_by_id: userCtx.userId,
+      reported_by_id: validReportedById,
       created_at: new Date().toISOString(),
     }
 
-    // Persist to memory
+    // 1. Persist to memory store
     const store = getIncidentStore()
     store.unshift(newRecord)
 
-    // Write to Supabase if configured
+    // 2. Primary Database Persistence: Direct PostgreSQL via pool
+    if (process.env.DATABASE_URL) {
+      try {
+        const pool = getPgPool()
+        await pool.query(`
+          INSERT INTO public.lab_incidents (
+            id, lab_id, schedule_id, date, session_label, subject_name,
+            subject_teacher_name, batch_name, title, incident_type,
+            severity, equipment_name, quantity, student_rolls, status,
+            escalated_to_hod, escalation_reason, escalated_at, reported_by,
+            reported_by_id, created_at
+          ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+            $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21
+          )
+          ON CONFLICT (id) DO NOTHING;
+        `, [
+          incidentId, payload.lab_id, payload.schedule_id || null,
+          newRecord.date, payload.session_label, payload.subject_name,
+          payload.subject_teacher_name, payload.batch_name, payload.title,
+          newRecord.incident_type, payload.severity, payload.equipment_name,
+          qty, newRecord.student_rolls, newRecord.status, newRecord.escalated_to_hod,
+          newRecord.escalation_reason, newRecord.escalated_at, newRecord.reported_by,
+          validReportedById, newRecord.created_at
+        ])
+      } catch (pgErr) {
+        console.warn('Direct PostgreSQL pool incident insert failed, falling back to Supabase:', pgErr)
+      }
+    }
+
+    // 3. Write to Supabase if configured
     if (isSupabaseConfigured()) {
       try {
         const supabase = await createClient()
@@ -833,7 +872,7 @@ export async function reportIncidentRecord(payload: {
             incident_id: incidentId,
             target_role: 'lab_incharge',
             target_lab_id: payload.lab_id,
-            title: `Apparatus Triage: ${payload.equipment_name}`,
+            title: `Equipment Triage: ${payload.equipment_name}`,
             message: `Reported during ${payload.session_label} (${payload.batch_name}). Assigned for triage.`,
             severity: isCritical ? 'critical' : 'warning',
             is_read: false,
@@ -862,6 +901,9 @@ export async function reportIncidentRecord(payload: {
     revalidatePath('/records')
     revalidatePath('/records/incidents')
     revalidatePath('/incidents')
+    revalidatePath('/print/incidents')
+    revalidatePath('/admin')
+    revalidatePath('/')
     return { success: true, incidentId }
   } catch (e: any) {
     return { success: false, error: e.message || 'Failed to report incident' }
@@ -907,6 +949,7 @@ export async function updateIncidentWorkflow(
     const isResolving = payload.status === 'resolved'
     const isEscalating = payload.is_escalating || payload.status === 'escalated_to_hod'
     const now = new Date().toISOString()
+    const validUserId = isValidUuid(userCtx.userId) ? userCtx.userId : null
 
     const updates: any = {
       status: payload.status,
@@ -917,7 +960,7 @@ export async function updateIncidentWorkflow(
     }
 
     if (isResolving) {
-      updates.resolved_by_id = userCtx.userId
+      updates.resolved_by_id = validUserId
       updates.resolved_by = `${userCtx.fullName} (${userCtx.role.toUpperCase()})`
       updates.resolved_at = now
     }
@@ -936,6 +979,37 @@ export async function updateIncidentWorkflow(
       }
     }
 
+    // Primary: Direct PostgreSQL pool
+    if (process.env.DATABASE_URL) {
+      try {
+        const pool = getPgPool()
+        await pool.query(`
+          UPDATE public.lab_incidents
+          SET status = $1,
+              resolution_notes = COALESCE($2, resolution_notes),
+              resolved_by = COALESCE($3, resolved_by),
+              resolved_by_id = COALESCE($4, resolved_by_id),
+              resolved_at = COALESCE($5, resolved_at),
+              escalated_to_hod = COALESCE($6, escalated_to_hod),
+              escalation_reason = COALESCE($7, escalation_reason),
+              escalated_at = COALESCE($8, escalated_at)
+          WHERE id = $9;
+        `, [
+          updates.status,
+          updates.resolution_notes || null,
+          updates.resolved_by || null,
+          updates.resolved_by_id || null,
+          updates.resolved_at || null,
+          updates.escalated_to_hod !== undefined ? updates.escalated_to_hod : null,
+          updates.escalation_reason || null,
+          updates.escalated_at || null,
+          incidentId
+        ])
+      } catch (pgErr) {
+        console.warn('Direct PostgreSQL pool updateIncidentWorkflow failed:', pgErr)
+      }
+    }
+
     if (isSupabaseConfigured()) {
       try {
         const supabase = await createClient()
@@ -947,7 +1021,7 @@ export async function updateIncidentWorkflow(
               id: `notif-${Date.now()}-hod-escalate`,
               incident_id: incidentId,
               target_role: 'hod',
-              title: `⚡ HOD Escalation: Apparatus Incident #${incidentId}`,
+              title: `⚡ HOD Escalation: Equipment Incident #${incidentId}`,
               message: `Escalation Reason: ${updates.escalation_reason}. Actioned by ${userCtx.fullName}.`,
               severity: 'critical',
               is_read: false,
@@ -963,6 +1037,9 @@ export async function updateIncidentWorkflow(
     revalidatePath('/records')
     revalidatePath('/records/incidents')
     revalidatePath('/incidents')
+    revalidatePath('/print/incidents')
+    revalidatePath('/admin')
+    revalidatePath('/')
     return { success: true }
   } catch (e: any) {
     return { success: false, error: e.message || 'Failed to update incident workflow' }

@@ -133,7 +133,7 @@ export async function generatePracticalRecordsXlsxBuffer(
         record.total_students,
         attDecimal,
         isSkipped ? 'SKIPPED' : 'CONDUCTED',
-        isSkipped ? record.skip_reason || 'Postponed / Holiday' : record.remarks || 'Apparatus verified in good condition',
+        isSkipped ? record.skip_reason || 'Postponed / Holiday' : record.remarks || 'Equipment verified in good condition',
       ]
 
       row.height = 20
@@ -286,7 +286,7 @@ export async function generateIncidentRecordsXlsxBuffer(
 
   sheet.mergeCells('A2:U2')
   const r2 = sheet.getCell('A2')
-  r2.value = `OFFICIAL LABORATORY APPARATUS DAMAGE & SAFETY INCIDENT REGISTER`
+  r2.value = `OFFICIAL LABORATORY EQUIPMENT DAMAGE & SAFETY INCIDENT REGISTER`
   r2.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FFFFFFFF' } }
   r2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF7F1D1D' } } // Red-900
   r2.alignment = { vertical: 'middle', horizontal: 'center' }
@@ -355,7 +355,7 @@ export async function generateIncidentRecordsXlsxBuffer(
     'Incident Title',
     'Type',
     'Severity',
-    'Apparatus / Equipment Name',
+    'Equipment / Item Name',
     'Qty',
     'Student Roll(s)',
     'Reported By',

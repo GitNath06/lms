@@ -22,6 +22,7 @@ import { getActiveLabs, getTeachers } from '@/app/actions/logs'
 import PracticalSummaryStrip from '@/components/records/practical-summary-strip'
 import PracticalFilterBar from '@/components/records/practical-filter-bar'
 import PracticalRecordsTable from '@/components/records/practical-records-table'
+import SyllabusProgress from '@/components/dashboard/syllabus-progress'
 import { Button } from '@/components/ui/button'
 import PageHeader from '@/components/layout/page-header'
 
@@ -160,6 +161,9 @@ export default function PracticalRecordsPage() {
 
       {/* Module C: Analytics Summary Strip */}
       <PracticalSummaryStrip metrics={metrics} isLoading={isLoading || isPending} />
+
+      {/* Curriculum Syllabus Progress & Quota Tracking */}
+      <SyllabusProgress />
 
       {/* Module A1: Filter and Grouping Bar */}
       <PracticalFilterBar

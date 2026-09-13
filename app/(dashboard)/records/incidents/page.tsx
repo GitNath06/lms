@@ -59,6 +59,108 @@ export default function IncidentRecordsPage() {
     search: '',
   })
 
+  // Format a raw or client incident into an IncidentRecordItem
+  const formatIncidentItem = (raw: any): IncidentRecordItem => {
+    return {
+      id: raw.id,
+      lab_id: raw.lab_id,
+      schedule_id: raw.schedule_id || null,
+      date: raw.date || new Date().toISOString().split('T')[0],
+      session_label: raw.session_label || 'Practical Session',
+      subject_name: raw.subject_name || 'Laboratory Session',
+      subject_teacher_name: raw.subject_teacher_name || raw.reported_by || 'Faculty In-Charge',
+      batch_name: raw.batch_name || 'Class Practical',
+      title: raw.title,
+      circumstances: raw.circumstances || null,
+      photo_url: raw.photo_url || null,
+      incident_type: raw.incident_type || 'breakage',
+      severity: raw.severity || 'minor',
+      equipment_name: raw.equipment_name || 'Equipment',
+      quantity: raw.quantity || 1,
+      student_rolls: raw.student_rolls || null,
+      status: raw.status || 'reported',
+      escalated_to_hod: Boolean(raw.escalated_to_hod),
+      escalation_reason: raw.escalation_reason || null,
+      escalated_at: raw.escalated_at || null,
+      resolution_notes: raw.resolution_notes || null,
+      resolved_by: raw.resolved_by || null,
+      resolved_by_id: raw.resolved_by_id || null,
+      resolved_at: raw.resolved_at || null,
+      reported_by: raw.reported_by || 'Faculty In-Charge',
+      reported_by_id: raw.reported_by_id || null,
+      is_fined: Boolean(raw.is_fined),
+      fine_amount: raw.fine_amount || 0,
+      fine_paid: Boolean(raw.fine_paid),
+      fine_receipt_no: raw.fine_receipt_no || null,
+      created_at: raw.created_at || new Date().toISOString(),
+      labs: raw.labs || {
+        id: raw.lab_id,
+        name:
+          raw.lab_id === 'chem'
+            ? 'Chemistry Laboratory'
+            : raw.lab_id === 'phys'
+            ? 'Physics Laboratory'
+            : raw.lab_id === 'comp'
+            ? 'Computer Engineering Lab 01'
+            : `${String(raw.lab_id).toUpperCase()} Lab`,
+        type: `${raw.lab_id}_lab`,
+      },
+      time_to_resolve_label:
+        raw.time_to_resolve_label ||
+        (raw.status === 'resolved'
+          ? 'Resolved'
+          : raw.status === 'under_repair'
+          ? 'Under Repair'
+          : raw.status === 'replaced'
+          ? 'Replaced'
+          : raw.status === 'escalated_to_hod'
+          ? 'Escalated to HOD'
+          : 'Active / Open'),
+      time_to_resolve_hours: raw.time_to_resolve_hours || null,
+    }
+  }
+
+  // Merge server data with any optimistic / pending items in localStorage
+  const reconcileWithLocalStorage = (serverIncidents: IncidentRecordItem[], serverMetrics?: IncidentSummaryMetrics) => {
+    try {
+      const savedRaw = localStorage.getItem('lab_incidents_v1')
+      const outboxRaw = localStorage.getItem('lab_pending_incidents_outbox_v1')
+      const localItems: any[] = []
+
+      if (savedRaw) {
+        const parsed = JSON.parse(savedRaw)
+        if (Array.isArray(parsed)) localItems.push(...parsed)
+      }
+      if (outboxRaw) {
+        const parsedOutbox = JSON.parse(outboxRaw)
+        if (Array.isArray(parsedOutbox)) localItems.push(...parsedOutbox)
+      }
+
+      if (localItems.length > 0) {
+        const serverIds = new Set(serverIncidents.map((i) => i.id))
+        const missingLocal = localItems
+          .filter((item) => item && item.id && !serverIds.has(item.id))
+          .map(formatIncidentItem)
+
+        if (missingLocal.length > 0) {
+          const merged = [...missingLocal, ...serverIncidents]
+          setIncidents(merged)
+          if (serverMetrics) {
+            setMetrics({
+              ...serverMetrics,
+              totalIncidents: serverMetrics.totalIncidents + missingLocal.length,
+              openCount: serverMetrics.openCount + missingLocal.filter((i) => i.status !== 'resolved').length,
+            })
+          }
+          return
+        }
+      }
+    } catch {}
+
+    setIncidents(serverIncidents)
+    if (serverMetrics) setMetrics(serverMetrics)
+  }
+
   // Initial load of master labs
   useEffect(() => {
     async function loadMasterData() {
@@ -72,27 +174,83 @@ export default function IncidentRecordsPage() {
     loadMasterData()
   }, [])
 
-  const fetchIncidents = () => {
+  const fetchIncidents = (showLoader = true) => {
     startTransition(async () => {
-      setIsLoading(true)
+      if (showLoader) setIsLoading(true)
       try {
         const res = await getIncidentRecords(filters)
         if (res.success) {
-          setIncidents(res.incidents)
-          setMetrics(res.metrics)
+          reconcileWithLocalStorage(res.incidents, res.metrics)
           setUserRole(res.userRole)
           if (res.userId) setUserId(res.userId)
         }
       } catch (err) {
         console.error('Error fetching incident records:', err)
       } finally {
-        setIsLoading(false)
+        if (showLoader) setIsLoading(false)
       }
     })
   }
 
   useEffect(() => {
-    fetchIncidents()
+    fetchIncidents(true)
+  }, [filters])
+
+  // Reactive listeners for instant cross-component and cross-tab synchronization
+  useEffect(() => {
+    const handleIncidentEvent = (e: Event) => {
+      const customEvent = e as CustomEvent<{
+        action?: string
+        incidentId?: string
+        incident?: any
+        updates?: any
+      }>
+      const detail = customEvent?.detail
+
+      if (detail?.incident && (detail.action === 'created' || !detail.action)) {
+        const formatted = formatIncidentItem(detail.incident)
+        setIncidents((prev) => {
+          const exists = prev.some((i) => i.id === formatted.id)
+          if (exists) return prev
+          return [formatted, ...prev]
+        })
+        setMetrics((m) => ({
+          ...m,
+          totalIncidents: m.totalIncidents + 1,
+          openCount: m.openCount + 1,
+          minorCount: detail.incident.severity === 'minor' ? m.minorCount + 1 : m.minorCount,
+          moderateCount: detail.incident.severity === 'moderate' ? m.moderateCount + 1 : m.moderateCount,
+          criticalCount: detail.incident.severity === 'major_critical' ? m.criticalCount + 1 : m.criticalCount,
+        }))
+      } else if (detail?.incidentId && detail?.updates) {
+        setIncidents((prev) =>
+          prev.map((i) => (i.id === detail.incidentId ? { ...i, ...detail.updates } : i))
+        )
+      }
+
+      // Seamless background reconciliation without flickering the loader
+      getIncidentRecords(filters).then((res) => {
+        if (res.success) {
+          reconcileWithLocalStorage(res.incidents, res.metrics)
+        }
+      }).catch(() => {})
+    }
+
+    window.addEventListener('incidents-updated', handleIncidentEvent)
+    window.addEventListener('new-incident-broadcast', handleIncidentEvent)
+
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'lab_incidents_v1' || e.key === 'lab_pending_incidents_outbox_v1') {
+        fetchIncidents(false)
+      }
+    }
+    window.addEventListener('storage', handleStorage)
+
+    return () => {
+      window.removeEventListener('incidents-updated', handleIncidentEvent)
+      window.removeEventListener('new-incident-broadcast', handleIncidentEvent)
+      window.removeEventListener('storage', handleStorage)
+    }
   }, [filters])
 
   const handleResetFilters = () => {
@@ -117,7 +275,7 @@ export default function IncidentRecordsPage() {
       {/* Page Header */}
       <PageHeader
         title="Laboratory Incident & Damage Register"
-        subtitle="Official apparatus breakage records, HOD escalation audit & technical repair tracking"
+        subtitle="Official equipment breakage records, HOD escalation audit & technical repair tracking"
         icon={AlertTriangle}
         iconColor="bg-rose-500 text-white shadow-md shadow-rose-500/20"
         breadcrumbs={[
@@ -149,7 +307,7 @@ export default function IncidentRecordsPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={fetchIncidents}
+              onClick={() => fetchIncidents(true)}
               disabled={isPending || isLoading}
               className="h-9 w-9 p-0 rounded-xl border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 cursor-pointer"
               title="Refresh Incident Registry"

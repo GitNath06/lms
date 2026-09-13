@@ -221,7 +221,7 @@ export default function IncidentRecordsTable({
                 <TableRow className="hover:bg-transparent">
                   <TableHead className="text-[11px] font-mono font-bold uppercase text-zinc-600 dark:text-zinc-400 w-24">Date</TableHead>
                   <TableHead className="text-[11px] font-mono font-bold uppercase text-zinc-600 dark:text-zinc-400 w-24">Facility</TableHead>
-                  <TableHead className="text-[11px] font-mono font-bold uppercase text-zinc-600 dark:text-zinc-400">Apparatus & Circumstances</TableHead>
+                  <TableHead className="text-[11px] font-mono font-bold uppercase text-zinc-600 dark:text-zinc-400">Equipment & Circumstances</TableHead>
                   <TableHead className="text-[11px] font-mono font-bold uppercase text-zinc-600 dark:text-zinc-400 w-28 text-center">Severity</TableHead>
                   <TableHead className="text-[11px] font-mono font-bold uppercase text-zinc-600 dark:text-zinc-400 w-32">Class & Teacher</TableHead>
                   <TableHead className="text-[11px] font-mono font-bold uppercase text-zinc-600 dark:text-zinc-400 w-32 text-center">Lifecycle Status</TableHead>
@@ -236,28 +236,30 @@ export default function IncidentRecordsTable({
                   const isModerate = inc.severity === 'moderate'
                   const isResolved = inc.status === 'resolved'
                   const isEscalated = inc.escalated_to_hod
+                  const formattedEquipment = inc.equipment_name
+                    ? inc.equipment_name.replace(/Apparatus\s*\/\s*Station\s*Equipment/gi, 'Lab Equipment / Workstation').replace(/Apparatus/gi, 'Equipment')
+                    : 'Lab Equipment / Workstation'
 
                   return (
                     <TableRow
                       key={inc.id}
                       onClick={() => onSelectIncident(inc)}
-                      className="text-xs hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40 cursor-pointer transition-colors"
+                      className="hover:bg-zinc-50/50 dark:hover:bg-zinc-900/30 cursor-pointer transition-colors"
                     >
-                      {/* Date & Period */}
-                      <TableCell className="font-mono text-zinc-600 dark:text-zinc-400 whitespace-nowrap align-top">
-                        <div>{inc.date}</div>
-                        <div className="text-[10px] text-zinc-400">{inc.session_label.split(' ')[0]}</div>
+                      {/* Date */}
+                      <TableCell className="align-top font-mono text-xs text-zinc-600 dark:text-zinc-400 whitespace-nowrap">
+                        {inc.date}
                       </TableCell>
 
-                      {/* Lab Facility */}
-                      <TableCell className="font-semibold text-zinc-900 dark:text-white align-top whitespace-nowrap">
-                        {inc.labs?.name?.split(' ')[0] || inc.lab_id.toUpperCase()} Lab
+                      {/* Lab */}
+                      <TableCell className="align-top font-mono text-xs font-semibold text-zinc-800 dark:text-zinc-200">
+                        {inc.lab_id}
                       </TableCell>
 
-                      {/* Apparatus & Circumstances */}
+                      {/* Equipment & Circumstances */}
                       <TableCell className="align-top">
                         <div className="font-bold text-zinc-950 dark:text-white flex items-center gap-1.5">
-                          <span>{inc.equipment_name}</span>
+                          <span>{formattedEquipment}</span>
                           <span className="text-zinc-400 font-normal">(x{inc.quantity})</span>
                         </div>
                         <p className="text-[11px] text-zinc-600 dark:text-zinc-400 mt-0.5 line-clamp-2">

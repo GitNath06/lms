@@ -27,6 +27,7 @@ import {
 } from '@/lib/nepali-date'
 import { DEFAULT_HOLIDAYS, HolidayItem, isDateWithinHoliday } from '@/lib/master-data'
 import { useInfrastructureState } from '@/hooks/use-infrastructure-state'
+import { useCalendarSettings } from '@/hooks/use-calendar-settings'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 
@@ -54,6 +55,7 @@ function AcademicCalendarModalContent({
   initialDate: Date
 }) {
   const { holidays: customHolidays } = useInfrastructureState()
+  const { sundayWeekend, saturdayWeekend } = useCalendarSettings()
   const allHolidays = useMemo(() => {
     const list = [...DEFAULT_HOLIDAYS]
     if (Array.isArray(customHolidays)) {
@@ -155,15 +157,22 @@ function AcademicCalendarModalContent({
 
   const isTodaySelected = selectedDay && selectedDay.dateStr === getNepalDateStr(new Date())
 
-  const WEEK_DAYS = [
-    { id: 0, labelNp: 'आइत', labelEn: 'Sun' },
-    { id: 1, labelNp: 'सोम', labelEn: 'Mon' },
-    { id: 2, labelNp: 'मंगलबार', labelEn: 'Tue' },
-    { id: 3, labelNp: 'बुध', labelEn: 'Wed' },
-    { id: 4, labelNp: 'बिही', labelEn: 'Thu' },
-    { id: 5, labelNp: 'शुक्र', labelEn: 'Fri' },
-    { id: 6, labelNp: 'शनि', labelEn: 'Sat', isWeekend: true },
-  ]
+  const isSelectedSaturday = Boolean(selectedDay && selectedDay.dayOfWeek === 6 && saturdayWeekend)
+  const isSelectedSunday = Boolean(selectedDay && selectedDay.dayOfWeek === 0 && sundayWeekend)
+  const isSelectedWeekend = isSelectedSaturday || isSelectedSunday
+
+  const WEEK_DAYS = useMemo(
+    () => [
+      { id: 0, labelNp: 'आइत', labelEn: 'Sun', isWeekend: sundayWeekend },
+      { id: 1, labelNp: 'सोम', labelEn: 'Mon' },
+      { id: 2, labelNp: 'मंगलबार', labelEn: 'Tue' },
+      { id: 3, labelNp: 'बुध', labelEn: 'Wed' },
+      { id: 4, labelNp: 'बिही', labelEn: 'Thu' },
+      { id: 5, labelNp: 'शुक्र', labelEn: 'Fri' },
+      { id: 6, labelNp: 'शनि', labelEn: 'Sat', isWeekend: saturdayWeekend },
+    ],
+    [sundayWeekend, saturdayWeekend]
+  )
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/70 backdrop-blur-md animate-in fade-in duration-200">
@@ -318,7 +327,9 @@ function AcademicCalendarModalContent({
                 {/* Day Cells */}
                 {monthData.days.map((day) => {
                   const isToday = day.dateStr === getNepalDateStr(new Date())
-                  const isWeekend = day.dayOfWeek === 6
+                  const isSaturday = day.dayOfWeek === 6 && saturdayWeekend
+                  const isSunday = day.dayOfWeek === 0 && sundayWeekend
+                  const isWeekend = isSaturday || isSunday
                   const holiday = allHolidays.find((h) => isDateWithinHoliday(day.dateStr, h))
                   const isSelected = selectedDay?.dateStr === day.dateStr
 
@@ -400,6 +411,11 @@ function AcademicCalendarModalContent({
                             <span>Institutional Holiday</span>
                           </Badge>
                         )}
+                        {isSelectedWeekend && !selectedHoliday && (
+                          <Badge variant="outline" className="text-rose-600 dark:text-rose-400 border-rose-500/30 bg-rose-50 dark:bg-rose-950/40 text-[10px] font-mono">
+                            WEEKEND RECESS
+                          </Badge>
+                        )}
                       </div>
 
                       <h3 className="text-base font-extrabold text-zinc-950 dark:text-white font-mono">
@@ -422,10 +438,19 @@ function AcademicCalendarModalContent({
                             <span>Practicals Automatically Cancelled • No Attendance or Skip Logs Created</span>
                           </div>
                         </div>
-                      ) : selectedDay.dayOfWeek === 6 ? (
-                        <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                          Institutional Weekend Recess (Saturday). Laboratories closed.
-                        </p>
+                      ) : isSelectedWeekend ? (
+                        <div className="space-y-1 pt-1">
+                          <p className="text-xs font-bold text-rose-600 dark:text-rose-400">
+                            Institutional Weekend Recess ({selectedDay.dayOfWeek === 6 ? 'Saturday' : 'Sunday'}). Laboratories closed.
+                          </p>
+                          <p className="text-xs text-zinc-600 dark:text-zinc-400">
+                            Official weekly academic recess. Regular laboratory practical sessions are suspended.
+                          </p>
+                          <div className="flex items-center gap-2 pt-1 text-[11px] font-mono text-rose-600 dark:text-rose-400 font-bold">
+                            <Ban className="h-3.5 w-3.5" />
+                            <span>Scheduled Weekend Off • No Practical Logs Required</span>
+                          </div>
+                        </div>
                       ) : (
                         <div className="flex items-center gap-2 pt-1 text-xs font-mono text-emerald-600 dark:text-emerald-400 font-bold">
                           <CheckCircle2 className="h-3.5 w-3.5" />

@@ -170,6 +170,35 @@ export async function createPracticalLog(
     type: 'laboratory',
   }
 
+  // Server-side lab status check: block practical logging if Under Maintenance or Inactive
+  if (isSupabaseConfigured()) {
+    try {
+      const supabase = await createClient()
+      const { data: targetLab } = await (supabase
+        .from('labs') as any)
+        .select('id, name, status, is_active')
+        .eq('id', safeLabId)
+        .maybeSingle()
+
+      if (targetLab) {
+        if (targetLab.status === 'Under Maintenance') {
+          return {
+            success: false,
+            error: `Practical log rejected: "${targetLab.name || safeLabId}" is currently Under Maintenance. Practical sessions cannot be conducted or logged in an offline facility.`,
+          }
+        }
+        if (!targetLab.is_active || targetLab.status === 'Inactive') {
+          return {
+            success: false,
+            error: `Practical log rejected: "${targetLab.name || safeLabId}" is currently Inactive / Decommissioned.`,
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Error verifying lab status for practical log:', err)
+    }
+  }
+
   // ==========================================================================
   // 1. LOGICAL DUPLICATE CHECK: date + lab_id + period_label + batch_group + subject_name
   // ==========================================================================
@@ -684,11 +713,11 @@ export async function deletePracticalLog(id: string) {
 
 export async function getActiveLabs(): Promise<LabRow[]> {
   const defaultLabs: LabRow[] = [
-    { id: 'comp', name: 'Computer Engineering Lab 01', type: 'computer_lab', capacity: 40, is_active: true },
-    { id: 'phys', name: 'Physics Laboratory', type: 'physics_lab', capacity: 38, is_active: true },
-    { id: 'chem', name: 'Chemistry Laboratory', type: 'chemistry_lab', capacity: 40, is_active: true },
-    { id: 'bio', name: 'Biology & Life Sciences Lab', type: 'biology_lab', capacity: 35, is_active: true },
-    { id: 'elec', name: 'Electronics & Hardware Lab', type: 'electronics_lab', capacity: 30, is_active: true },
+    { id: 'comp', name: 'Computer Engineering Lab 01', type: 'computer_lab', capacity: 40, status: 'Operational', is_active: true },
+    { id: 'phys', name: 'Physics Laboratory', type: 'physics_lab', capacity: 38, status: 'Operational', is_active: true },
+    { id: 'chem', name: 'Chemistry Laboratory', type: 'chemistry_lab', capacity: 40, status: 'Operational', is_active: true },
+    { id: 'bio', name: 'Biology & Life Sciences Lab', type: 'biology_lab', capacity: 35, status: 'Operational', is_active: true },
+    { id: 'elec', name: 'Electronics & Hardware Lab', type: 'electronics_lab', capacity: 30, status: 'Operational', is_active: true },
   ]
 
   if (!isSupabaseConfigured()) {

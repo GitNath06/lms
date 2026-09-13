@@ -5,6 +5,7 @@ import LiveClockHeader from '@/components/layout/live-clock-header'
 import CloudSyncStatus from '@/components/layout/cloud-sync-status'
 import NotificationBell from '@/components/layout/notification-bell'
 import CommandPalette from '@/components/command-palette'
+import TimeTravelController from '@/components/dev/time-travel-controller'
 import CollapsibleSidebar from '@/components/layout/collapsible-sidebar'
 import MobileNav from '@/components/layout/mobile-nav'
 import UserProfileMenu from '@/components/layout/user-profile-menu'
@@ -39,16 +40,17 @@ export default async function DashboardLayout({
   const roleColor =
     isSuperAdmin
       ? 'text-amber-600 dark:text-amber-400'
-      : role === 'lab_incharge'
+      : role === 'lab_incharge' || role === 'hod'
       ? 'text-indigo-600 dark:text-indigo-400'
-      : role === 'hod'
-      ? 'text-purple-600 dark:text-purple-400'
-      : 'text-emerald-600 dark:text-emerald-400'
+      : 'text-zinc-600 dark:text-slate-400'
 
   return (
     <div className="flex h-screen bg-canvas text-zinc-900 dark:text-zinc-100 transition-colors duration-200">
       {/* Global Command Palette */}
       <CommandPalette />
+
+      {/* Dev Time Travel Engine Controller */}
+      <TimeTravelController />
 
       {/* Collapsible Sidebar with Animated Toggle */}
       <CollapsibleSidebar

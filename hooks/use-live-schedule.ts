@@ -13,6 +13,7 @@ import {
 } from '@/lib/master-data'
 import { useCalendarSettings } from '@/hooks/use-calendar-settings'
 import { parseSlotTimeRange } from '@/lib/utils'
+import { getEffectiveDate, isSimulatingTime, TIME_TRAVEL_EVENT } from '@/lib/time-simulator'
 
 interface PeriodMinuteRange {
   id: string
@@ -46,11 +47,13 @@ export interface LiveScheduleState {
   activeSessions: MasterRoutineItem[]
   todaySessions: MasterRoutineItem[]
   upcomingSessions: MasterRoutineItem[]
+  isSimulating: boolean
 }
 
 export function useLiveSchedule(customRoutines?: MasterRoutineItem[]): LiveScheduleState {
   const [mounted, setMounted] = useState(false)
-  const [now, setNow] = useState(new Date())
+  const [now, setNow] = useState<Date>(() => (typeof window !== 'undefined' ? getEffectiveDate() : new Date()))
+  const [isSimulating, setIsSimulating] = useState(false)
   const [holidayInfo, setHolidayInfo] = useState<{ isHoliday: boolean; holidayTitle?: string }>({ isHoliday: false })
 
   useEffect(() => {
@@ -58,7 +61,7 @@ export function useLiveSchedule(customRoutines?: MasterRoutineItem[]): LiveSched
 
     const checkHolidays = () => {
       try {
-        const todayStr = getNepalDateStr(new Date())
+        const todayStr = getNepalDateStr(getEffectiveDate())
         const saved = localStorage.getItem('lmr_admin_holidays_v2')
         const holidayList: HolidayItem[] = saved ? JSON.parse(saved) : DEFAULT_HOLIDAYS
         const match = holidayList.find((h) => isDateWithinHoliday(todayStr, h))
@@ -70,17 +73,27 @@ export function useLiveSchedule(customRoutines?: MasterRoutineItem[]): LiveSched
       } catch (e) {}
     }
 
-    checkHolidays()
+    const syncTime = () => {
+      setNow(getEffectiveDate())
+      setIsSimulating(isSimulatingTime())
+      checkHolidays()
+    }
+
+    syncTime()
 
     const interval = setInterval(() => {
-      setNow(new Date())
-      checkHolidays()
+      setNow(getEffectiveDate())
+      setIsSimulating(isSimulatingTime())
     }, 1000)
 
+    window.addEventListener(TIME_TRAVEL_EVENT, syncTime)
+    window.addEventListener('storage', syncTime)
     window.addEventListener('infrastructure-updated', checkHolidays)
 
     return () => {
       clearInterval(interval)
+      window.removeEventListener(TIME_TRAVEL_EVENT, syncTime)
+      window.removeEventListener('storage', syncTime)
       window.removeEventListener('infrastructure-updated', checkHolidays)
     }
   }, [])
@@ -178,5 +191,6 @@ export function useLiveSchedule(customRoutines?: MasterRoutineItem[]): LiveSched
     activeSessions,
     todaySessions,
     upcomingSessions,
+    isSimulating,
   }
 }

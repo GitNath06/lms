@@ -81,6 +81,17 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Historical certified service logbook entries.
 - Fields: `plan_id`, `lab_id`, `performed_by`, `performed_at`, `checklist_completed` (`string[]`), `serviced_machines` (`string[]`), `observations`, `next_recommended_date`, `status` (`completed`, `flagged`).
 
+### `labs`
+- Physical and virtual laboratory facilities.
+- Fields: `id`, `name`, `code`, `capacity`, `type` (`computer_lab`, `physics_lab`, `chemistry_lab`, `biology_lab`), `status` (`'Operational' | 'Under Maintenance' | 'Inactive'`), `is_active` (`boolean`), `created_at`.
+- Database constraint: `CHECK (status IN ('Operational', 'Under Maintenance', 'Inactive'))`.
+- Active lifecycle rule: `is_active` is automatically derived (`status === 'Operational'`).
+
+### `incident_categories`
+- Master incident taxonomy and hazard classifications.
+- Fields: `id`, `name`, `severity` (`low`, `medium`, `high`, `critical`), `scope` (`all`, `comp`, `science`), `is_active` (`boolean`), `sla_hours`, `created_at`.
+- Referential integrity: Categories with historical incident records must be soft-archived (`is_active: false`) rather than hard-deleted.
+
 ### `lab_incidents`
 - Break-fix damage and hazard register.
 - Fields: `title`, `lab_id`, `reported_by`, `equipment_name`, `incident_type` (`breakage`, `malfunction`, `burnt_apparatus`, `chemical_hazard`, `missing`, `other`), `severity` (`low`, `medium`, `high`, `critical`), `status` (`reported`, `investigating`, `resolved`, `escalated_to_hod`), `resolution_notes`, `resolved_at`.
@@ -145,6 +156,43 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
   - Scoped micro-glow pips (`0 0 10px 1px`) on telemetry beacons to prevent GPU compositing repaint lag during scrolling.
   - Preserved strict `@media print` white shield across all surface classes.
 
+### G. Enterprise Dashboard Architecture & Semantic Color System Refactor
+- **Semantic Color Tokens**: Replaced decorative rainbow accents with a focused semantic palette:
+  - Brand Accent: Indigo (`#6366F1`)
+  - Success: Emerald (`#10B981`)
+  - Warning: Amber (`#F59E0B`, strictly scoped to pending/roll-call backlogs)
+  - Danger: Rose (`#EF4444`, critical equipment faults and low attendance)
+  - Neutral: Slate / Zinc scale (`text-zinc-950 dark:text-slate-100`, muted `text-zinc-500 dark:text-slate-400`)
+- **Three-Tier Attendance Semantic Logic**:
+  - `>= 85%`: Optimal / Success (Emerald `#10B981`)
+  - `75% - 84%`: Normal / Nominal (Neutral Slate/Zinc — clean, readable text with zero false alarm)
+  - `< 75%`: Low Rate / Danger (Rose `#EF4444`)
+  - `0%` / Roll-call pending: Neutral dash (`—`) with muted status badge ("Awaiting")
+- **Standalone High-Density KPI Cards (Zero Card-in-Card Nesting)**:
+  - Stripped outer parent containers, outer headers, and bottom footers to reduce vertical bloat by **~55%** (from ~170px to ~76px).
+  - 3 standalone `.glass-card` elements in a `grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3`:
+    - Row 1: Compact `h-6 w-6` tinted icon badge + uppercase title on left; semantic status pill on right.
+    - Row 2: Punchy bold metric (`text-xl sm:text-[22px] font-extrabold font-heading`) on left; secondary context / micro-progress bar on right.
+- **1:1 Level Height Alignment**: Synchronized the left column's KPI row and right column's `QuickOperationsCard` to an identical ~76px height for surgical horizontal alignment.
+- **Queue Capping Standard**: Upcoming session queue capped at 4 items (`MAX_UPCOMING_DEFAULT = 4`) with smooth on-demand collapse/expand controls.
+- **Universal Equipment Terminology Overhaul**: Completely purged archaic "Apparatus" terminology across incident reports, session modals, registers, exports, drawers, and database tables in favor of modern "Equipment" (e.g. `Lab Equipment / Workstation`).
+
+### H. Super Admin Console Governance, Lab Status Lifecycle & Server Action Hardening
+- **Lab Facility Status Architecture**:
+  - Added `status text NOT NULL DEFAULT 'Operational' CHECK (status IN ('Operational', 'Under Maintenance', 'Inactive'))` to PostgreSQL `public.labs`.
+  - Derived lifecycle: `is_active` is automatically derived (`status === 'Operational'`).
+  - Real-time synchronization: Subscribed `useInfrastructureState` to Supabase Realtime channel for `labs` and broadcast bus (`broadcastSync`), ensuring immediate updates across tabs without page reloads.
+  - Telemetry: Added dynamic amber maintenance badge with `<Wrench />` icon on both Admin Facility table and main Dashboard facility pods. Replaced "Book Lab Slot" with "Servicing In Progress / Booking Suspended" when non-operational.
+- **Defense-in-Depth Server-Side Booking & Log Guards**:
+  - Hardened `createSchedule` and `createPracticalLog` to query live lab status directly from PostgreSQL before writing rows.
+  - Server actions reject any booking or practical session logging if target lab is `Under Maintenance` or `Inactive`.
+- **Incident Taxonomy Governance**:
+  - Built `IncidentCategoriesManager.tsx` with full CRUD, search query filtering, laboratory scope tags, severity pills, and official defaults reset.
+  - Enforced referential integrity: categories referenced by existing incidents are safely archived (`is_active = false`) instead of hard-deleted to protect historical logbooks.
+- **Next.js Server Actions Compilation Hardening**:
+  - Enforced strict `'use server'` rules: server action files (`app/actions/*`) must strictly export `async function`s.
+  - Relocated domain constants (`VALID_LAB_STATUSES`) and synchronous validators (`validateLabStatus`, `deriveLabIsActive`) into pure TypeScript modules (`lib/lab-status.ts`).
+
 ---
 
 ## 6. Critical User Rules & Terminology Standards
@@ -163,7 +211,7 @@ Always use natural school/college terminology:
 - Use **"Timetable"** or **"Schedule Grid"** — **NEVER** "Matrix" or "Today's Matrix".
 - Use **"Logbook"** — **NEVER** "Ledger" (for maintenance and session logs).
 - Use **"Save & Submit Log"** — **NEVER** "Endorse" or "Log Done".
-- Use **"Equipment Breakage"** — Avoid repetitive/antiquated "Apparatus Breakage" where generic equipment applies.
+- Use **"Equipment Breakage"** — **NEVER** "Apparatus Breakage" (see Rule 12).
 
 ### 3. Safety Lock: Keep "Precaution Active" Intact
 - In the Super Admin console (`/admin`), the safety lock switch that guards sensitive actions (e.g. editing teacher permissions or routines) is called **"Precaution Active"**. The user explicitly confirmed: `"Precaution Active is fine"`. Keep this safety toggle and label as-is.
@@ -186,3 +234,56 @@ Always use natural school/college terminology:
 
 ### 8. Strict TypeScript Verification
 - Always execute `npx tsc --noEmit` before finishing any task to guarantee 0 compile or type errors across all routes and components.
+
+### 9. Semantic Color Palette & Three-Tier Attendance Rules
+- **Brand Accent**: Indigo (`--color-accent` / `#6366F1`) for primary actions, links, and brand focal points.
+- **Success**: Emerald (`--color-success` / `#10B981`) for completed sessions, active operations, and optimal attendance.
+- **Warning**: Amber (`--color-warning` / `#F59E0B`) — strictly scoped to items requiring user action (e.g., `Pending Roll-Call`, unlogged past sessions, awaiting review). **NEVER** use amber as an arbitrary decorative accent or for nominal attendance.
+- **Danger**: Rose (`--color-danger` / `#EF4444`) for critical equipment breakages, major hazards, and critically low attendance.
+- **Neutral**: Slate / Zinc scale for all structural text, borders, and nominal states.
+- **Attendance Semantic Tiers**:
+  - `>= 85%`: Success (Emerald text + emerald badge `Optimal`)
+  - `75% - 84%`: Nominal (Neutral slate text + indigo/neutral badge `Normal` — **NO false warning color**)
+  - `< 75%`: Danger (Rose text + rose badge `Low Rate`)
+  - `0%` / Pending: Neutral dash `—` + neutral badge `Awaiting`
+
+### 10. High-Density Card Pattern: Zero Card-in-Card Nesting
+- **No Double-Nesting**: Never wrap individual metric cards inside a parent card container with redundant outer headers or footers.
+- **Direct Grid**: Place metric cards directly inside a responsive grid (`grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3`) as standalone top-level `.glass-card` elements.
+- **2-Row High-Density Layout (~76px total height)**:
+  - **Row 1**: `h-6 w-6` tinted icon badge + uppercase title (left) | status pill (right).
+  - **Row 2**: Bold punchy metric (`text-xl sm:text-[22px] font-extrabold font-heading`) on left | micro-context / progress bar on right.
+  - Padding must remain compact: `p-2.5 sm:p-3`.
+
+### 11. Dashboard Layout Symmetry & Height Alignment
+- In the 2-column continuous command center (`lg:grid-cols-12`):
+  - **Left Column** (`lg:col-span-8`): Holds Practical Operations KPI cards, Live Session Cockpit, and Segmented Session Feed.
+  - **Right Column** (`lg:col-span-4`): Holds Quick Operations, Facility Rooms Telemetry, and Incident Registry.
+  - **Top-Fold Alignment**: The left column's 3 KPI cards (~76px) and the right column's `QuickOperationsCard` (~76px) must maintain matching heights to create a level, symmetric horizontal fold on desktop viewports.
+  - **Queue Capping**: Default queue lists must be capped at 4 items (`MAX_UPCOMING_DEFAULT = 4`) with an expandable toggle to prevent uneven vertical scrolling.
+
+### 12. Universal "Equipment" Standard (Zero "Apparatus")
+- The term **"Apparatus"** is strictly forbidden. It is an archaic 19th-century academic term unsuited for modern multi-disciplinary institutions with Computer, Physics, Chemistry, and Biology labs.
+- Always use **"Equipment"** across all schemas, UI components, modals, filters, and exports:
+  - Use `Lab Equipment / Workstation` (never `Apparatus / Station Equipment`).
+  - Use `Equipment Breakage` (never `Apparatus Breakage`).
+  - Use `Equipment & Circumstances` (never `Apparatus & Circumstances`).
+  - Use `equipment_name` and "equipment name" in placeholders.
+
+### 13. Next.js `'use server'` RPC Export Rules (Zero Object/Constant Exports)
+- **RULE**: Files marked with `'use server'` (`app/actions/*`) MUST ONLY export `async function`s.
+- **Reason**: Next.js App Router treats `'use server'` files as Remote Procedure Call (RPC) endpoints. Exporting objects, arrays, constants, enums, or synchronous helper functions triggers Next.js compilation/runtime fatal error: `A "use server" file can only export async functions, found object`.
+- **Enforcement**: Place all domain constants (e.g. `VALID_LAB_STATUSES`), types, and synchronous validators in non-`'use server'` files inside `lib/` (e.g. `lib/lab-status.ts`). In server actions, only import them internally or re-export them strictly as TypeScript types (`export type { ... }`).
+- **React `cache` in Server Actions**: Do NOT wrap server action exports in `cache(...)` from `'react'`. React's `cache` is designed for Server Components, not Server Action RPC endpoints. Use explicit in-memory maps or Next.js `revalidatePath` / `unstable_cache`.
+
+### 14. Lab Facility Status Lifecycle & Server-Side Enforcement
+- **Allowed Statuses**: `'Operational' | 'Under Maintenance' | 'Inactive'` (validated by database constraint `labs_status_check`).
+- **Derived Active Lifecycle**: `is_active` must always be derived from status: `is_active = (status === 'Operational')`.
+- **UI State**: When a lab is `Under Maintenance`, UI must display an amber badge with a `<Wrench />` icon, and booking buttons must show "Servicing In Progress / Booking Suspended".
+- **Server Guard Requirement**: Client-side disabled buttons are not enough. Server actions (`createSchedule`, `createPracticalLog`) MUST query PostgreSQL directly and reject attempts to book or log practicals for labs marked `Under Maintenance` or `Inactive`.
+
+### 15. Incident Category Referential Integrity
+- **Protection**: Deleting an incident category must check if past incident records are linked to it.
+- **Soft-Archive**: If referenced by existing records, soft-delete it (`is_active: false`) to preserve historical incident registries and print sheets. Only unreferenced categories may be permanently removed.
+
+

@@ -19,6 +19,7 @@ import { useRoutineState } from '@/hooks/use-routine-state'
 import { useInfrastructureState } from '@/hooks/use-infrastructure-state'
 import { useCalendarSettings } from '@/hooks/use-calendar-settings'
 import { getWeekDates } from '@/lib/master-data'
+import { useLiveSchedule } from '@/hooks/use-live-schedule'
 
 export default function SchedulesPage() {
   const [labFilter, setLabFilter] = useState('all')
@@ -28,8 +29,9 @@ export default function SchedulesPage() {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null)
   const [mounted, setMounted] = useState(false)
 
+  const { now } = useLiveSchedule()
   const { routines, addSession, requestSlotBooking } = useRoutineState()
-  const { faculty: infraFaculty } = useInfrastructureState()
+  const { faculty: infraFaculty, labs: infraLabs } = useInfrastructureState()
   const { startDay } = useCalendarSettings()
 
   // Fetch Current User Profile
@@ -58,10 +60,10 @@ export default function SchedulesPage() {
 
   // Week Dates calculation for header navigation
   const baseDate = useMemo(() => {
-    const d = new Date()
+    const d = new Date(now)
     d.setDate(d.getDate() + weekOffset * 7)
     return d
-  }, [weekOffset])
+  }, [now, weekOffset])
 
   const weekDates = useMemo(() => getWeekDates(baseDate, startDay), [baseDate, startDay])
   const startDayInfo = weekDates[0]
@@ -103,54 +105,30 @@ export default function SchedulesPage() {
             >
               All Labs
             </button>
-            <button
-              type="button"
-              onClick={() => setLabFilter('comp')}
-              className={`px-2 py-1 rounded-md transition-all flex items-center gap-1 text-[11px] ${
-                labFilter === 'comp'
-                  ? 'bg-white dark:bg-zinc-900 text-indigo-600 dark:text-indigo-400 font-bold shadow-xs'
-                  : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
-              }`}
-            >
-              <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
-              <span>Computer</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setLabFilter('phys')}
-              className={`px-2 py-1 rounded-md transition-all flex items-center gap-1 text-[11px] ${
-                labFilter === 'phys'
-                  ? 'bg-white dark:bg-zinc-900 text-cyan-600 dark:text-cyan-400 font-bold shadow-xs'
-                  : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
-              }`}
-            >
-              <span className="h-1.5 w-1.5 rounded-full bg-cyan-500" />
-              <span>Physics</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setLabFilter('chem')}
-              className={`px-2 py-1 rounded-md transition-all flex items-center gap-1 text-[11px] ${
-                labFilter === 'chem'
-                  ? 'bg-white dark:bg-zinc-900 text-rose-600 dark:text-rose-400 font-bold shadow-xs'
-                  : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
-              }`}
-            >
-              <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
-              <span>Chemistry</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setLabFilter('bio')}
-              className={`px-2 py-1 rounded-md transition-all flex items-center gap-1 text-[11px] ${
-                labFilter === 'bio'
-                  ? 'bg-white dark:bg-zinc-900 text-emerald-600 dark:text-emerald-400 font-bold shadow-xs'
-                  : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
-              }`}
-            >
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-              <span>Biology</span>
-            </button>
+            {((infraLabs && infraLabs.length > 0) ? infraLabs : [
+              { id: 'comp', name: 'Computer' },
+              { id: 'phys', name: 'Physics' },
+              { id: 'chem', name: 'Chemistry' },
+              { id: 'bio', name: 'Biology' },
+            ]).map((l: any) => {
+              const shortName = l.name.replace(/\s+(Laboratory|Lab).*$/i, '')
+              const isActive = labFilter === l.id
+              return (
+                <button
+                  key={l.id}
+                  type="button"
+                  onClick={() => setLabFilter(l.id)}
+                  className={`px-2 py-1 rounded-md transition-all flex items-center gap-1 text-[11px] ${
+                    isActive
+                      ? 'bg-white dark:bg-zinc-900 text-indigo-600 dark:text-indigo-400 font-bold shadow-xs'
+                      : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
+                  }`}
+                >
+                  <span className={`h-1.5 w-1.5 rounded-full ${isActive ? 'bg-indigo-500' : 'bg-zinc-400'}`} />
+                  <span>{shortName}</span>
+                </button>
+              )
+            })}
           </div>
 
           {/* 1. Subject Teacher Filter */}

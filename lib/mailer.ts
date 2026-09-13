@@ -422,7 +422,7 @@ export async function sendIncidentAlertEmail(params: {
       <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-bottom: 24px;">
         <table style="width: 100%; font-size: 13px; line-height: 1.6;">
           <tr>
-            <td style="color: #64748b; font-weight: 600; width: 140px;">Apparatus / Item:</td>
+            <td style="color: #64748b; font-weight: 600; width: 140px;">Equipment / Item:</td>
             <td style="color: #0f172a; font-weight: 700;">${incident.equipmentName}</td>
           </tr>
           <tr>

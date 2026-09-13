@@ -219,7 +219,7 @@ export default function DailyLogSheetView({
                             {log.skip_reason || 'Class rescheduled / postponed'}
                           </span>
                         ) : (
-                          log.remarks || 'Completed as scheduled. Apparatus in good condition.'
+                          log.remarks || 'Completed as scheduled. Equipment verified in good condition.'
                         )}
                       </td>
                     </tr>
