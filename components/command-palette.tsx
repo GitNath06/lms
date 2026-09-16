@@ -108,12 +108,12 @@ export default function CommandPalette() {
             </div>
 
             <button
-              onClick={() => handleSelect(() => router.push('/logs/new'))}
+              onClick={() => handleSelect(() => router.push('/records/new'))}
               className="w-full px-3 py-2 rounded-lg flex items-center justify-between text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 transition-colors group text-left"
             >
               <div className="flex items-center gap-2.5">
                 <Plus className="h-3.5 w-3.5 text-zinc-500" />
-                <span>LOG // Record New Session</span>
+                <span>Record New Practical Session</span>
               </div>
               <ArrowRight className="h-3 w-3 text-zinc-400 opacity-0 group-hover:opacity-100 transition-opacity" />
             </button>

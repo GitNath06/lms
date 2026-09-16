@@ -68,7 +68,7 @@ export async function addAcademicHoliday(
       description: holiday.description || null,
       practicals_suspended: true,
       is_national: holiday.type === 'state' || holiday.type === 'cultural',
-    })
+    }, { onConflict: 'date_start,title' })
 
     if (error) {
       console.error('❌ Failed to insert academic holiday:', error)

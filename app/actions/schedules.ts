@@ -4,6 +4,10 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { Database } from '@/types/database'
 import { isSupabaseConfigured } from '@/lib/supabase/config'
+import { recordAuditEvent } from '@/lib/audit'
+import { getPgPool } from '@/lib/db'
+import { MASTER_ROUTINE } from '@/lib/master-data'
+import { parseSlotTimeRange } from '@/lib/utils'
 
 type ScheduleInsert = Database['public']['Tables']['schedules']['Insert']
 type LabRow = Database['public']['Tables']['labs']['Row']
@@ -67,8 +71,8 @@ export async function getSchedules(filters?: { dayKey?: string; labId?: string }
       .from('schedules')
       .select(`
         *,
-        labs (id, name, type),
-        profiles (id, full_name, department)
+        labs (id, name, code, type),
+        profiles (id, full_name)
       `)
       .order('start_time', { ascending: true })
 
@@ -134,6 +138,33 @@ export async function createSchedule(data: {
       }
     }
 
+    const secondaryLabId = data.metadata?.secondary_lab_id || data.metadata?.secondaryLabKey
+    if (secondaryLabId) {
+      if (secondaryLabId === data.lab_id) {
+        return {
+          error: 'Booking Rejected: Primary and secondary laboratories cannot be the same facility.',
+        }
+      }
+      const { data: secLab } = await (supabase
+        .from('labs') as any)
+        .select('id, name, status, is_active')
+        .eq('id', secondaryLabId)
+        .maybeSingle()
+
+      if (secLab) {
+        if (secLab.status === 'Under Maintenance') {
+          return {
+            error: `Booking Rejected: Secondary laboratory "${secLab.name || secondaryLabId}" is currently Under Maintenance and cannot be booked for practical sessions.`,
+          }
+        }
+        if (!secLab.is_active || secLab.status === 'Inactive') {
+          return {
+            error: `Booking Rejected: Secondary laboratory "${secLab.name || secondaryLabId}" is currently Inactive / Decommissioned.`,
+          }
+        }
+      }
+    }
+
     // 3-Way Multi-Period Span Conflict Detection (Room, Teacher, Batch)
     const targetRange = getSlotRange(data.slot_id, data.span || 1)
 
@@ -147,10 +178,14 @@ export async function createSchedule(data: {
     for (const existing of activeDaySchedules) {
       const existRange = getSlotRange(existing.slot_id || 't1', existing.span || 1)
       if (rangesOverlap(targetRange, existRange)) {
-        // 1. Room / Facility Collision
-        if (existing.lab_id === data.lab_id) {
+        const existSecLabId = existing.metadata?.secondary_lab_id || existing.metadata?.secondaryLabKey
+        // 1. Room / Facility Collision (Primary or Secondary lab)
+        const primaryCollides = existing.lab_id === data.lab_id || existSecLabId === data.lab_id
+        const secondaryCollides = secondaryLabId && (existing.lab_id === secondaryLabId || existSecLabId === secondaryLabId)
+        if (primaryCollides || secondaryCollides) {
+          const conflictingLab = primaryCollides ? data.lab_id : secondaryLabId
           return {
-            error: `Facility Collision: This lab room is already reserved for "${existing.subject_name}" (${existing.batch_name}) during Period ${existing.slot_id?.toUpperCase() || ''}.`,
+            error: `Facility Collision: Laboratory (${conflictingLab}) is already reserved for "${existing.subject_name}" (${existing.batch_name}) during Period ${existing.slot_id?.toUpperCase() || ''}.`,
           }
         }
         // 2. Faculty / Teacher Collision
@@ -230,6 +265,27 @@ export async function createSchedule(data: {
 
     revalidatePath('/schedules')
     revalidatePath('/')
+
+    await recordAuditEvent({
+      action: 'CREATE',
+      entityType: 'schedule',
+      entityId: newSchedule?.id || data.slot_id,
+      entityLabel: `${data.subject_name} (${data.batch_name}) • ${data.day_key.toUpperCase()} ${data.slot_id.toUpperCase()}`,
+      after: {
+        lab_id: data.lab_id,
+        teacher_id: data.teacher_id,
+        subject_name: data.subject_name,
+        batch_name: data.batch_name,
+        day_key: data.day_key,
+        slot_id: data.slot_id,
+        start_time: data.start_time,
+        end_time: data.end_time,
+        is_multi_lab: Boolean(data.metadata?.is_multi_lab || data.metadata?.secondary_lab_id),
+        secondary_lab_id: data.metadata?.secondary_lab_id || null,
+      },
+      metadata: { operation: 'create_schedule_slot' },
+    })
+
     return { success: true, schedule: newSchedule }
   } catch (e) {
     return { success: true }
@@ -298,6 +354,24 @@ export async function mergeSchedules(
 
         // Delete/archive secondary slot
         await supabase.from('schedules').delete().eq('id', nextScheduleId)
+
+        await recordAuditEvent({
+          action: 'UPDATE',
+          entityType: 'schedule',
+          entityId: scheduleId,
+          entityLabel: `Merged Slot: ${mergedData?.subject_name || primaryObj.subject_name}`,
+          before: {
+            is_merged: false,
+            span: primaryObj.span || 1,
+            subject_name: primaryObj.subject_name,
+          },
+          after: {
+            is_merged: true,
+            span: combinedSpan,
+            subject_name: mergedData?.subject_name || `${primaryObj.subject_name} + ${secondaryObj.subject_name}`,
+          },
+          metadata: { operation: 'merge_schedules', nextScheduleId },
+        })
       }
     } else {
       // Extend single slot
@@ -309,6 +383,16 @@ export async function mergeSchedules(
           span: newSpan,
         })
         .eq('id', scheduleId)
+
+      await recordAuditEvent({
+        action: 'UPDATE',
+        entityType: 'schedule',
+        entityId: scheduleId,
+        entityLabel: `Extended Duration: ${primaryObj.subject_name}`,
+        before: { span: primaryObj.span || 1 },
+        after: { span: newSpan },
+        metadata: { operation: 'extend_schedule_span' },
+      })
     }
 
     revalidatePath('/schedules')
@@ -346,6 +430,16 @@ export async function unmergeSchedule(scheduleId: string) {
       })
       .eq('id', scheduleId)
 
+    await recordAuditEvent({
+      action: 'UPDATE',
+      entityType: 'schedule',
+      entityId: scheduleId,
+      entityLabel: `Split / Unmerged: ${(schedule as any).subject_name}`,
+      before: { is_merged: true, span: (schedule as any).span || 2 },
+      after: { is_merged: false, span: 1 },
+      metadata: { operation: 'unmerge_schedule' },
+    })
+
     revalidatePath('/schedules')
     revalidatePath('/')
     return { success: true }
@@ -355,7 +449,191 @@ export async function unmergeSchedule(scheduleId: string) {
 }
 
 // 6. Delete / Cancel Schedule
-export async function deleteSchedule(scheduleId: string) {
+export async function deleteSchedule(scheduleId: string): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured()) {
+    revalidatePath('/schedules')
+    revalidatePath('/admin')
+    revalidatePath('/')
+    return { success: true }
+  }
+
+  try {
+    const supabase = await createClient()
+
+    // 1. Fetch pre-state for audit record
+    const { data: beforeData } = await (supabase.from('schedules') as any)
+      .select('*')
+      .eq('id', scheduleId)
+      .maybeSingle()
+
+    // 2. Perform DB deletion
+    const { error, count } = await (supabase.from('schedules') as any)
+      .delete({ count: 'exact' })
+      .eq('id', scheduleId)
+
+    if (error) {
+      console.error('[DATABASE ERROR] Delete schedule failed:', error)
+      return { success: false, error: error.message }
+    }
+
+    if (count === 0) {
+      console.warn('[DATABASE WARNING] No row was deleted from public.schedules for ID:', scheduleId)
+    }
+
+    revalidatePath('/schedules')
+    revalidatePath('/admin')
+    revalidatePath('/')
+
+    // 3. Record DELETE audit event
+    await recordAuditEvent({
+      action: 'DELETE',
+      entityType: 'schedule',
+      entityId: scheduleId,
+      entityLabel: beforeData?.subject_name
+        ? `${beforeData.subject_name} • ${(beforeData.day_key || '').toUpperCase()}`
+        : `Timetable Slot #${scheduleId}`,
+      before: beforeData || { schedule_id: scheduleId },
+      metadata: { operation: 'delete_schedule_slot' },
+    })
+
+    return { success: true }
+  } catch (e: any) {
+    console.error('[DATABASE ERROR] Delete schedule exception:', e)
+    return { success: false, error: e?.message || 'Failed to delete schedule' }
+  }
+}
+
+// 6b. Reset Schedules to Authoritative Master Routine
+export async function resetSchedulesToMaster(): Promise<{ success: boolean; count?: number; error?: string }> {
+  try {
+    const pool = getPgPool()
+    const client = await pool.connect()
+
+    try {
+      await client.query('BEGIN')
+
+      // Ensure all 5 standard labs exist in public.labs
+      const standardLabs = [
+        { id: 'comp', name: 'Computer Engineering Lab 01', code: 'LAB-COMP-01', type: 'computer_lab', capacity: 40 },
+        { id: 'phys', name: 'Physics Laboratory', code: 'LAB-PHYS-01', type: 'physics_lab', capacity: 38 },
+        { id: 'chem', name: 'Chemistry Laboratory', code: 'LAB-CHEM-01', type: 'chemistry_lab', capacity: 40 },
+        { id: 'bio', name: 'Biology & Life Sciences Lab', code: 'LAB-BIO-01', type: 'biology_lab', capacity: 35 },
+        { id: 'elec', name: 'Electronics & Hardware Lab', code: 'LAB-ELEC-01', type: 'electronics_lab', capacity: 30 },
+      ]
+      for (const lab of standardLabs) {
+        await client.query(`
+          INSERT INTO public.labs (id, name, code, type, capacity, status, is_active)
+          VALUES ($1, $2, $3, $4, $5, 'Operational', true)
+          ON CONFLICT (id) DO NOTHING;
+        `, [lab.id, lab.name, lab.code, lab.type, lab.capacity])
+      }
+
+      // Clear existing schedules table
+      await client.query('DELETE FROM public.schedules;')
+
+      // Re-seed all items from MASTER_ROUTINE
+      for (const item of MASTER_ROUTINE) {
+        const { startTime, endTime } = parseSlotTimeRange(item.timeSlot)
+        const labId =
+          item.labKey === 'comp'
+            ? 'comp'
+            : item.labKey === 'phys'
+            ? 'phys'
+            : item.labKey === 'chem'
+            ? 'chem'
+            : item.labKey === 'bio'
+            ? 'bio'
+            : 'elec'
+
+        const subjectName = `${item.subjectCode} - ${item.subjectTitle}`
+        const batchName = item.grade || 'Class 12'
+        const span = item.span || 1
+        const isMerged = Boolean(item.mergedParts && item.mergedParts.length > 0)
+        const status = item.status || 'scheduled'
+        const metadata = {
+          teacher: item.teacher,
+          labName: item.lab,
+          studentsCount: item.defaultStudents,
+          category: item.category,
+          dotColor: item.dotColor,
+          badgeColor: item.badgeColor,
+          accentColor: item.accentColor,
+          secondaryLab: item.secondaryLab,
+          secondaryLabKey: item.secondaryLabKey,
+          isDualLab: item.isDualLab,
+          coTeacher: item.coTeacher,
+          mergedParts: item.mergedParts,
+        }
+
+        await client.query(`
+          INSERT INTO public.schedules (
+            id, lab_id, subject_name, batch_name, start_time, end_time, slot_id, day_key, span, is_merged, status, metadata
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12);
+        `, [
+          item.id,
+          labId,
+          subjectName,
+          batchName,
+          startTime,
+          endTime,
+          item.slotId,
+          item.dayKey,
+          span,
+          isMerged,
+          status,
+          JSON.stringify(metadata),
+        ])
+      }
+
+      await client.query('COMMIT')
+    } catch (err) {
+      await client.query('ROLLBACK')
+      throw err
+    } finally {
+      client.release()
+    }
+
+    await recordAuditEvent({
+      action: 'UPDATE',
+      entityType: 'policy',
+      entityId: 'master_routine_reset',
+      entityLabel: 'Master Timetable Schedule Reset',
+      before: { status: 'custom_modified' },
+      after: { status: 'restored_to_master_baseline', total_routines: MASTER_ROUTINE.length },
+      metadata: { operation: 'reset_schedules_to_master' },
+    })
+
+    revalidatePath('/schedules')
+    revalidatePath('/admin')
+    revalidatePath('/')
+
+    return { success: true, count: MASTER_ROUTINE.length }
+  } catch (err: any) {
+    console.error('[DATABASE ERROR] Reset schedules to master failed:', err)
+    return { success: false, error: err?.message || 'Failed to reset schedules.' }
+  }
+}
+
+/**
+ * Update an existing scheduled slot in PostgreSQL.
+ * Fetches pre-state, applies changes, and records UPDATE audit event with structured diff.
+ */
+export async function updateSchedule(
+  scheduleId: string,
+  data: {
+    lab_id?: string
+    teacher_id?: string | null
+    subject_name?: string
+    batch_name?: string
+    day_key?: string
+    slot_id?: string
+    span?: number
+    start_time?: string
+    end_time?: string
+    status?: 'confirmed' | 'requested' | 'skipped' | 'scheduled'
+    metadata?: any
+  }
+): Promise<{ success: boolean; schedule?: any; error?: string }> {
   if (!isSupabaseConfigured()) {
     revalidatePath('/schedules')
     revalidatePath('/')
@@ -365,18 +643,94 @@ export async function deleteSchedule(scheduleId: string) {
   try {
     const supabase = await createClient()
 
-    const { error } = await supabase
-      .from('schedules')
-      .delete()
+    // 1. Fetch before state
+    const { data: beforeSchedule } = await (supabase
+      .from('schedules') as any)
+      .select('*')
       .eq('id', scheduleId)
+      .maybeSingle()
 
-    if (error) return { error: error.message }
+    // 2. Perform DB update
+    const updatePayload: any = {}
+    if (data.lab_id !== undefined) updatePayload.lab_id = data.lab_id
+    if (data.teacher_id !== undefined) updatePayload.teacher_id = data.teacher_id
+    if (data.subject_name !== undefined) updatePayload.subject_name = data.subject_name
+    if (data.batch_name !== undefined) updatePayload.batch_name = data.batch_name
+    if (data.day_key !== undefined) updatePayload.day_key = data.day_key
+    if (data.slot_id !== undefined) updatePayload.slot_id = data.slot_id
+    if (data.span !== undefined) updatePayload.span = data.span
+    if (data.start_time !== undefined) updatePayload.start_time = data.start_time
+    if (data.end_time !== undefined) updatePayload.end_time = data.end_time
+    if (data.status !== undefined) updatePayload.status = data.status
+    if (data.metadata !== undefined) updatePayload.metadata = data.metadata
+
+    let { data: updatedSchedule, error } = await (supabase
+      .from('schedules') as any)
+      .update(updatePayload)
+      .eq('id', scheduleId)
+      .select()
+      .maybeSingle()
+
+    // 🛡️ Fallback: If slot was a default preset not yet saved to PostgreSQL, upsert it!
+    if (!beforeSchedule && !updatedSchedule && !error) {
+      const upsertPayload = {
+        id: scheduleId,
+        lab_id: data.lab_id || 'comp',
+        teacher_id: data.teacher_id || null,
+        subject_name: data.subject_name || 'Practical Session',
+        batch_name: data.batch_name || 'Class 12',
+        day_key: data.day_key || 'sun',
+        slot_id: data.slot_id || 't1',
+        span: data.span || 1,
+        start_time: data.start_time || '10:10',
+        end_time: data.end_time || '11:00',
+        status: data.status || 'scheduled',
+        metadata: data.metadata || {},
+      }
+      const upsertRes = await (supabase
+        .from('schedules') as any)
+        .upsert(upsertPayload)
+        .select()
+        .maybeSingle()
+
+      if (!upsertRes.error && upsertRes.data) {
+        updatedSchedule = upsertRes.data
+      }
+    }
+
+    if (error) {
+      console.error('[LMR] Error updating schedule:', error)
+      return { success: false, error: error.message }
+    }
+
+    const safeBefore = beforeSchedule || {
+      id: scheduleId,
+      subject_name: data.subject_name ? 'Default Timetable Slot' : 'Practical Session',
+      slot_id: data.slot_id || 't1',
+      day_key: data.day_key || 'sun',
+    }
+    const safeAfter = updatedSchedule || {
+      ...safeBefore,
+      ...updatePayload,
+    }
+
+    // 3. Record UPDATE audit event with structured diff
+    await recordAuditEvent({
+      action: 'UPDATE',
+      entityType: 'schedule',
+      entityId: scheduleId,
+      entityLabel: `${data.subject_name || safeBefore?.subject_name || 'Timetable Slot'} • ${(data.day_key || safeBefore?.day_key || '').toUpperCase()}`,
+      before: safeBefore,
+      after: safeAfter,
+      metadata: { operation: 'update_schedule_slot' },
+    })
 
     revalidatePath('/schedules')
     revalidatePath('/')
-    return { success: true }
-  } catch (e) {
-    return { success: true }
+    return { success: true, schedule: updatedSchedule }
+  } catch (e: any) {
+    console.error('Failed to update schedule:', e)
+    return { success: false, error: e?.message || 'Failed to update schedule' }
   }
 }
 
@@ -421,6 +775,25 @@ export async function updateScheduleStatus(scheduleId: string, data: {
     if (error) return { error: error.message }
 
     const subjectName = (existing as any)?.subject_name || 'Practical Session'
+
+    // Record UPDATE audit event for status change
+    await recordAuditEvent({
+      action: 'UPDATE',
+      entityType: 'schedule',
+      entityId: scheduleId,
+      entityLabel: `${subjectName} (${data.status.toUpperCase()})`,
+      before: {
+        status: (existing as any)?.status || 'scheduled',
+        is_skipped: currentMeta.is_skipped || false,
+      },
+      after: {
+        status: data.status,
+        is_skipped: updatedMeta.is_skipped,
+        ...(data.skipped_reason ? { skipped_reason: data.skipped_reason } : {}),
+        ...(data.decline_reason ? { decline_reason: data.decline_reason } : {}),
+      },
+      metadata: { operation: 'update_schedule_status' },
+    })
 
     // If declined with reason, notify the teacher
     if (data.status === 'skipped' && data.decline_reason && currentMeta.teacher) {

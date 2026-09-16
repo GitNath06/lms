@@ -114,7 +114,7 @@ export default function UserAccessManager({
 
   const requireEditMode = (): boolean => {
     if (!isEditModeUnlocked) {
-      triggerToast('🔒 Precaution Guard: Unlock "Admin Edit Mode" at the top to modify staff accounts.')
+      triggerToast('🔒 Precaution Active: Unlock the "Precaution Active" switch in the header to modify or delete staff accounts.')
       return false
     }
     return true
@@ -371,7 +371,6 @@ export default function UserAccessManager({
 
         <Button
           size="sm"
-          disabled={!isEditModeUnlocked}
           onClick={() => setIsAddUserOpen(true)}
           className="bg-indigo-600 hover:bg-indigo-700 text-white font-sans text-xs font-semibold gap-1.5 shadow-xs shrink-0 cursor-pointer"
         >
@@ -471,17 +470,7 @@ export default function UserAccessManager({
                       {/* Name & Email */}
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-3">
-                          <div
-                            className={`h-9 w-9 rounded-xl flex items-center justify-center text-xs font-bold shrink-0 ${
-                              isSuperAdmin
-                                ? 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200 border border-amber-300'
-                                : isIncharge
-                                ? 'bg-indigo-100 text-indigo-900 dark:bg-indigo-950 dark:text-indigo-200 border border-indigo-300'
-                                : isHOD
-                                ? 'bg-rose-100 text-rose-900 dark:bg-rose-950 dark:text-rose-200 border border-rose-300'
-                                : 'bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200 border border-emerald-300'
-                            }`}
-                          >
+                          <div className="h-8.5 w-8.5 rounded-xl flex items-center justify-center text-xs font-bold shrink-0 bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200/80 dark:border-zinc-700/80">
                             {initials}
                           </div>
                           <div>
@@ -498,28 +487,21 @@ export default function UserAccessManager({
                       {/* Phone */}
                       <td className="py-3 px-4">
                         {u.phone ? (
-                          <span className="flex items-center gap-1.5 font-mono text-zinc-800 dark:text-zinc-200 font-medium text-xs">
+                          <span className="flex items-center gap-1.5 font-mono text-zinc-700 dark:text-zinc-300 font-medium text-xs">
                             <Phone className="h-3 w-3 text-zinc-400" />
                             {u.phone}
                           </span>
                         ) : (
-                          <span className="text-zinc-400 text-xs italic">Not Provided</span>
+                          <span className="text-zinc-400 dark:text-zinc-500 font-mono text-xs">—</span>
                         )}
                       </td>
 
-                      {/* Role Badge */}
+                      {/* Role Badge - Pure Category Semantic (Neutral) */}
                       <td className="py-3 px-4">
-                        <span
-                          className={`px-2.5 py-1 rounded-lg text-[10.5px] font-bold uppercase tracking-wider ${
-                            isSuperAdmin
-                              ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30'
-                              : isIncharge
-                              ? 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30'
-                              : isHOD
-                              ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30'
-                              : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
-                          }`}
-                        >
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-[11px] font-medium bg-zinc-100 dark:bg-zinc-800/80 text-zinc-700 dark:text-zinc-300 border border-zinc-200/80 dark:border-zinc-700/80">
+                          {isSuperAdmin && (
+                            <Shield className="h-3 w-3 mr-1 text-zinc-500 shrink-0" />
+                          )}
                           {u.role === 'super_admin'
                             ? 'Super Admin'
                             : u.role === 'lab_incharge'
@@ -602,8 +584,7 @@ export default function UserAccessManager({
                               {/* Edit Credentials */}
                               <Button
                                 size="sm"
-                                variant="outline"
-                                disabled={!isEditModeUnlocked}
+                                variant="ghost"
                                 onClick={() => {
                                   setEditingUser(u)
                                   setEditFullName(u.full_name)
@@ -612,40 +593,49 @@ export default function UserAccessManager({
                                   setEditRole(u.role)
                                   setEditPassword('')
                                 }}
-                                className="h-7 px-2.5 text-xs gap-1 cursor-pointer font-medium"
-                                title="Edit Password & Credentials"
+                                className="h-7 w-7 p-0 text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
+                                title="Edit Credentials & Password"
                               >
-                                <Key className="h-3 w-3" />
-                                <span>Edit</span>
+                                <Key className="h-3.5 w-3.5" />
                               </Button>
 
                               {/* Permissions Matrix */}
                               <Button
                                 size="sm"
-                                variant="outline"
-                                disabled={!isEditModeUnlocked}
+                                variant="ghost"
                                 onClick={() => {
                                   setPermissionUser(u)
                                   setActivePerms(u.custom_permissions || DEFAULT_ROLE_PERMISSIONS[u.role] || {})
                                 }}
-                                className="h-7 px-2.5 text-xs gap-1 cursor-pointer font-medium"
-                                title="Customize feature permissions"
+                                className="h-7 w-7 p-0 text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
+                                title="Customize Feature Permissions"
                               >
-                                <Sliders className="h-3 w-3" />
-                                <span>Perms</span>
+                                <Sliders className="h-3.5 w-3.5" />
                               </Button>
 
-                              {/* Delete Account */}
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                disabled={!isEditModeUnlocked || u.role === 'super_admin'}
-                                onClick={() => setUserToDelete(u)}
-                                className="h-7 px-2 text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 border-rose-200 dark:border-rose-900/50 cursor-pointer"
-                                title="Delete staff account"
+                              {/* Delete Account (Native disabled + tooltip wrapping) */}
+                              <span
+                                title={
+                                  !isEditModeUnlocked
+                                    ? 'Unlock edit mode to delete accounts'
+                                    : u.role === 'super_admin'
+                                    ? 'Super Admin accounts cannot be deleted'
+                                    : 'Delete staff account'
+                                }
                               >
-                                <Trash2 className="h-3 w-3" />
-                              </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  disabled={!isEditModeUnlocked || u.role === 'super_admin'}
+                                  onClick={() => {
+                                    if (!isEditModeUnlocked) return
+                                    setUserToDelete(u)
+                                  }}
+                                  className="h-7 w-7 p-0 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </span>
                             </>
                           )}
                         </div>

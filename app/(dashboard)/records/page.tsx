@@ -124,10 +124,10 @@ export default function PracticalRecordsPage() {
         breadcrumbs={[{ label: 'Practical Records' }]}
         actions={
           <div className="flex items-center gap-2 flex-wrap">
-            <Link href="/logs/new">
+            <Link href="/records/new">
               <Button
                 size="sm"
-                className="h-9 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-mono text-xs font-semibold gap-1.5 shadow-xs border border-emerald-500/30 cursor-pointer"
+                className="h-9 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-sans text-xs font-semibold gap-1.5 shadow-xs border border-emerald-500/30 cursor-pointer"
               >
                 <Plus className="h-4 w-4" />
                 <span>Record Practical</span>

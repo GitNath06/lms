@@ -208,7 +208,7 @@ export default function EmailNotificationManager() {
           <CardContent className="p-4 space-y-1.5">
             <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400">
               <span>SMTP Connection</span>
-              <Mail className="h-4 w-4 text-indigo-500" />
+              <Mail className="h-4 w-4 text-zinc-400 dark:text-zinc-500" />
             </div>
             <div className="flex items-center gap-2">
               <span className="text-xl font-heading font-extrabold text-zinc-950 dark:text-white">
@@ -226,13 +226,13 @@ export default function EmailNotificationManager() {
           <CardContent className="p-4 space-y-1.5">
             <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400">
               <span>Scheduled Cron</span>
-              <Clock className="h-4 w-4 text-cyan-500" />
+              <Clock className="h-4 w-4 text-zinc-400 dark:text-zinc-500" />
             </div>
             <div className="flex items-center gap-2">
               <span className="text-xl font-heading font-extrabold text-zinc-950 dark:text-white">
                 07:00 NPT
               </span>
-              <Badge variant="outline" className="text-[10px] font-mono border-cyan-500/30 text-cyan-600 dark:text-cyan-400">
+              <Badge variant="outline" className="text-[10px] font-mono border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400">
                 Daily Sun-Fri
               </Badge>
             </div>
@@ -246,7 +246,7 @@ export default function EmailNotificationManager() {
           <CardContent className="p-4 space-y-1.5">
             <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400">
               <span>Today’s Dispatches</span>
-              <Send className="h-4 w-4 text-emerald-500" />
+              <Send className="h-4 w-4 text-zinc-400 dark:text-zinc-500" />
             </div>
             <div className="flex items-baseline gap-2">
               <span className="text-2xl font-heading font-extrabold text-zinc-950 dark:text-white tabular-nums">
@@ -263,17 +263,17 @@ export default function EmailNotificationManager() {
         <Card className="border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 shadow-2xs">
           <CardContent className="p-4 space-y-1.5">
             <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400">
-              <span>Idempotency Shield</span>
-              <ShieldCheck className="h-4 w-4 text-purple-500" />
+              <span>Duplicate Prevention</span>
+              <ShieldCheck className="h-4 w-4 text-zinc-400 dark:text-zinc-500" />
             </div>
             <div className="flex items-baseline gap-2">
               <span className="text-2xl font-heading font-extrabold text-zinc-950 dark:text-white tabular-nums">
                 {status?.totalLogs ?? 0}
               </span>
-              <span className="text-xs text-zinc-500">records in DB</span>
+              <span className="text-xs text-zinc-500">records verified</span>
             </div>
             <p className="text-[11px] text-zinc-500 font-mono">
-              Unique constraint: (type, email, date)
+              Automated Dispatch Protection: Active
             </p>
           </CardContent>
         </Card>
@@ -318,7 +318,7 @@ export default function EmailNotificationManager() {
           <div className="p-4 rounded-xl border border-zinc-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 flex flex-col justify-between gap-4 shadow-2xs hover:border-zinc-300 dark:hover:border-zinc-700 transition-all">
             <div className="space-y-1.5">
               <div className="flex items-center gap-2">
-                <Calendar className="h-4 w-4 text-indigo-500" />
+                <Calendar className="h-4 w-4 text-zinc-500 dark:text-zinc-400" />
                 <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100 font-mono uppercase tracking-wide">
                   Teacher Schedule Sweep
                 </span>
@@ -353,7 +353,7 @@ export default function EmailNotificationManager() {
           <div className="p-4 rounded-xl border border-zinc-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 flex flex-col justify-between gap-4 shadow-2xs hover:border-zinc-300 dark:hover:border-zinc-700 transition-all">
             <div className="space-y-1.5">
               <div className="flex items-center gap-2">
-                <Wrench className="h-4 w-4 text-amber-500" />
+                <Wrench className="h-4 w-4 text-zinc-500 dark:text-zinc-400" />
                 <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100 font-mono uppercase tracking-wide">
                   Maintenance Overdue Scan
                 </span>
@@ -368,7 +368,7 @@ export default function EmailNotificationManager() {
               size="sm"
               onClick={handleTriggerMaintenanceScan}
               disabled={activeAction === 'maintenance_scan'}
-              className="w-full bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold font-mono h-8.5 rounded-xl cursor-pointer flex items-center justify-center gap-2 shadow-xs"
+              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold font-mono h-8.5 rounded-xl cursor-pointer flex items-center justify-center gap-2 shadow-xs"
             >
               {activeAction === 'maintenance_scan' ? (
                 <>
@@ -388,7 +388,7 @@ export default function EmailNotificationManager() {
           <div className="p-4 rounded-xl border border-zinc-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 flex flex-col justify-between gap-4 shadow-2xs hover:border-zinc-300 dark:hover:border-zinc-700 transition-all">
             <div className="space-y-1.5">
               <div className="flex items-center gap-2">
-                <Palmtree className="h-4 w-4 text-emerald-500" />
+                <Palmtree className="h-4 w-4 text-zinc-500 dark:text-zinc-400" />
                 <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100 font-mono uppercase tracking-wide">
                   Holiday SOP Notice (48h)
                 </span>
@@ -403,7 +403,7 @@ export default function EmailNotificationManager() {
               size="sm"
               onClick={handleTriggerHolidayNotice}
               disabled={activeAction === 'holiday_notice'}
-              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold font-mono h-8.5 rounded-xl cursor-pointer flex items-center justify-center gap-2 shadow-xs"
+              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold font-mono h-8.5 rounded-xl cursor-pointer flex items-center justify-center gap-2 shadow-xs"
             >
               {activeAction === 'holiday_notice' ? (
                 <>

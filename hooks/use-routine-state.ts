@@ -10,9 +10,11 @@ import {
 import {
   getSchedules,
   createSchedule,
+  updateSchedule as updateScheduleAction,
   mergeSchedules as mergeSchedulesAction,
   unmergeSchedule as unmergeScheduleAction,
   deleteSchedule as deleteScheduleAction,
+  resetSchedulesToMaster as resetSchedulesToMasterAction,
   updateScheduleStatus,
 } from '@/app/actions/schedules'
 import { parseSlotTimeRange } from '@/lib/utils'
@@ -20,6 +22,18 @@ import { broadcastSync, subscribeToSync } from '@/lib/sync-bus'
 
 const STORAGE_KEY = 'lab_master_routine_2083_v6'
 const ROUTINE_OUTBOX_KEY = 'lab_pending_schedules_outbox_v1'
+
+export function deduplicateRoutines(items: MasterRoutineItem[]): MasterRoutineItem[] {
+  if (!Array.isArray(items)) return []
+  const seen = new Set<string>()
+  const result: MasterRoutineItem[] = []
+  for (const item of items) {
+    if (!item || !item.id || seen.has(item.id)) continue
+    seen.add(item.id)
+    result.push(item)
+  }
+  return result
+}
 
 // Schedule Outbox Helpers
 function getPendingRoutineOutbox(): MasterRoutineItem[] {
@@ -61,14 +75,14 @@ export function useRoutineState() {
   const [isLoaded, setIsLoaded] = useState(false)
   const isFlushingRef = useRef(false)
 
-  // Load from localStorage on mount (prevents SSR hydration mismatch)
+  // Load from localStorage on mount (preserves user deletions and modifications without phantom resurrection)
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY)
       if (saved) {
         const parsed = JSON.parse(saved)
         if (Array.isArray(parsed) && parsed.length > 0) {
-          setRoutines(parsed)
+          setRoutines(deduplicateRoutines(parsed))
         }
       }
     } catch (e) {}
@@ -116,10 +130,11 @@ export function useRoutineState() {
     }
   }, [])
 
-  // Persist helper (asynchronous dispatch to prevent React setState-in-render collisions)
+  // Persist helper (sanitizes duplicates and dispatches async to prevent React render collisions)
   const persistRoutines = useCallback((updater: MasterRoutineItem[] | ((prev: MasterRoutineItem[]) => MasterRoutineItem[])) => {
     setRoutines((prev) => {
-      const updated = typeof updater === 'function' ? updater(prev) : updater
+      const raw = typeof updater === 'function' ? updater(prev) : updater
+      const updated = deduplicateRoutines(raw)
       try {
         if (typeof window !== 'undefined') {
           localStorage.setItem(STORAGE_KEY, JSON.stringify(updated))
@@ -179,7 +194,8 @@ export function useRoutineState() {
               grade: s.batch_name || 'Class 12',
               gradeKey: 'class-12',
               teacher: s.metadata?.teacher || s.profiles?.full_name || 'Assigned Faculty',
-              lab: s.metadata?.labName || s.labs?.name || 'Laboratory',
+              lab: s.labs?.name || s.metadata?.labName || 'Laboratory',
+              labCode: s.labs?.code || s.metadata?.labCode,
               labKey,
               defaultStudents: s.metadata?.studentsCount || 36,
               category: isComp ? 'Computer' : isPhys ? 'Physics' : isChem ? 'Chemistry' : isBio ? 'Biology' : 'General',
@@ -195,8 +211,20 @@ export function useRoutineState() {
             }
           })
 
-        // Merge: un-synced offline schedules take priority
-        const merged = [...pending, ...mappedRemote]
+        // Remote database schedules ARE the authoritative source of truth.
+        // We initialize with mappedRemote (all active database rows) and layer any pending offline outbox modifications on top.
+        const scheduleMap = new Map<string, MasterRoutineItem>()
+        for (const remoteItem of mappedRemote) {
+          scheduleMap.set(remoteItem.id, remoteItem)
+        }
+        for (const pendingItem of pending) {
+          if ((pendingItem.status as any) === 'deleted') {
+            scheduleMap.delete(pendingItem.id)
+          } else {
+            scheduleMap.set(pendingItem.id, pendingItem)
+          }
+        }
+        const merged = deduplicateRoutines(Array.from(scheduleMap.values()))
         try {
           if (typeof window !== 'undefined') {
             localStorage.setItem(STORAGE_KEY, JSON.stringify(merged))
@@ -210,14 +238,16 @@ export function useRoutineState() {
       console.warn('Using local routine storage:', e)
     }
 
-    // Local fallback
+    // Local fallback: read existing state or seed from MASTER_ROUTINE if completely empty
     try {
       const saved = localStorage.getItem(STORAGE_KEY)
       if (saved) {
         const parsed = JSON.parse(saved)
         if (Array.isArray(parsed) && parsed.length > 0) {
-          setRoutines(parsed)
+          setRoutines(deduplicateRoutines(parsed))
         }
+      } else {
+        setRoutines(MASTER_ROUTINE)
       }
     } catch (e) {} finally {
       setIsLoaded(true)
@@ -243,13 +273,15 @@ export function useRoutineState() {
         const saved = localStorage.getItem(STORAGE_KEY)
         if (saved) {
           const parsed = JSON.parse(saved)
-          setRoutines((prev) => {
-            // Bail out if unchanged to prevent infinite re-render cycles
-            if (prev.length === parsed.length && JSON.stringify(prev) === saved) {
-              return prev
-            }
-            return parsed
-          })
+          if (Array.isArray(parsed)) {
+            const deduped = deduplicateRoutines(parsed)
+            setRoutines((prev) => {
+              if (prev.length === deduped.length && JSON.stringify(prev) === JSON.stringify(deduped)) {
+                return prev
+              }
+              return deduped
+            })
+          }
         }
       } catch (e) {}
     }
@@ -262,11 +294,12 @@ export function useRoutineState() {
     const unsub = subscribeToSync('schedules', (eventData) => {
       const payloadRoutines = eventData?.payload?.routines
       if (payloadRoutines && Array.isArray(payloadRoutines)) {
+        const deduped = deduplicateRoutines(payloadRoutines)
         setRoutines((prev) => {
-          if (prev.length === payloadRoutines.length && JSON.stringify(prev) === JSON.stringify(payloadRoutines)) {
+          if (prev.length === deduped.length && JSON.stringify(prev) === JSON.stringify(deduped)) {
             return prev
           }
-          return payloadRoutines
+          return deduped
         })
       } else {
         handleUpdate()
@@ -282,7 +315,10 @@ export function useRoutineState() {
 
   // Operations backed by Server Actions + Optimistic State + Outbox
   const addSession = async (session: MasterRoutineItem) => {
-    persistRoutines((prev) => [...prev, session])
+    persistRoutines((prev) => {
+      const filtered = prev.filter((r) => r.id !== session.id)
+      return [...filtered, session]
+    })
     addRoutineToOutbox(session)
 
     if (navigator.onLine) {
@@ -316,10 +352,16 @@ export function useRoutineState() {
   const deleteSession = async (sessionId: string) => {
     removeRoutineFromOutbox(sessionId)
     persistRoutines((prev) => prev.filter((r) => r.id !== sessionId))
-    try {
-      await deleteScheduleAction(sessionId)
-    } catch (e) {
-      console.warn('Server sync for deleteSession skipped:', e)
+
+    if (navigator.onLine) {
+      try {
+        const res = await deleteScheduleAction(sessionId)
+        if (res && !res.success) {
+          console.error('[DATABASE ERROR] Failed to delete schedule in database:', res.error)
+        }
+      } catch (e) {
+        console.warn('Server sync for deleteSession failed:', e)
+      }
     }
   }
 
@@ -335,8 +377,6 @@ export function useRoutineState() {
 
     if (navigator.onLine) {
       try {
-        const { createClient } = await import('@/lib/supabase/client')
-        const supabase = createClient()
         const labId =
           updated.labKey === 'comp'
             ? 'comp'
@@ -347,31 +387,34 @@ export function useRoutineState() {
             : updated.labKey === 'bio'
             ? 'bio'
             : 'elec'
-        await (supabase.from('schedules') as any)
-          .update({
-            lab_id: labId,
-            subject_name: `${updated.subjectCode} - ${updated.subjectTitle}`,
-            batch_name: updated.grade,
-            day_key: updated.dayKey,
-            slot_id: updated.slotId,
-            span: updated.span || 1,
-            start_time: parseSlotTimeRange(updated.timeSlot).startTime,
-            end_time: parseSlotTimeRange(updated.timeSlot).endTime,
-            metadata: {
-              teacher: updated.teacher,
-              labName: updated.lab,
-              studentsCount: updated.defaultStudents,
-            },
-          })
-          .eq('id', sessionId)
-        removeRoutineFromOutbox(sessionId)
+
+        const res = await updateScheduleAction(sessionId, {
+          lab_id: labId,
+          subject_name: `${updated.subjectCode} - ${updated.subjectTitle}`,
+          batch_name: updated.grade,
+          day_key: updated.dayKey,
+          slot_id: updated.slotId,
+          span: updated.span || 1,
+          start_time: parseSlotTimeRange(updated.timeSlot).startTime,
+          end_time: parseSlotTimeRange(updated.timeSlot).endTime,
+          metadata: {
+            teacher: updated.teacher,
+            labName: updated.lab,
+            studentsCount: updated.defaultStudents,
+            secondary_lab_id: updated.secondaryLabKey,
+            is_multi_lab: updated.isDualLab,
+          },
+        })
+        if (res && res.success) {
+          removeRoutineFromOutbox(sessionId)
+        }
       } catch (e) {
         console.warn('Network offline, update queued in outbox:', e)
       }
     }
   }
 
-  const extendSession = (sessionId: string, additionalSpan: number = 1) => {
+  const extendSession = async (sessionId: string, additionalSpan: number = 1) => {
     const current = routines.find((r) => r.id === sessionId)
     if (!current) return
     const newSpan = (current.span || 1) + additionalSpan
@@ -383,6 +426,19 @@ export function useRoutineState() {
     }
     persistRoutines((prev) => prev.map((r) => (r.id === sessionId ? updated : r)))
     addRoutineToOutbox(updated)
+
+    if (navigator.onLine) {
+      try {
+        await updateScheduleAction(sessionId, {
+          span: newSpan,
+          start_time: parseSlotTimeRange(newTimeSlot).startTime,
+          end_time: parseSlotTimeRange(newTimeSlot).endTime,
+        })
+        removeRoutineFromOutbox(sessionId)
+      } catch (e) {
+        console.warn('Server sync for extendSession skipped:', e)
+      }
+    }
   }
 
   const mergeSession = async (
@@ -591,7 +647,10 @@ export function useRoutineState() {
       isSkipped: false,
       requestedBy,
     }
-    persistRoutines((prev) => [...prev, requestedSession])
+    persistRoutines((prev) => {
+      const filtered = prev.filter((r) => r.id !== requestedSession.id)
+      return [...filtered, requestedSession]
+    })
     addRoutineToOutbox(requestedSession)
 
     if (navigator.onLine) {
@@ -687,12 +746,17 @@ export function useRoutineState() {
     }
   }
 
-  const resetToMaster = () => {
+  const resetToMaster = async () => {
     if (typeof window !== 'undefined') {
       localStorage.removeItem(ROUTINE_OUTBOX_KEY)
       savePendingRoutineOutbox([])
     }
     persistRoutines(MASTER_ROUTINE)
+    try {
+      await resetSchedulesToMasterAction()
+    } catch (e) {
+      console.warn('Failed to reset remote database to master:', e)
+    }
   }
 
   return {

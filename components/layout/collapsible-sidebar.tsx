@@ -206,9 +206,9 @@ export default function CollapsibleSidebar({
               item.href === '/'
                 ? pathname === '/'
                 : item.href === '/records'
-                ? pathname === '/records' || pathname === '/logs'
+                ? pathname.startsWith('/records') && !pathname.startsWith('/records/incidents')
                 : item.href === '/records/incidents'
-                ? pathname === '/records/incidents' || pathname === '/incidents'
+                ? pathname.startsWith('/records/incidents') || pathname.startsWith('/incidents')
                 : pathname.startsWith(item.href)
 
             return (

@@ -172,8 +172,15 @@ async function migrate() {
 
       CREATE INDEX IF NOT EXISTS idx_academic_holidays_dates 
         ON public.academic_holidays(date_start, date_end);
+
+      -- Deduplicate any existing duplicates before creating unique index
+      DELETE FROM public.academic_holidays a USING public.academic_holidays b
+      WHERE a.ctid < b.ctid AND a.date_start = b.date_start AND a.title = b.title;
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_academic_holidays_date_title
+        ON public.academic_holidays(date_start, title);
     `);
-    console.log('✅ Created public.academic_holidays table & index.');
+    console.log('✅ Created public.academic_holidays table & indexes (including composite unique index).');
 
     // 2. Enable RLS
     await client.query(`
@@ -211,11 +218,9 @@ async function migrate() {
         INSERT INTO public.academic_holidays (
           id, title, name, title_np, date_start, date_end, bs_date_str, holiday_type, description, practicals_suspended, is_national
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-        ON CONFLICT (id) DO UPDATE SET
-          title = EXCLUDED.title,
+        ON CONFLICT (date_start, title) DO UPDATE SET
           name = EXCLUDED.name,
           title_np = EXCLUDED.title_np,
-          date_start = EXCLUDED.date_start,
           date_end = EXCLUDED.date_end,
           bs_date_str = EXCLUDED.bs_date_str,
           holiday_type = EXCLUDED.holiday_type,

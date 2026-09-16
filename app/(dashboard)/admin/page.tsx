@@ -29,6 +29,7 @@ import {
   UserCheck,
   AlertCircle,
   ChevronRight,
+  ChevronDown,
   Fingerprint,
   FileCheck,
   Check,
@@ -44,6 +45,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Select } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { useCalendarSettings } from '@/hooks/use-calendar-settings'
 import {
   useInfrastructureState,
@@ -56,6 +58,7 @@ import {
 } from '@/hooks/use-infrastructure-state'
 import { IncidentCategoriesManager } from '@/components/admin/incident-categories-manager'
 import { updateLabFacility, createLabFacility } from '@/app/actions/labs'
+import { recordClientAuditEvent } from '@/app/actions/audit'
 import dynamic from 'next/dynamic'
 import { HolidayItem } from '@/lib/master-data'
 import { useIncidentState, LabIncidentRecord } from '@/hooks/use-incident-state'
@@ -90,6 +93,11 @@ const EmailNotificationManager = dynamic(() => import('@/components/admin/email-
   loading: () => <div className="h-32 flex items-center justify-center text-xs text-zinc-500 font-medium">Loading Email Notifications Station...</div>,
 })
 
+const InstitutionalAuditManager = dynamic(() => import('@/components/admin/institutional-audit-manager'), {
+  ssr: false,
+  loading: () => <div className="h-32 flex items-center justify-center text-xs text-zinc-500 font-medium">Loading Institutional Audit Ledger...</div>,
+})
+
 async function computeSha256(text: string): Promise<string> {
   if (typeof window === 'undefined' || !window.crypto?.subtle) {
     return 'sha256-precomputed-hash'
@@ -106,8 +114,10 @@ interface DangerModalState {
   title: string
   description: string
   impactMessage: string
-  itemType: 'lab' | 'class' | 'period' | 'subject' | 'faculty' | 'holiday' | 'reset' | 'category' | 'restore'
+  itemType: 'lab' | 'class' | 'period' | 'subject' | 'faculty' | 'holiday' | 'reset' | 'category' | 'restore' | 'policy'
   itemId?: string
+  confirmLabel?: string
+  variant?: 'destructive' | 'indigo' | 'amber'
   requiresTypedConfirmation?: boolean
   typedConfirmationWord?: string
   onConfirm: () => void
@@ -119,10 +129,16 @@ export default function SuperAdminPage() {
   // 4 Categorized Executive Tabs (No horizontal scrolling)
   const [activeCategory, setActiveCategory] = useState<ExecutiveCategory>('identity')
 
+  // Collapsible cohort class groups state
+  const [collapsedGrades, setCollapsedGrades] = useState<Record<string, boolean>>({})
+  const toggleGradeCollapse = (grade: string) => {
+    setCollapsedGrades((prev) => ({ ...prev, [grade]: !prev[grade] }))
+  }
+
   // Sub-tabs for Curriculum, Facilities, Operations
   const [curriculumSubTab, setCurriculumSubTab] = useState<'subjects' | 'periods' | 'classes' | 'routine'>('subjects')
   const [facilitiesSubTab, setFacilitiesSubTab] = useState<'labs' | 'maintenance' | 'categories' | 'incidents'>('labs')
-  const [operationsSubTab, setOperationsSubTab] = useState<'calendar' | 'notifications' | 'recovery'>('calendar')
+  const [operationsSubTab, setOperationsSubTab] = useState<'calendar' | 'notifications' | 'audit' | 'recovery'>('calendar')
 
   const [toastMessage, setToastMessage] = useState<string | null>(null)
 
@@ -331,7 +347,7 @@ export default function SuperAdminPage() {
   }
 
   const requestDangerAction = (config: Omit<DangerModalState, 'isOpen'>) => {
-    if (!requireEditMode()) return
+    if (config.itemType !== 'policy' && !requireEditMode()) return
     setTypedConfirmInput('')
     setDangerModal({
       ...config,
@@ -342,7 +358,7 @@ export default function SuperAdminPage() {
   // --- Handlers: Periods ---
   const handleSavePeriod = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!requireEditMode()) return
+    if (editingPeriod && !requireEditMode()) return
 
     if (editingPeriod) {
       updatePeriod(editingPeriod.id, {
@@ -367,7 +383,7 @@ export default function SuperAdminPage() {
   // --- Handlers: Labs ---
   const handleSaveLab = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!requireEditMode()) return
+    if (editingLab && !requireEditMode()) return
 
     if (editingLab) {
       const labId = editingLab.id
@@ -381,17 +397,6 @@ export default function SuperAdminPage() {
       triggerToast(`Laboratory "${labFormName}" updated (${labFormCapacity} Stations).`)
       setIsAddLabOpen(false)
       setEditingLab(null)
-      try {
-        await updateLabFacility(labId, {
-          name: labFormName,
-          code: labFormCode.toUpperCase(),
-          capacity: labFormCapacity,
-          type: labFormType,
-          status: labFormStatus,
-        })
-      } catch (err) {
-        console.error('Failed to persist lab update:', err)
-      }
     } else {
       const newLab: LabFacilityItem = {
         id: labFormCode.toLowerCase().replace(/[^a-z0-9]/g, '-'),
@@ -404,11 +409,6 @@ export default function SuperAdminPage() {
       addLab(newLab)
       triggerToast(`Laboratory facility "${labFormName}" registered.`)
       setIsAddLabOpen(false)
-      try {
-        await createLabFacility(newLab)
-      } catch (err) {
-        console.error('Failed to persist new lab:', err)
-      }
     }
     setLabFormName('')
     setLabFormCode('')
@@ -417,7 +417,7 @@ export default function SuperAdminPage() {
   // --- Handlers: Classes ---
   const handleSaveClass = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!requireEditMode()) return
+    if (editingClass && !requireEditMode()) return
 
     if (editingClass) {
       updateClass(editingClass.id, {
@@ -447,7 +447,7 @@ export default function SuperAdminPage() {
   // --- Handlers: Subjects ---
   const handleSaveSubject = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!requireEditMode()) return
+    if (editingSubject && !requireEditMode()) return
 
     const labObj = labs.find((l) => l.id === subFormLabId)
     const teacherObj = faculty.find((f) => f.id === subFormTeacherId)
@@ -592,22 +592,22 @@ export default function SuperAdminPage() {
       )}
 
       {/* Header Banner with Safety Mode Toggle */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-zinc-900/80 p-5 rounded-3xl border border-zinc-200/80 dark:border-zinc-800 shadow-xs">
-        <div className="flex items-center gap-3.5">
-          <div className="h-11 w-11 rounded-2xl bg-gradient-to-tr from-amber-500 to-orange-600 text-white flex items-center justify-center shadow-md shadow-amber-500/20 shrink-0">
-            <Shield className="h-5 w-5" />
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-zinc-900/80 p-3.5 sm:p-4 rounded-2xl border border-zinc-200/80 dark:border-zinc-800 shadow-2xs">
+        <div className="flex items-center gap-3">
+          <div className="h-9 w-9 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center border border-indigo-500/20 shrink-0">
+            <Shield className="h-4.5 w-4.5" />
           </div>
           <div>
             <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-base sm:text-lg font-bold text-zinc-950 dark:text-white tracking-tight">
+              <h1 className="text-sm sm:text-base font-bold text-zinc-950 dark:text-white tracking-tight">
                 Super Admin Command Center
               </h1>
-              <span className="px-2.5 py-0.5 rounded-full text-xs font-bold font-mono bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+              <span className="px-2 py-0.5 rounded-full text-[11px] font-bold font-mono bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700">
                 Tier-1 Root
               </span>
             </div>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-              Full institutional governance: authentication, academic curriculum, laboratories & disaster recovery
+              Institutional governance: access credentials, curriculum, facilities & recovery
             </p>
           </div>
         </div>
@@ -617,15 +617,25 @@ export default function SuperAdminPage() {
           <button
             type="button"
             onClick={() => {
+              const prev = isEditModeUnlocked
               const next = !isEditModeUnlocked
               setIsEditModeUnlocked(next)
+              recordClientAuditEvent({
+                action: 'UPDATE',
+                entityType: 'policy',
+                entityId: 'precaution_safety_mode',
+                entityLabel: 'Precaution Active Safety Lock',
+                before: { edit_mode_unlocked: prev, precaution_active: !prev },
+                after: { edit_mode_unlocked: next, precaution_active: !next },
+                metadata: { toggle: 'precaution_active_mode' },
+              }).catch(() => {})
               triggerToast(
                 next
                   ? '🔓 Admin Edit Mode Unlocked: Modifications are now active.'
                   : '🔒 Admin Edit Mode Locked: Infrastructure protected.'
               )
             }}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer shadow-xs border ${
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer shadow-xs border ${
               isEditModeUnlocked
                 ? 'bg-amber-500 text-white border-amber-600 hover:bg-amber-600 shadow-amber-500/20'
                 : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-200 dark:hover:bg-zinc-700'
@@ -633,111 +643,75 @@ export default function SuperAdminPage() {
           >
             {isEditModeUnlocked ? (
               <>
-                <Unlock className="h-4 w-4" />
+                <Unlock className="h-3.5 w-3.5" />
                 <span>Edit Mode: Active</span>
               </>
             ) : (
               <>
-                <Lock className="h-4 w-4" />
-                <span>Unlock Edit Mode</span>
+                <Lock className="h-3.5 w-3.5 text-zinc-500" />
+                <span>Precaution Active</span>
               </>
             )}
           </button>
         </div>
       </div>
 
-      {/* 4 Categorized Executive Tabs (Zero Horizontal Scrolling) */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      {/* Admin Sub-Navigation Segmented Control */}
+      <div className="p-1 rounded-2xl bg-zinc-100/90 dark:bg-zinc-800/80 border border-zinc-200/80 dark:border-zinc-700/80 flex items-center gap-1 overflow-x-auto no-scrollbar">
         <button
           type="button"
           onClick={() => setActiveCategory('identity')}
-          className={`p-4 rounded-2xl border text-left transition-all cursor-pointer ${
+          className={`flex-1 min-w-fit px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 ${
             activeCategory === 'identity'
-              ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/20'
-              : 'bg-white dark:bg-zinc-900/80 border-zinc-200/80 dark:border-zinc-800 text-zinc-800 dark:text-zinc-200 hover:border-indigo-300 dark:hover:border-indigo-800'
+              ? 'bg-indigo-600 text-white shadow-xs'
+              : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-200/50 dark:hover:bg-zinc-700/50'
           }`}
         >
-          <div className="flex items-center justify-between mb-1.5">
-            <span className={`p-2 rounded-xl ${activeCategory === 'identity' ? 'bg-white/20' : 'bg-indigo-500/10 text-indigo-600'}`}>
-              <Users className="h-4 w-4" />
-            </span>
-            <span className={`text-[11px] font-mono font-bold ${activeCategory === 'identity' ? 'text-white/80' : 'text-zinc-400'}`}>
-              01
-            </span>
-          </div>
-          <h3 className="text-sm font-bold">Identity & Access</h3>
-          <p className={`text-xs mt-0.5 ${activeCategory === 'identity' ? 'text-indigo-100' : 'text-zinc-500 dark:text-zinc-400'}`}>
-            Staff directory & profiles
-          </p>
+          <Users className="h-4 w-4 shrink-0" />
+          <span className="hidden lg:inline text-xs font-mono font-bold opacity-60 mr-0.5">01</span>
+          <span>Identity & Access</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveCategory('curriculum')}
-          className={`p-4 rounded-2xl border text-left transition-all cursor-pointer ${
+          className={`flex-1 min-w-fit px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 ${
             activeCategory === 'curriculum'
-              ? 'bg-cyan-600 text-white border-cyan-600 shadow-md shadow-cyan-600/20'
-              : 'bg-white dark:bg-zinc-900/80 border-zinc-200/80 dark:border-zinc-800 text-zinc-800 dark:text-zinc-200 hover:border-cyan-300 dark:hover:border-cyan-800'
+              ? 'bg-indigo-600 text-white shadow-xs'
+              : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-200/50 dark:hover:bg-zinc-700/50'
           }`}
         >
-          <div className="flex items-center justify-between mb-1.5">
-            <span className={`p-2 rounded-xl ${activeCategory === 'curriculum' ? 'bg-white/20' : 'bg-cyan-500/10 text-cyan-600'}`}>
-              <BookOpen className="h-4 w-4" />
-            </span>
-            <span className={`text-[11px] font-mono font-bold ${activeCategory === 'curriculum' ? 'text-white/80' : 'text-zinc-400'}`}>
-              02
-            </span>
-          </div>
-          <h3 className="text-sm font-bold">Academic Curriculum</h3>
-          <p className={`text-xs mt-0.5 ${activeCategory === 'curriculum' ? 'text-cyan-100' : 'text-zinc-500 dark:text-zinc-400'}`}>
-            Subjects, periods & classes
-          </p>
+          <BookOpen className="h-4 w-4 shrink-0" />
+          <span className="hidden lg:inline text-xs font-mono font-bold opacity-60 mr-0.5">02</span>
+          <span>Academic Curriculum</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveCategory('facilities')}
-          className={`p-4 rounded-2xl border text-left transition-all cursor-pointer ${
+          className={`flex-1 min-w-fit px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 ${
             activeCategory === 'facilities'
-              ? 'bg-rose-600 text-white border-rose-600 shadow-md shadow-rose-600/20'
-              : 'bg-white dark:bg-zinc-900/80 border-zinc-200/80 dark:border-zinc-800 text-zinc-800 dark:text-zinc-200 hover:border-rose-300 dark:hover:border-rose-800'
+              ? 'bg-indigo-600 text-white shadow-xs'
+              : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-200/50 dark:hover:bg-zinc-700/50'
           }`}
         >
-          <div className="flex items-center justify-between mb-1.5">
-            <span className={`p-2 rounded-xl ${activeCategory === 'facilities' ? 'bg-white/20' : 'bg-rose-500/10 text-rose-600'}`}>
-              <Building2 className="h-4 w-4" />
-            </span>
-            <span className={`text-[11px] font-mono font-bold ${activeCategory === 'facilities' ? 'text-white/80' : 'text-zinc-400'}`}>
-              03
-            </span>
-          </div>
-          <h3 className="text-sm font-bold">Facilities & Safety</h3>
-          <p className={`text-xs mt-0.5 ${activeCategory === 'facilities' ? 'text-rose-100' : 'text-zinc-500 dark:text-zinc-400'}`}>
-            Labs, maintenance & safety
-          </p>
+          <Building2 className="h-4 w-4 shrink-0" />
+          <span className="hidden lg:inline text-xs font-mono font-bold opacity-60 mr-0.5">03</span>
+          <span>Facilities & Safety</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveCategory('operations')}
-          className={`p-4 rounded-2xl border text-left transition-all cursor-pointer ${
+          className={`flex-1 min-w-fit px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 ${
             activeCategory === 'operations'
-              ? 'bg-emerald-600 text-white border-emerald-600 shadow-md shadow-emerald-600/20'
-              : 'bg-white dark:bg-zinc-900/80 border-zinc-200/80 dark:border-zinc-800 text-zinc-800 dark:text-zinc-200 hover:border-emerald-300 dark:hover:border-emerald-800'
+              ? 'bg-indigo-600 text-white shadow-xs'
+              : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-200/50 dark:hover:bg-zinc-700/50'
           }`}
         >
-          <div className="flex items-center justify-between mb-1.5">
-            <span className={`p-2 rounded-xl ${activeCategory === 'operations' ? 'bg-white/20' : 'bg-emerald-500/10 text-emerald-600'}`}>
-              <CalendarIcon className="h-4 w-4" />
-            </span>
-            <span className={`text-[11px] font-mono font-bold ${activeCategory === 'operations' ? 'text-white/80' : 'text-zinc-400'}`}>
-              04
-            </span>
-          </div>
-          <h3 className="text-sm font-bold">Operations & Backup</h3>
-          <p className={`text-xs mt-0.5 ${activeCategory === 'operations' ? 'text-emerald-100' : 'text-zinc-500 dark:text-zinc-400'}`}>
-            Calendar & disaster recovery
-          </p>
+          <CalendarIcon className="h-4 w-4 shrink-0" />
+          <span className="hidden lg:inline text-xs font-mono font-bold opacity-60 mr-0.5">04</span>
+          <span>Operations & Backup</span>
         </button>
       </div>
 
@@ -806,7 +780,7 @@ export default function SuperAdminPage() {
               <CardHeader className="p-4 px-5 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-900/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <CardTitle className="text-sm font-bold text-zinc-950 dark:text-white flex items-center gap-2">
-                    <BookOpen className="h-4 w-4 text-cyan-600" />
+                    <BookOpen className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
                     <span>Practical Curriculum Catalog</span>
                     <Badge variant="outline" className="text-[11px] font-mono ml-1 font-bold">
                       {filteredSubjects.length} of {subjects.length} Units
@@ -825,12 +799,11 @@ export default function SuperAdminPage() {
                     className="h-8 text-xs font-semibold gap-1.5 cursor-pointer"
                     title="Toggle Grouping by Class Grade"
                   >
-                    <Layers className="h-3.5 w-3.5 text-cyan-600 dark:text-cyan-400" />
+                    <Layers className="h-3.5 w-3.5 text-zinc-500 dark:text-zinc-400" />
                     <span>{subjectGroupByClass ? 'Grouped by Class' : 'Flat View'}</span>
                   </Button>
                   <Button
                     size="sm"
-                    disabled={!isEditModeUnlocked}
                     onClick={() => {
                       setEditingSubject(null)
                       setSubFormTitle('')
@@ -841,7 +814,7 @@ export default function SuperAdminPage() {
                       setSubFormTeacherId(faculty[0]?.id || 't1')
                       setIsAddSubjectOpen(true)
                     }}
-                    className="bg-cyan-600 hover:bg-cyan-700 text-white font-semibold text-xs gap-1.5 cursor-pointer shadow-xs"
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs gap-1.5 cursor-pointer shadow-xs"
                   >
                     <Plus className="h-4 w-4" />
                     <span>Register Subject</span>
@@ -963,104 +936,118 @@ export default function SuperAdminPage() {
                         </td>
                       </tr>
                     ) : subjectGroupByClass ? (
-                      groupedSubjects.map(([grade, items]) => (
-                        <React.Fragment key={grade}>
-                          {/* Class Group Header */}
-                          <tr className="bg-zinc-100/80 dark:bg-zinc-800/70 border-y border-zinc-200/80 dark:border-zinc-700/60">
-                            <td colSpan={6} className="py-2.5 px-4">
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                  <span className="h-5.5 px-2.5 rounded-md bg-cyan-500/15 text-cyan-800 dark:text-cyan-300 text-[11px] font-extrabold uppercase tracking-wide border border-cyan-500/25 flex items-center gap-1.5 shadow-2xs">
-                                    <Layers className="h-3 w-3" />
-                                    <span>Class: {grade}</span>
+                      groupedSubjects.map(([grade, items]) => {
+                        const isCollapsed = !!collapsedGrades[grade]
+                        return (
+                          <React.Fragment key={grade}>
+                            {/* Class Group Header */}
+                            <tr
+                              onClick={() => toggleGradeCollapse(grade)}
+                              className="bg-zinc-100/80 dark:bg-zinc-800/70 border-y border-zinc-200/80 dark:border-zinc-700/60 cursor-pointer hover:bg-zinc-200/50 dark:hover:bg-zinc-800 transition-colors"
+                            >
+                              <td colSpan={6} className="py-2.5 px-4">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <ChevronDown
+                                      className={`h-3.5 w-3.5 text-zinc-500 transition-transform duration-200 ${
+                                        isCollapsed ? '-rotate-90' : ''
+                                      }`}
+                                    />
+                                    <span className="h-5.5 px-2.5 rounded-md bg-zinc-200/80 dark:bg-zinc-700/80 text-zinc-800 dark:text-zinc-200 text-[11px] font-extrabold uppercase tracking-wide border border-zinc-300/80 dark:border-zinc-600 flex items-center gap-1.5 shadow-2xs">
+                                      <Layers className="h-3 w-3 text-zinc-500" />
+                                      <span>Class: {grade}</span>
+                                    </span>
+                                    <span className="text-[11.5px] font-semibold text-zinc-600 dark:text-zinc-300">
+                                      {items.length} practical course unit{items.length === 1 ? '' : 's'}
+                                    </span>
+                                  </div>
+                                  <span className="px-2 py-0.5 rounded-md bg-zinc-200/60 dark:bg-zinc-700/60 text-zinc-700 dark:text-zinc-300 text-[10.5px] font-mono font-bold">
+                                    {items.length} Practical Course{items.length === 1 ? '' : 's'}
                                   </span>
-                                  <span className="text-[11.5px] font-semibold text-zinc-600 dark:text-zinc-300">
-                                    {items.length} practical course unit{items.length === 1 ? '' : 's'}
-                                  </span>
-                                </div>
-                                <span className="text-[10.5px] font-mono text-zinc-400 uppercase tracking-wider font-semibold">
-                                  Academic Cohort
-                                </span>
-                              </div>
-                            </td>
-                          </tr>
-                          {/* Subjects in this Class */}
-                          {items.map((s) => (
-                            <tr key={s.code} className="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40 transition-colors">
-                              <td className="py-3 px-4">
-                                <div className="font-bold text-zinc-950 dark:text-white text-xs">{s.title}</div>
-                                <span className="text-[11px] font-mono text-cyan-600 dark:text-cyan-400 font-bold">{s.code}</span>
-                              </td>
-                              <td className="py-3 px-4 font-medium text-zinc-700 dark:text-zinc-300">
-                                <span className="px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold text-[11px]">
-                                  {s.grade}
-                                </span>
-                              </td>
-                              <td className="py-3 px-4 text-zinc-700 dark:text-zinc-300 font-medium">
-                                {s.lab || labs.find((l) => l.id === s.labId)?.name || 'Designated Lab'}
-                              </td>
-                              <td className="py-3 px-4 text-zinc-700 dark:text-zinc-300 font-medium">
-                                <span className="flex items-center gap-1.5">
-                                  <Users className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
-                                  <span>{s.teacherName || faculty.find((f) => f.id === s.teacherId)?.name || 'Unassigned'}</span>
-                                </span>
-                              </td>
-                              <td className="py-3 px-4 font-mono font-bold text-zinc-900 dark:text-zinc-100">{s.quota} Practicals</td>
-                              <td className="py-3 px-4 text-right">
-                                <div className="flex items-center justify-end gap-1.5">
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    disabled={!isEditModeUnlocked}
-                                    onClick={() => {
-                                      setEditingSubject(s)
-                                      setSubFormTitle(s.title)
-                                      setSubFormCode(s.code)
-                                      setSubFormGrade(s.grade)
-                                      setSubFormQuota(s.quota)
-                                      setSubFormLabId(s.labId)
-                                      setSubFormTeacherId(s.teacherId)
-                                      setIsAddSubjectOpen(true)
-                                    }}
-                                    className="h-7 px-2.5 text-xs font-semibold cursor-pointer"
-                                  >
-                                    <Edit3 className="h-3 w-3 mr-1" />
-                                    Edit
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    disabled={!isEditModeUnlocked}
-                                    onClick={() => {
-                                      requestDangerAction({
-                                        title: `Remove Subject: ${s.title}`,
-                                        description: `Are you sure you want to delete ${s.code} - ${s.title}?`,
-                                        impactMessage: 'Historical logs referencing this code remain untouched.',
-                                        itemType: 'subject',
-                                        itemId: s.code,
-                                        onConfirm: () => {
-                                          deleteSubject(s.code)
-                                          setDangerModal((prev) => ({ ...prev, isOpen: false }))
-                                          triggerToast(`Subject ${s.code} removed.`)
-                                        },
-                                      })
-                                    }}
-                                    className="h-7 px-2 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border-rose-200 cursor-pointer"
-                                  >
-                                    <Trash2 className="h-3 w-3" />
-                                  </Button>
                                 </div>
                               </td>
                             </tr>
-                          ))}
-                        </React.Fragment>
-                      ))
+                            {/* Subjects in this Class */}
+                            {!isCollapsed &&
+                              items.map((s) => (
+                                <tr key={s.code} className="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40 transition-colors">
+                                  <td className="py-3 px-4">
+                                    <div className="font-bold text-zinc-950 dark:text-white text-xs">{s.title}</div>
+                                    <span className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400 font-bold">{s.code}</span>
+                                  </td>
+                                  <td className="py-3 px-4 font-medium text-zinc-700 dark:text-zinc-300">
+                                    <span className="px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold text-[11px]">
+                                      {s.grade}
+                                    </span>
+                                  </td>
+                                  <td className="py-3 px-4 text-zinc-700 dark:text-zinc-300 font-medium">
+                                    {s.lab || labs.find((l) => l.id === s.labId)?.name || 'Designated Lab'}
+                                  </td>
+                                  <td className="py-3 px-4 text-zinc-700 dark:text-zinc-300 font-medium">
+                                    <span className="flex items-center gap-1.5">
+                                      <Users className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
+                                      <span>{s.teacherName || faculty.find((f) => f.id === s.teacherId)?.name || 'Unassigned'}</span>
+                                    </span>
+                                  </td>
+                                  <td className="py-3 px-4 font-mono font-bold text-zinc-900 dark:text-zinc-100">{s.quota} Practicals</td>
+                                  <td className="py-3 px-4 text-right">
+                                    <div className="flex items-center justify-end gap-1.5">
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        disabled={!isEditModeUnlocked}
+                                        onClick={() => {
+                                          setEditingSubject(s)
+                                          setSubFormTitle(s.title)
+                                          setSubFormCode(s.code)
+                                          setSubFormGrade(s.grade)
+                                          setSubFormQuota(s.quota)
+                                          setSubFormLabId(s.labId)
+                                          setSubFormTeacherId(s.teacherId)
+                                          setIsAddSubjectOpen(true)
+                                        }}
+                                        className="h-7 px-2.5 text-xs font-semibold cursor-pointer"
+                                      >
+                                        <Edit3 className="h-3 w-3 mr-1" />
+                                        Edit
+                                      </Button>
+                                      <span title={!isEditModeUnlocked ? 'Unlock edit mode to delete subject' : undefined}>
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          disabled={!isEditModeUnlocked}
+                                          onClick={() => {
+                                            requestDangerAction({
+                                              title: `Remove Subject: ${s.title}`,
+                                              description: `Are you sure you want to delete ${s.code} - ${s.title}?`,
+                                              impactMessage: 'Historical logs referencing this code remain untouched.',
+                                              itemType: 'subject',
+                                              itemId: s.code,
+                                              onConfirm: () => {
+                                                deleteSubject(s.code)
+                                                setDangerModal((prev) => ({ ...prev, isOpen: false }))
+                                                triggerToast(`Subject ${s.code} removed.`)
+                                              },
+                                            })
+                                          }}
+                                          className="h-7 px-2 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border-rose-200 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                        >
+                                          <Trash2 className="h-3 w-3" />
+                                        </Button>
+                                      </span>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                          </React.Fragment>
+                        )
+                      })
                     ) : (
                       filteredSubjects.map((s) => (
                         <tr key={s.code} className="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40 transition-colors">
                           <td className="py-3 px-4">
                             <div className="font-bold text-zinc-950 dark:text-white text-xs">{s.title}</div>
-                            <span className="text-[11px] font-mono text-cyan-600 dark:text-cyan-400 font-bold">{s.code}</span>
+                            <span className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400 font-bold">{s.code}</span>
                           </td>
                           <td className="py-3 px-4 font-medium text-zinc-700 dark:text-zinc-300">
                             <span className="px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold text-[11px]">
@@ -1098,28 +1085,30 @@ export default function SuperAdminPage() {
                                 <Edit3 className="h-3 w-3 mr-1" />
                                 Edit
                               </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                disabled={!isEditModeUnlocked}
-                                onClick={() => {
-                                  requestDangerAction({
-                                    title: `Remove Subject: ${s.title}`,
-                                    description: `Are you sure you want to delete ${s.code} - ${s.title}?`,
-                                    impactMessage: 'Historical logs referencing this code remain untouched.',
-                                    itemType: 'subject',
-                                    itemId: s.code,
-                                    onConfirm: () => {
-                                      deleteSubject(s.code)
-                                      setDangerModal((prev) => ({ ...prev, isOpen: false }))
-                                      triggerToast(`Subject ${s.code} removed.`)
-                                    },
-                                  })
-                                }}
-                                className="h-7 px-2 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border-rose-200 cursor-pointer"
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </Button>
+                              <span title={!isEditModeUnlocked ? 'Unlock edit mode to delete subject' : undefined}>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={!isEditModeUnlocked}
+                                  onClick={() => {
+                                    requestDangerAction({
+                                      title: `Remove Subject: ${s.title}`,
+                                      description: `Are you sure you want to delete ${s.code} - ${s.title}?`,
+                                      impactMessage: 'Historical logs referencing this code remain untouched.',
+                                      itemType: 'subject',
+                                      itemId: s.code,
+                                      onConfirm: () => {
+                                        deleteSubject(s.code)
+                                        setDangerModal((prev) => ({ ...prev, isOpen: false }))
+                                        triggerToast(`Subject ${s.code} removed.`)
+                                      },
+                                    })
+                                  }}
+                                  className="h-7 px-2 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border-rose-200 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              </span>
                             </div>
                           </td>
                         </tr>
@@ -1145,30 +1134,31 @@ export default function SuperAdminPage() {
                   </CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
+                  <span title={!isEditModeUnlocked ? 'Unlock edit mode to reset periods' : undefined}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={!isEditModeUnlocked}
+                      onClick={() => {
+                        requestDangerAction({
+                          title: 'Reset Periods to Default Timetable',
+                          description: 'This will restore the standard 10 period slots (09:15 to 16:50).',
+                          impactMessage: 'Any custom slot timing changes will be replaced.',
+                          itemType: 'reset',
+                          onConfirm: () => {
+                            resetPeriods()
+                            setDangerModal((prev) => ({ ...prev, isOpen: false }))
+                            triggerToast('Periods reset to default schedule.')
+                          },
+                        })
+                      }}
+                      className="text-xs cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      Reset Defaults
+                    </Button>
+                  </span>
                   <Button
                     size="sm"
-                    variant="outline"
-                    disabled={!isEditModeUnlocked}
-                    onClick={() => {
-                      requestDangerAction({
-                        title: 'Reset Periods to Default Timetable',
-                        description: 'This will restore the standard 10 period slots (09:15 to 16:50).',
-                        impactMessage: 'Any custom slot timing changes will be replaced.',
-                        itemType: 'reset',
-                        onConfirm: () => {
-                          resetPeriods()
-                          setDangerModal((prev) => ({ ...prev, isOpen: false }))
-                          triggerToast('Periods reset to default schedule.')
-                        },
-                      })
-                    }}
-                    className="text-xs"
-                  >
-                    Reset Defaults
-                  </Button>
-                  <Button
-                    size="sm"
-                    disabled={!isEditModeUnlocked}
                     onClick={() => {
                       setEditingPeriod(null)
                       setPeriodFormName(`Period ${periods.length + 1}`)
@@ -1176,7 +1166,7 @@ export default function SuperAdminPage() {
                       setPeriodFormEnd('11:00')
                       setIsAddPeriodOpen(true)
                     }}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs gap-1.5"
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs gap-1.5 cursor-pointer shadow-xs"
                   >
                     <Plus className="h-4 w-4" />
                     <span>Add Period</span>
@@ -1187,18 +1177,18 @@ export default function SuperAdminPage() {
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
                     <tr className="border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/80 dark:bg-zinc-900/80 text-zinc-600 dark:text-zinc-400 font-bold uppercase text-[10.5px]">
-                      <th className="py-3 px-4">Period Identifier</th>
-                      <th className="py-3 px-4">Slot Display Name</th>
-                      <th className="py-3 px-4">Time Span</th>
+                      <th className="py-3 px-4">Period Name & Slot Index</th>
+                      <th className="py-3 px-4">Daily Timing Range</th>
                       <th className="py-3 px-4 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
                     {periods.map((p) => (
                       <tr key={p.id} className="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40 transition-colors">
-                        <td className="py-3 px-4 font-mono font-bold text-zinc-900 dark:text-zinc-100">{p.id.toUpperCase()}</td>
-                        <td className="py-3 px-4 font-semibold text-zinc-950 dark:text-white">{p.name}</td>
-                        <td className="py-3 px-4 font-mono text-zinc-600 dark:text-zinc-400">{p.label}</td>
+                        <td className="py-3 px-4">
+                          <span className="font-bold text-zinc-950 dark:text-white font-mono">{p.name}</span>
+                        </td>
+                        <td className="py-3 px-4 font-mono font-medium text-zinc-600 dark:text-zinc-300">{p.label}</td>
                         <td className="py-3 px-4 text-right">
                           <div className="flex items-center justify-end gap-1.5">
                             <Button
@@ -1208,38 +1198,48 @@ export default function SuperAdminPage() {
                               onClick={() => {
                                 setEditingPeriod(p)
                                 setPeriodFormName(p.name)
-                                const parts = p.label.split(' - ')
-                                setPeriodFormStart(parts[0] || '10:10')
-                                setPeriodFormEnd(parts[1] || '11:00')
+                                const parts = p.label.split('-')
+                                setPeriodFormStart(parts[0]?.trim() || '10:10')
+                                setPeriodFormEnd(parts[1]?.trim() || '11:00')
                                 setIsAddPeriodOpen(true)
                               }}
-                              className="h-7 px-2.5 text-xs font-semibold"
+                              className="h-7 px-2.5 text-xs font-semibold cursor-pointer"
                             >
                               <Edit3 className="h-3 w-3 mr-1" />
                               Edit
                             </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              disabled={!isEditModeUnlocked || periods.length <= 4}
-                              onClick={() => {
-                                requestDangerAction({
-                                  title: `Remove Period: ${p.name}`,
-                                  description: `Are you sure you want to delete ${p.name}?`,
-                                  impactMessage: 'Any routine scheduled in this slot will shift.',
-                                  itemType: 'period',
-                                  itemId: p.id,
-                                  onConfirm: () => {
-                                    deletePeriod(p.id)
-                                    setDangerModal((prev) => ({ ...prev, isOpen: false }))
-                                    triggerToast(`Period ${p.name} deleted.`)
-                                  },
-                                })
-                              }}
-                              className="h-7 px-2 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border-rose-200"
+                            <span
+                              title={
+                                !isEditModeUnlocked
+                                  ? 'Unlock edit mode to delete period'
+                                  : periods.length <= 4
+                                  ? 'Minimum 4 periods required'
+                                  : undefined
+                              }
                             >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={!isEditModeUnlocked || periods.length <= 4}
+                                onClick={() => {
+                                  requestDangerAction({
+                                    title: `Delete Period: ${p.name}`,
+                                    description: `Are you sure you want to remove ${p.name} (${p.label})?`,
+                                    impactMessage: 'Schedule slots mapped to this period might need realignment.',
+                                    itemType: 'period',
+                                    itemId: p.id,
+                                    onConfirm: () => {
+                                      deletePeriod(p.id)
+                                      setDangerModal((prev) => ({ ...prev, isOpen: false }))
+                                      triggerToast(`Period ${p.name} deleted.`)
+                                    },
+                                  })
+                                }}
+                                className="h-7 px-2 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border-rose-200 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </span>
                           </div>
                         </td>
                       </tr>
@@ -1256,7 +1256,7 @@ export default function SuperAdminPage() {
               <CardHeader className="p-4 px-5 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-900/40 flex flex-row items-center justify-between">
                 <div>
                   <CardTitle className="text-sm font-bold text-zinc-950 dark:text-white flex items-center gap-2">
-                    <Users className="h-4 w-4 text-emerald-600" />
+                    <Users className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
                     Enrolled Class Batches & Headcounts
                   </CardTitle>
                   <CardDescription className="text-xs text-zinc-500">
@@ -1265,7 +1265,6 @@ export default function SuperAdminPage() {
                 </div>
                 <Button
                   size="sm"
-                  disabled={!isEditModeUnlocked}
                   onClick={() => {
                     setEditingClass(null)
                     setClassFormName('Class 11')
@@ -1274,7 +1273,7 @@ export default function SuperAdminPage() {
                     setClassFormStream('Science Stream')
                     setIsAddClassOpen(true)
                   }}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs gap-1.5"
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs gap-1.5 cursor-pointer shadow-xs"
                 >
                   <Plus className="h-4 w-4" />
                   <span>Add Class Batch</span>
@@ -1298,7 +1297,7 @@ export default function SuperAdminPage() {
                           <span className="text-[11px] text-zinc-500">{c.section}</span>
                         </td>
                         <td className="py-3 px-4 font-medium text-zinc-700 dark:text-zinc-300">{c.stream}</td>
-                        <td className="py-3 px-4 font-mono font-bold text-emerald-600 dark:text-emerald-400">{c.capacity} Students</td>
+                        <td className="py-3 px-4 font-mono font-bold text-zinc-900 dark:text-zinc-100">{c.capacity} Students</td>
                         <td className="py-3 px-4 text-right">
                           <div className="flex items-center justify-end gap-1.5">
                             <Button
@@ -1313,33 +1312,35 @@ export default function SuperAdminPage() {
                                 setClassFormStream(c.stream)
                                 setIsAddClassOpen(true)
                               }}
-                              className="h-7 px-2.5 text-xs font-semibold"
+                              className="h-7 px-2.5 text-xs font-semibold cursor-pointer"
                             >
                               <Edit3 className="h-3 w-3 mr-1" />
                               Edit
                             </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              disabled={!isEditModeUnlocked}
-                              onClick={() => {
-                                requestDangerAction({
-                                  title: `Remove Class: ${c.name} - ${c.section}`,
-                                  description: `Are you sure you want to unenroll this batch?`,
-                                  impactMessage: 'Associated student attendance history remains archived.',
-                                  itemType: 'class',
-                                  itemId: c.id,
-                                  onConfirm: () => {
-                                    deleteClass(c.id)
-                                    setDangerModal((prev) => ({ ...prev, isOpen: false }))
-                                    triggerToast(`Class ${c.name} removed.`)
-                                  },
-                                })
-                              }}
-                              className="h-7 px-2 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border-rose-200"
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
+                            <span title={!isEditModeUnlocked ? 'Unlock edit mode to unenroll class batch' : undefined}>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={!isEditModeUnlocked}
+                                onClick={() => {
+                                  requestDangerAction({
+                                    title: `Remove Class: ${c.name} - ${c.section}`,
+                                    description: `Are you sure you want to unenroll this batch?`,
+                                    impactMessage: 'Associated student attendance history remains archived.',
+                                    itemType: 'class',
+                                    itemId: c.id,
+                                    onConfirm: () => {
+                                      deleteClass(c.id)
+                                      setDangerModal((prev) => ({ ...prev, isOpen: false }))
+                                      triggerToast(`Class ${c.name} removed.`)
+                                    },
+                                  })
+                                }}
+                                className="h-7 px-2 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border-rose-200 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </span>
                           </div>
                         </td>
                       </tr>
@@ -1423,7 +1424,6 @@ export default function SuperAdminPage() {
                 </div>
                 <Button
                   size="sm"
-                  disabled={!isEditModeUnlocked}
                   onClick={() => {
                     setEditingLab(null)
                     setLabFormName('')
@@ -1433,7 +1433,7 @@ export default function SuperAdminPage() {
                     setLabFormStatus('Operational')
                     setIsAddLabOpen(true)
                   }}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs gap-1.5"
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs gap-1.5 cursor-pointer shadow-xs"
                 >
                   <Plus className="h-4 w-4" />
                   <span>Add Laboratory</span>
@@ -1494,33 +1494,43 @@ export default function SuperAdminPage() {
                                 setLabFormStatus(l.status)
                                 setIsAddLabOpen(true)
                               }}
-                              className="h-7 px-2.5 text-xs font-semibold"
+                              className="h-7 px-2.5 text-xs font-semibold cursor-pointer"
                             >
                               <Edit3 className="h-3 w-3 mr-1" />
                               Edit
                             </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              disabled={!isEditModeUnlocked || labs.length <= 1}
-                              onClick={() => {
-                                requestDangerAction({
-                                  title: `Remove Facility: ${l.name}`,
-                                  description: `Are you sure you want to decommission ${l.name}?`,
-                                  impactMessage: 'Any scheduled routine for this lab will be suspended.',
-                                  itemType: 'lab',
-                                  itemId: l.id,
-                                  onConfirm: () => {
-                                    deleteLab(l.id)
-                                    setDangerModal((prev) => ({ ...prev, isOpen: false }))
-                                    triggerToast(`Facility ${l.name} removed.`)
-                                  },
-                                })
-                              }}
-                              className="h-7 px-2 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border-rose-200"
+                            <span
+                              title={
+                                !isEditModeUnlocked
+                                  ? 'Unlock edit mode to decommission facility'
+                                  : labs.length <= 1
+                                  ? 'Minimum 1 facility required'
+                                  : undefined
+                              }
                             >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={!isEditModeUnlocked || labs.length <= 1}
+                                onClick={() => {
+                                  requestDangerAction({
+                                    title: `Remove Facility: ${l.name}`,
+                                    description: `Are you sure you want to decommission ${l.name}?`,
+                                    impactMessage: 'Any scheduled routine for this lab will be suspended.',
+                                    itemType: 'lab',
+                                    itemId: l.id,
+                                    onConfirm: () => {
+                                      deleteLab(l.id)
+                                      setDangerModal((prev) => ({ ...prev, isOpen: false }))
+                                      triggerToast(`Facility ${l.name} removed.`)
+                                    },
+                                  })
+                                }}
+                                className="h-7 px-2 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border-rose-200 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </span>
                           </div>
                         </td>
                       </tr>
@@ -1684,6 +1694,17 @@ export default function SuperAdminPage() {
             </button>
             <button
               type="button"
+              onClick={() => setOperationsSubTab('audit')}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                operationsSubTab === 'audit'
+                  ? 'bg-white dark:bg-zinc-900 text-zinc-950 dark:text-white shadow-xs'
+                  : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+              }`}
+            >
+              Institutional Audit Trail
+            </button>
+            <button
+              type="button"
               onClick={() => setOperationsSubTab('recovery')}
               className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                 operationsSubTab === 'recovery'
@@ -1745,26 +1766,46 @@ export default function SuperAdminPage() {
 
                     <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800/80 flex items-center justify-between">
                       <span className="text-xs font-mono text-zinc-600 dark:text-zinc-400">
-                        {sundayWeekend ? 'Sunday = Holiday' : 'Sunday = Open'}
+                        {sundayWeekend ? 'Recess Active' : 'Active Practical Day'}
                       </span>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={sundayWeekend ? 'default' : 'outline'}
-                        onClick={() => {
-                          const nextVal = !sundayWeekend
-                          updateSettings({ sundayWeekend: nextVal })
-                          setToastMessage(nextVal ? 'Sunday configured as Institutional Recess' : 'Sunday configured as Active Working Day')
-                          setTimeout(() => setToastMessage(null), 3000)
+                      <Switch
+                        checked={sundayWeekend}
+                        onCheckedChange={(checked) => {
+                          requestDangerAction({
+                            title: checked
+                              ? 'Declare Sunday as Institutional Recess?'
+                              : 'Reactivate Sunday Practical Sessions?',
+                            description: checked
+                              ? 'This marks Sunday as a weekly off and automatically suspends practical sessions across all laboratories.'
+                              : 'This marks Sunday as an active academic day and resumes timetable scheduling across all laboratories.',
+                            impactMessage: checked
+                              ? 'Scheduled timetable slots for Sunday will be suppressed from the daily practical schedule.'
+                              : 'Sunday practical sessions will reappear in the weekly schedule and daily rosters.',
+                            itemType: 'policy',
+                            confirmLabel: checked ? 'Declare Sunday Recess' : 'Reactivate Sunday Sessions',
+                            variant: checked ? 'amber' : 'indigo',
+                            onConfirm: () => {
+                              const prev = sundayWeekend
+                              updateSettings({ sundayWeekend: checked })
+                              recordClientAuditEvent({
+                                action: 'UPDATE',
+                                entityType: 'policy',
+                                entityLabel: 'Sunday Recess Governance Policy',
+                                before: { sunday_recess: prev },
+                                after: { sunday_recess: checked },
+                                metadata: { policy_type: 'sunday_weekend_recess' },
+                              }).catch(() => {})
+                              setToastMessage(
+                                checked
+                                  ? 'Sunday configured as Institutional Recess'
+                                  : 'Sunday configured as Active Practical Day'
+                              )
+                              setDangerModal((prev) => ({ ...prev, isOpen: false }))
+                            },
+                          })
                         }}
-                        className={`h-8 px-3.5 text-xs font-mono font-bold rounded-lg transition-all cursor-pointer ${
-                          sundayWeekend
-                            ? 'bg-amber-600 hover:bg-amber-700 text-white'
-                            : 'border-zinc-300 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-                        }`}
-                      >
-                        {sundayWeekend ? 'Disable Sunday Recess' : 'Enable Sunday Recess'}
-                      </Button>
+                        aria-label="Toggle Sunday Institutional Recess"
+                      />
                     </div>
                   </div>
 
@@ -1792,26 +1833,46 @@ export default function SuperAdminPage() {
 
                     <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800/80 flex items-center justify-between">
                       <span className="text-xs font-mono text-zinc-600 dark:text-zinc-400">
-                        {saturdayWeekend ? 'Saturday = Holiday' : 'Saturday = Open'}
+                        {saturdayWeekend ? 'Official Weekly Off' : 'Working Day'}
                       </span>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={saturdayWeekend ? 'default' : 'outline'}
-                        onClick={() => {
-                          const nextVal = !saturdayWeekend
-                          updateSettings({ saturdayWeekend: nextVal })
-                          setToastMessage(nextVal ? 'Saturday configured as Official Weekly Off' : 'Saturday configured as Working Day')
-                          setTimeout(() => setToastMessage(null), 3000)
+                      <Switch
+                        checked={saturdayWeekend}
+                        onCheckedChange={(checked) => {
+                          requestDangerAction({
+                            title: checked
+                              ? 'Enforce Saturday Statutory Holiday?'
+                              : 'Enable Saturday Laboratory Operations?',
+                            description: checked
+                              ? 'This marks Saturday as an official holiday and suspends laboratory operations.'
+                              : 'This permits practical sessions and bookings to take place on Saturdays.',
+                            impactMessage: checked
+                              ? 'All laboratories will be marked as Recess and routine bookings suspended on Saturdays.'
+                              : 'Saturday timetable slots and operational lab sessions will be permitted.',
+                            itemType: 'policy',
+                            confirmLabel: checked ? 'Enforce Saturday Holiday' : 'Enable Saturday Operations',
+                            variant: checked ? 'amber' : 'indigo',
+                            onConfirm: () => {
+                              const prev = saturdayWeekend
+                              updateSettings({ saturdayWeekend: checked })
+                              recordClientAuditEvent({
+                                action: 'UPDATE',
+                                entityType: 'policy',
+                                entityLabel: 'Saturday Statutory Holiday Policy',
+                                before: { saturday_statutory_holiday: prev },
+                                after: { saturday_statutory_holiday: checked },
+                                metadata: { policy_type: 'saturday_statutory_holiday' },
+                              }).catch(() => {})
+                              setToastMessage(
+                                checked
+                                  ? 'Saturday configured as Official Weekly Off'
+                                  : 'Saturday configured as Working Day'
+                              )
+                              setDangerModal((prev) => ({ ...prev, isOpen: false }))
+                            },
+                          })
                         }}
-                        className={`h-8 px-3.5 text-xs font-mono font-bold rounded-lg transition-all cursor-pointer ${
-                          saturdayWeekend
-                            ? 'bg-rose-600 hover:bg-rose-700 text-white'
-                            : 'border-zinc-300 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-                        }`}
-                      >
-                        {saturdayWeekend ? 'Disable Saturday Off' : 'Enable Saturday Off'}
-                      </Button>
+                        aria-label="Toggle Saturday Weekly Holiday"
+                      />
                     </div>
                   </div>
                 </CardContent>
@@ -1834,6 +1895,11 @@ export default function SuperAdminPage() {
             <EmailNotificationManager />
           )}
 
+          {/* Institutional Audit Trail */}
+          {operationsSubTab === 'audit' && (
+            <InstitutionalAuditManager />
+          )}
+
           {/* Disaster Recovery Suite */}
           {operationsSubTab === 'recovery' && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -1841,7 +1907,7 @@ export default function SuperAdminPage() {
               <Card className="border border-zinc-200 dark:border-zinc-800 shadow-2xs">
                 <CardHeader className="p-5 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-900/40">
                   <div className="flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-500/20">
+                    <div className="h-10 w-10 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center border border-indigo-500/20">
                       <HardDriveDownload className="h-5 w-5" />
                     </div>
                     <div>
@@ -1862,7 +1928,7 @@ export default function SuperAdminPage() {
                   {snapshotIntegrityHash && (
                     <div className="p-3 rounded-xl bg-zinc-100 dark:bg-zinc-800 font-mono text-[11px] space-y-1">
                       <span className="text-zinc-500 font-bold block">Latest SHA-256 Checksum:</span>
-                      <span className="text-emerald-600 dark:text-emerald-400 break-all font-semibold">
+                      <span className="text-indigo-600 dark:text-indigo-400 break-all font-semibold">
                         {snapshotIntegrityHash}
                       </span>
                     </div>
@@ -1871,7 +1937,7 @@ export default function SuperAdminPage() {
                   <Button
                     onClick={handleExportSnapshot}
                     disabled={isExporting}
-                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold gap-2 py-2.5 shadow-sm cursor-pointer"
+                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold gap-2 py-2.5 shadow-sm cursor-pointer"
                   >
                     <Download className="h-4 w-4" />
                     <span>{isExporting ? 'Generating...' : 'Export Complete Snapshot'}</span>
@@ -2365,13 +2431,25 @@ export default function SuperAdminPage() {
         />
       )}
 
-      {/* Danger Action Modal */}
+      {/* Danger & Policy Confirmation Modal */}
       {dangerModal.isOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150 select-none font-sans">
           <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4 animate-in zoom-in-95 duration-150">
             <div className="flex items-start gap-3">
-              <div className="h-10 w-10 rounded-xl bg-rose-100 dark:bg-rose-950 text-rose-600 flex items-center justify-center shrink-0 border border-rose-200">
-                <AlertTriangle className="h-5 w-5" />
+              <div
+                className={`h-10 w-10 rounded-xl flex items-center justify-center shrink-0 border ${
+                  dangerModal.variant === 'indigo'
+                    ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800'
+                    : dangerModal.variant === 'amber'
+                    ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800'
+                    : 'bg-rose-100 dark:bg-rose-950 text-rose-600 border-rose-200'
+                }`}
+              >
+                {dangerModal.variant === 'indigo' ? (
+                  <Clock className="h-5 w-5" />
+                ) : (
+                  <AlertTriangle className="h-5 w-5" />
+                )}
               </div>
               <div>
                 <h3 className="text-sm font-bold text-zinc-950 dark:text-white">
@@ -2383,7 +2461,15 @@ export default function SuperAdminPage() {
               </div>
             </div>
 
-            <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/60 text-xs text-rose-900 dark:text-rose-200">
+            <div
+              className={`p-3 rounded-xl border text-xs leading-relaxed ${
+                dangerModal.variant === 'indigo'
+                  ? 'bg-indigo-50/80 dark:bg-indigo-950/30 border-indigo-200 dark:border-indigo-800/60 text-indigo-950 dark:text-indigo-200'
+                  : dangerModal.variant === 'amber'
+                  ? 'bg-amber-50/80 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800/60 text-amber-950 dark:text-amber-200'
+                  : 'bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/60 text-rose-900 dark:text-rose-200'
+              }`}
+            >
               <strong>Impact:</strong> {dangerModal.impactMessage}
             </div>
 
@@ -2406,21 +2492,26 @@ export default function SuperAdminPage() {
                 variant="outline"
                 size="sm"
                 onClick={() => setDangerModal((prev) => ({ ...prev, isOpen: false }))}
-                className="text-xs"
+                className="text-xs cursor-pointer"
               >
                 Cancel
               </Button>
               <Button
-                variant="destructive"
                 size="sm"
                 disabled={
                   dangerModal.requiresTypedConfirmation &&
                   typedConfirmInput.trim().toUpperCase() !== dangerModal.typedConfirmationWord?.toUpperCase()
                 }
                 onClick={dangerModal.onConfirm}
-                className="bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs"
+                className={`font-bold text-xs cursor-pointer ${
+                  dangerModal.variant === 'indigo'
+                    ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                    : dangerModal.variant === 'amber'
+                    ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                    : 'bg-rose-600 hover:bg-rose-700 text-white'
+                }`}
               >
-                Confirm Action
+                {dangerModal.confirmLabel || (dangerModal.itemType === 'policy' ? 'Confirm Setting' : 'Confirm Action')}
               </Button>
             </div>
           </div>

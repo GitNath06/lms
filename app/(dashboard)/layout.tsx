@@ -61,8 +61,9 @@ export default async function DashboardLayout({
       {/* Main Container */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Topbar with Live Nepali Calendar & Real-time Clock */}
-        <header className="h-16 glass-header flex items-center justify-between px-4 sm:px-6 z-20 print:hidden">
-          <div className="flex items-center gap-2 sm:gap-3">
+        <header className="h-16 glass-header flex items-center justify-between px-4 sm:px-6 z-20 print:hidden gap-4">
+          {/* Zone 1: Context (Mobile Nav, Period Beacon & Live Clock) */}
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             <MobileNav
               isSuperAdmin={isSuperAdmin}
               canAccessMaintenance={canAccessMaintenance}
@@ -73,19 +74,27 @@ export default async function DashboardLayout({
             <LiveClockHeader />
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-2.5">
+          {/* Zone 2: Centered Global Search Trigger */}
+          <div className="hidden md:flex flex-1 justify-center max-w-md mx-2 lg:mx-auto">
             <HeaderSearchTrigger />
+          </div>
+
+          {/* Zone 3: Utilities & User Identity */}
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <div className="md:hidden">
+              <HeaderSearchTrigger />
+            </div>
             <CloudSyncStatus />
+            <div className="h-4 w-px bg-zinc-200/80 dark:bg-zinc-800/80 mx-0.5 hidden sm:block" />
             <NotificationBell
               currentUserRole={role}
               currentUserName={profile?.full_name}
             />
             <ThemeToggle />
+            <div className="h-4 w-px bg-zinc-200/80 dark:bg-zinc-800/80 mx-0.5" />
 
             {/* In-App Enhanced User Profile Menu */}
-            <div className="pl-1 sm:pl-2 border-l border-border-subtle">
-              <UserProfileMenu profile={profile} />
-            </div>
+            <UserProfileMenu profile={profile} />
           </div>
         </header>
 

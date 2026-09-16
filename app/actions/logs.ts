@@ -396,7 +396,7 @@ export async function createPracticalLog(
     }
   }
 
-  safeRevalidatePaths(['/logs', '/records', '/print/daily-log', '/print/records', '/'])
+  safeRevalidatePaths(['/records', '/records/new', '/print/daily-log', '/print/records', '/'])
 
   // Non-blocking background skipped session alert
   if (logPayload.status === 'skipped' || logPayload.is_skipped) {
@@ -514,7 +514,7 @@ export async function updatePracticalLog(id: string, data: Partial<PracticalLogU
     }
   }
 
-  safeRevalidatePaths(['/records', '/logs', '/print/records', '/print/daily-log', '/'])
+  safeRevalidatePaths(['/records', '/records/new', '/print/records', '/print/daily-log', '/'])
 
   return { success: true }
 }
@@ -706,7 +706,7 @@ export async function deletePracticalLog(id: string) {
     } catch (e) {}
   }
 
-  safeRevalidatePaths(['/records', '/logs', '/print/records', '/print/daily-log', '/'])
+  safeRevalidatePaths(['/records', '/records/new', '/print/records', '/print/daily-log', '/'])
 
   return { success: true }
 }

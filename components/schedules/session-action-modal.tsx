@@ -1,6 +1,7 @@
 'use client'
 
-import React, { useState, useMemo, useCallback } from 'react'
+import React, { useState, useMemo, useCallback, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import {
   X,
   CheckCircle2,
@@ -16,6 +17,9 @@ import {
   Receipt,
   RotateCcw,
   Wrench,
+  Building2,
+  Info,
+  Pencil,
 } from 'lucide-react'
 import {
   MasterRoutineItem,
@@ -25,7 +29,10 @@ import {
   DayKey,
   DEFAULT_CLASSES,
   DEFAULT_SUBJECTS,
-  formatGradeBadge
+  formatGradeBadge,
+  isLabBusyInSlot,
+  isTeacherBusyInSlot,
+  getOccupiedLabsInSlot,
 } from '@/lib/master-data'
 import { getNepalDateStr } from '@/lib/nepali-date'
 import { matchesGrade } from '@/lib/context/institutional-relationships'
@@ -54,9 +61,9 @@ export type ModalMode = 'log' | 'skip' | 'merge' | 'adhoc' | 'book' | 'delete' |
 interface SessionActionModalProps {
   isOpen: boolean
   onClose: () => void
-  session: MasterRoutineItem | null
+  session: MasterRoutineItem | any
   existingLog?: PracticalLogRecord | null
-  allRoutines?: MasterRoutineItem[]
+  allRoutines?: MasterRoutineItem[] | any[]
   initialMode?: ModalMode
   currentUser?: UserProfile | null
   onSuccess?: (message: string) => void
@@ -71,20 +78,28 @@ interface SessionActionModalProps {
     mergedTeacher?: string
   ) => void
   onUnmergeSession?: (sessionId: string) => void
-  onAddSession?: (session: MasterRoutineItem) => void
+  onAddSession?: (session: MasterRoutineItem | any) => void
+  onUpdateSession?: (sessionId: string, updatedFields: Partial<MasterRoutineItem>) => void
   onSaveLog?: (logData: Omit<PracticalLogRecord, 'id' | 'createdAt'> & { id?: string }) => void
   onSkipSession?: (sessionId: string, reason: string) => void
   onUnskipSession?: (sessionId: string) => void
 }
 
 export default function SessionActionModal(props: SessionActionModalProps) {
-  if (!props.isOpen) return null
+  const [mounted, setMounted] = useState(false)
 
-  return (
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  if (!props.isOpen || !mounted) return null
+
+  return createPortal(
     <SessionActionModalContent
       key={`${props.session?.id || 'new'}-${props.initialMode}-${props.session?.dayKey || 'day'}-${props.session?.slotId || 'slot'}`}
       {...props}
-    />
+    />,
+    document.body
   )
 }
 
@@ -100,14 +115,14 @@ function SessionActionModalContent({
   onMergeSession,
   onUnmergeSession,
   onAddSession,
+  onUpdateSession,
   onSaveLog,
   onSkipSession,
   onUnskipSession,
 }: SessionActionModalProps) {
   const isBookingMode =
     initialMode === 'book' ||
-    initialMode === 'adhoc' ||
-    Boolean(session?.id?.startsWith('adhoc') || session?.id?.startsWith('quick-book'))
+    initialMode === 'adhoc'
 
   const [activeTab, setActiveTab] = useState<ModalMode>(isBookingMode ? 'book' : initialMode === 'edit' ? 'log' : initialMode)
 
@@ -203,6 +218,10 @@ function SessionActionModalContent({
   const [bookSpan, setBookSpan] = useState<number>(session?.span || 1)
   const [bookStudents, setBookStudents] = useState<number>((initialCls as any)?.capacity || (initialCls as any)?.strength || session?.defaultStudents || 38)
 
+  const currentTeacherDisplayName = isTeacher
+    ? (currentUser?.full_name || teacherName || 'Current Teacher')
+    : (bookTeacher || 'Assigned Teacher')
+
   const handleBookGradeChange = (newGrade: string) => {
     setBookGrade(newGrade)
     const cls = scopedClasses.find((c) => c.name === newGrade) || allClasses.find((c) => c.name === newGrade)
@@ -266,6 +285,34 @@ function SessionActionModalContent({
     (l) => l.id === currentLabKey || l.name?.toLowerCase().includes(currentLabKey.toLowerCase())
   )
   const isLabUnderMaintenance = targetLabInfo?.status === 'Under Maintenance'
+
+  // Dual-facility practical state
+  const [isDualLab, setIsDualLab] = useState<boolean>(Boolean(session?.isDualLab))
+  const [secondaryLabKey, setSecondaryLabKey] = useState<MasterRoutineItem['labKey']>(
+    (session?.secondaryLabKey || (bookLabKey === 'phys' ? 'comp' : 'phys')) as MasterRoutineItem['labKey']
+  )
+  const [coTeacher, setCoTeacher] = useState<string>(session?.coTeacher || '')
+  const isAlreadyLogged = Boolean(existingLog)
+
+  const occupiedLabsInSlot = useMemo(() => {
+    return getOccupiedLabsInSlot(allRoutines, bookDayKey, bookSlotId, session?.id)
+  }, [allRoutines, bookDayKey, bookSlotId, session?.id])
+
+  const maintenanceLabKeys = useMemo(() => {
+    const set = new Set<string>()
+    infraLabs.forEach((l) => {
+      if (l.status === 'Under Maintenance' || l.status === 'Inactive' || (l as any).is_active === false) {
+        set.add(l.id)
+        if (l.type === 'computer_lab') set.add('comp')
+        if (l.type === 'physics_lab') set.add('phys')
+        if (l.type === 'chemistry_lab') set.add('chem')
+        if (l.type === 'biology_lab') set.add('bio')
+        if (l.type === 'electronics_lab') set.add('elec')
+      }
+    })
+    return set
+  }, [infraLabs])
+
   const mergedCode = nextSession ? `${session?.subjectCode} + ${nextSession.subjectCode}` : (session?.subjectCode || '')
   const mergedTitle = nextSession ? `${session?.subjectTitle} & ${nextSession.subjectTitle}` : (session?.subjectTitle || '')
   const [remarks, setRemarks] = useState<string>(existingLog?.remarks || '')
@@ -307,12 +354,74 @@ function SessionActionModalContent({
 
   const handleActionSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (isSubmitting) return
     setIsSubmitting(true)
     setSubError(null)
 
     if (activeTab === 'book') {
-      if (isLabUnderMaintenance) {
+      const normPrimary = bookLabKey.toLowerCase().trim()
+      const normSecondary = isDualLab ? secondaryLabKey.toLowerCase().trim() : null
+
+      if (isLabUnderMaintenance || maintenanceLabKeys.has(bookLabKey)) {
         setSubError(`Cannot book slot: "${targetLabInfo?.name || 'Selected laboratory'}" is currently Under Maintenance.`)
+        setIsSubmitting(false)
+        return
+      }
+
+      if (isDualLab && maintenanceLabKeys.has(secondaryLabKey)) {
+        setSubError('Secondary facility unavailable: The selected secondary laboratory is currently Under Maintenance.')
+        setIsSubmitting(false)
+        return
+      }
+
+      if (isDualLab && normPrimary === normSecondary) {
+        setSubError('Primary and secondary laboratories cannot be the same facility.')
+        setIsSubmitting(false)
+        return
+      }
+
+      // Hard Collision Prevention on Single & Dual-Lab Facility Booking
+      const bookStartIdx = MASTER_TIME_SLOTS.findIndex((t) => t.id === bookSlotId)
+      const bookEndIdx = bookStartIdx + bookSpan
+
+      const hasRoomConflict = allRoutines.some((s) => {
+        if (session?.id && s.id === session.id) return false
+        if (s.dayKey !== bookDayKey) return false
+        if (s.isSkipped || s.status === 'skipped') return false
+
+        const sStartIdx = MASTER_TIME_SLOTS.findIndex((t) => t.id === s.slotId)
+        if (sStartIdx === -1) return false
+        const sEndIdx = sStartIdx + (s.span || 1)
+        const overlaps = bookStartIdx < sEndIdx && bookEndIdx > sStartIdx
+        if (!overlaps) return false
+
+        const sPrimary = (s.labKey || '').toLowerCase().trim()
+        const sSecondary = s.isDualLab && s.secondaryLabKey ? s.secondaryLabKey.toLowerCase().trim() : null
+
+        // Conflict if another session uses our primary lab
+        if (sPrimary === normPrimary || sSecondary === normPrimary) return true
+
+        // Conflict if another session uses our secondary lab
+        if (isDualLab && normSecondary && (sPrimary === normSecondary || sSecondary === normSecondary)) return true
+
+        return false
+      })
+
+      if (hasRoomConflict) {
+        setSubError('Facility conflict: One or both selected laboratories already have a scheduled session in this period.')
+        setIsSubmitting(false)
+        return
+      }
+
+      const assignedTeacher = isTeacher ? (currentUser?.full_name || 'Subject Teacher') : bookTeacher
+      if (isTeacherBusyInSlot(allRoutines, bookDayKey, bookSlotId, assignedTeacher, session?.id)) {
+        setSubError(`Teacher conflict: ${assignedTeacher} is already assigned to another practical session in this period.`)
+        setIsSubmitting(false)
+        return
+      }
+
+      if (isDualLab && coTeacher && coTeacher !== assignedTeacher && isTeacherBusyInSlot(allRoutines, bookDayKey, bookSlotId, coTeacher, session?.id)) {
+        setSubError(`Co-teacher conflict: ${coTeacher} is already assigned to another practical session in this period.`)
         setIsSubmitting(false)
         return
       }
@@ -364,10 +473,15 @@ function SessionActionModalContent({
           ? 'bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 border-emerald-200 dark:border-emerald-700'
           : 'bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 border-amber-200 dark:border-amber-700'
 
-      const assignedTeacher = isTeacher ? (currentUser?.full_name || 'Subject Teacher') : bookTeacher
+      const allLabs = (infraLabs && infraLabs.length > 0) ? infraLabs : LAB_ROOMS
+      const secondaryLabObj = isDualLab
+        ? (allLabs.find((l: any) => l.id === secondaryLabKey) || { name: 'Physics Lab' })
+        : undefined
 
       const newSessionItem: MasterRoutineItem = {
-        id: `sess-${Date.now()}`,
+        id: (session?.id && !session.id.startsWith('adhoc-'))
+          ? session.id
+          : `sess-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         day: dayObj?.label || 'Monday',
         dayKey: bookDayKey,
         timeSlot: slotObj?.label || '10:10 - 11:00',
@@ -380,6 +494,10 @@ function SessionActionModalContent({
         teacher: assignedTeacher,
         lab: labObj.name as MasterRoutineItem['lab'],
         labKey: bookLabKey,
+        secondaryLab: isDualLab ? secondaryLabObj?.name : undefined,
+        secondaryLabKey: isDualLab ? secondaryLabKey : undefined,
+        isDualLab: isDualLab,
+        coTeacher: isDualLab ? (coTeacher.trim() || assignedTeacher) : undefined,
         defaultStudents: bookStudents,
         category: labCategory,
         dotColor,
@@ -389,14 +507,21 @@ function SessionActionModalContent({
         requestedBy: isTeacher ? (currentUser?.full_name || 'Subject Teacher') : undefined,
       }
 
-      if (onAddSession) {
-        onAddSession(newSessionItem)
-      }
-      if (onSuccess) {
-        if (isTeacher) {
-          onSuccess(`Practical slot booking request submitted for ${dayObj?.label} (${assignedTeacher})!`)
-        } else {
-          onSuccess(`Practical session booked successfully for ${dayObj?.label}!`)
+      if (session?.id && !session.id.startsWith('adhoc-') && onUpdateSession) {
+        onUpdateSession(session.id, newSessionItem)
+        if (onSuccess) {
+          onSuccess(`Practical session updated successfully for ${dayObj?.label}!`)
+        }
+      } else {
+        if (onAddSession) {
+          onAddSession(newSessionItem)
+        }
+        if (onSuccess) {
+          if (isTeacher) {
+            onSuccess(`Practical slot booking request submitted for ${dayObj?.label} (${assignedTeacher})!`)
+          } else {
+            onSuccess(`Practical session booked successfully for ${dayObj?.label}!`)
+          }
         }
       }
       onClose()
@@ -466,14 +591,16 @@ function SessionActionModalContent({
         subjectTitle: session.subjectTitle,
         grade: session.grade,
         teacher: selectedTeacher || session.teacher,
-        lab: selectedLab,
+        lab: session.isDualLab ? `${selectedLab} + ${session.secondaryLab || 'Secondary Lab'}` : selectedLab,
         status: 'conducted' as const,
         topicLearned: topicLearned || 'Conducted Practical Curriculum Experiment',
         totalStudents: safeTotal,
         presentStudents: safePresent,
         absentStudents: safeAbsent,
         absentRolls: sanitizedRolls,
-        remarks,
+        remarks: session.isDualLab
+          ? (remarks ? `${remarks} • Multi-lab practical in ${session.lab} and ${session.secondaryLab || 'Secondary Lab'}.` : `Multi-lab practical in ${session.lab} and ${session.secondaryLab || 'Secondary Lab'}.`)
+          : remarks,
       }
 
       if (onSaveLog) {
@@ -589,19 +716,20 @@ function SessionActionModalContent({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200 select-none">
-      <div className="relative w-full max-w-xl bg-white dark:bg-zinc-950 rounded-2xl shadow-2xl border border-zinc-200/90 dark:border-zinc-800 overflow-hidden flex flex-col max-h-[90vh]">
-        {/* Header Bar */}
-        <div className="flex items-center justify-between p-4.5 px-6 border-b border-zinc-100 dark:border-zinc-800/80 bg-zinc-50/50 dark:bg-zinc-900/40">
-          <div className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-            <h3 className="text-xs font-mono font-bold tracking-wider text-zinc-900 dark:text-zinc-100 uppercase">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 md:p-6 bg-black/70 backdrop-blur-sm animate-in fade-in duration-150 select-none">
+      <div className="relative w-full max-w-2xl sm:max-w-3xl h-[min(88vh,780px)] min-h-[520px] bg-white dark:bg-zinc-950 rounded-2xl sm:rounded-3xl shadow-2xl border border-zinc-200/90 dark:border-zinc-800 overflow-hidden flex flex-col my-auto">
+        {/* Header Bar (Firmly pinned at top with shrink-0) */}
+        <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-zinc-100 dark:border-zinc-800/80 bg-zinc-50/80 dark:bg-zinc-900/60">
+          <div className="flex items-center gap-2.5">
+            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+            <h3 className="text-sm font-heading font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
               {isBookingMode ? 'Schedule Practical Laboratory Slot' : 'Practical Session Operations'}
             </h3>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
           >
             <X className="h-4 w-4" />
           </button>
@@ -609,7 +737,7 @@ function SessionActionModalContent({
 
         {/* Maintenance Warning Banner */}
         {isLabUnderMaintenance && (
-          <div className="mx-6 mt-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 flex items-start gap-2.5 text-xs font-sans">
+          <div className="shrink-0 mx-6 mt-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 flex items-start gap-2.5 text-xs font-sans">
             <Wrench className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
             <div className="space-y-0.5">
               <p className="font-bold">Notice: Laboratory Under Scheduled Maintenance</p>
@@ -622,11 +750,11 @@ function SessionActionModalContent({
 
         {/* Tab Navigation (Only shown for existing scheduled sessions) */}
         {!isBookingMode && (
-          <div className="flex items-center gap-1 p-2 bg-zinc-100/70 dark:bg-zinc-900 border-b border-zinc-200/80 dark:border-zinc-800 text-xs font-mono">
+          <div className="shrink-0 flex items-center gap-1 p-2 bg-zinc-100/70 dark:bg-zinc-900 border-b border-zinc-200/80 dark:border-zinc-800 text-xs font-sans">
             <button
               type="button"
               onClick={() => setActiveTab('log')}
-              className={`flex-1 py-1.5 px-2.5 rounded-lg font-bold transition-all flex items-center justify-center gap-1.5 ${
+              className={`flex-1 py-1.5 px-2.5 rounded-lg font-semibold transition-all flex items-center justify-center gap-1.5 ${
                 activeTab === 'log'
                   ? 'bg-emerald-600 text-white shadow-xs'
                   : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60'
@@ -639,7 +767,7 @@ function SessionActionModalContent({
             <button
               type="button"
               onClick={() => setActiveTab('skip')}
-              className={`flex-1 py-1.5 px-2.5 rounded-lg font-bold transition-all flex items-center justify-center gap-1.5 ${
+              className={`flex-1 py-1.5 px-2.5 rounded-lg font-semibold transition-all flex items-center justify-center gap-1.5 ${
                 activeTab === 'skip'
                   ? 'bg-amber-600 text-white shadow-xs'
                   : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60'
@@ -652,7 +780,7 @@ function SessionActionModalContent({
             <button
               type="button"
               onClick={() => setActiveTab('merge')}
-              className={`flex-1 py-1.5 px-2.5 rounded-lg font-bold transition-all flex items-center justify-center gap-1.5 ${
+              className={`flex-1 py-1.5 px-2.5 rounded-lg font-semibold transition-all flex items-center justify-center gap-1.5 ${
                 activeTab === 'merge'
                   ? isAlreadyMergedOrExtended
                     ? 'bg-violet-600 text-white shadow-xs'
@@ -681,7 +809,7 @@ function SessionActionModalContent({
             <button
               type="button"
               onClick={() => setActiveTab('substitute')}
-              className={`flex-1 py-1.5 px-2 rounded-lg font-bold transition-all flex items-center justify-center gap-1 text-[11px] ${
+              className={`flex-1 py-1.5 px-2 rounded-lg font-semibold transition-all flex items-center justify-center gap-1 text-[11px] ${
                 activeTab === 'substitute'
                   ? 'bg-indigo-600 text-white shadow-xs'
                   : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60'
@@ -694,7 +822,7 @@ function SessionActionModalContent({
             <button
               type="button"
               onClick={() => setActiveTab('incident')}
-              className={`flex-1 py-1.5 px-2 rounded-lg font-bold transition-all flex items-center justify-center gap-1 text-[11px] ${
+              className={`flex-1 py-1.5 px-2 rounded-lg font-semibold transition-all flex items-center justify-center gap-1 text-[11px] ${
                 activeTab === 'incident'
                   ? 'bg-rose-600 text-white shadow-xs'
                   : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60'
@@ -704,12 +832,26 @@ function SessionActionModalContent({
               <span>Damage</span>
             </button>
 
+            {/* Modify / Reallocate Tab for Scheduled Sessions */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('book')}
+              className={`py-1.5 px-2 rounded-lg font-semibold transition-all flex items-center justify-center gap-1 text-[11px] ${
+                activeTab === 'book'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60'
+              }`}
+            >
+              <Pencil className="h-3 w-3" />
+              <span>Modify</span>
+            </button>
+
             {/* Delete Tab Hidden for Teachers */}
             {!isTeacher && (
               <button
                 type="button"
                 onClick={() => setActiveTab('delete')}
-                className={`py-1.5 px-2 rounded-lg font-bold transition-all flex items-center justify-center gap-1 text-[11px] ${
+                className={`py-1.5 px-2 rounded-lg font-semibold transition-all flex items-center justify-center gap-1 text-[11px] ${
                   activeTab === 'delete'
                     ? 'bg-rose-600 text-white shadow-xs'
                     : 'text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40'
@@ -723,231 +865,369 @@ function SessionActionModalContent({
         )}
 
         {/* Modal Body Form */}
-        <form onSubmit={handleActionSubmit} className="p-6 overflow-y-auto space-y-4 flex-1">
-          {/* A. NEW BOOKING FORM */}
-          {activeTab === 'book' && (
-            <div className="space-y-4 animate-in fade-in duration-150">
-              <div className="p-3.5 rounded-xl bg-indigo-50/50 dark:bg-indigo-950/30 border border-indigo-200/60 dark:border-indigo-800/50 text-xs font-mono flex items-center gap-2">
-                <CalendarPlus className="h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
-                <span className="text-zinc-700 dark:text-zinc-300">
-                  Book and allocate a new practical laboratory session for the academic routine.
-                </span>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1 font-mono">
-                  <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
-                    Day of Week *
-                  </label>
-                  <Select
-                    value={bookDayKey}
-                    onChange={(e) => setBookDayKey(e.target.value as DayKey)}
-                  >
-                    {DAYS.filter((d) => !d.isWeekend).map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.label} ({d.nepaliName})
-                      </option>
-                    ))}
-                  </Select>
+        <form onSubmit={handleActionSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
+          {/* Scrollable Form Body */}
+          <div className="p-5 sm:p-6 overflow-y-auto space-y-4 flex-1 min-h-0 font-sans">
+            {/* A. NEW BOOKING FORM */}
+            {activeTab === 'book' && (
+              <div className="space-y-4 animate-in fade-in duration-150">
+                <div className="p-3.5 rounded-xl bg-indigo-50/50 dark:bg-indigo-950/25 border border-indigo-200/60 dark:border-indigo-800/40 text-xs font-sans flex items-center gap-2.5">
+                  <CalendarPlus className="h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                  <span className="text-zinc-700 dark:text-zinc-300 font-medium">
+                    Book and allocate a new practical laboratory session for the academic routine.
+                  </span>
                 </div>
 
-                <div className="space-y-1 font-mono">
-                  <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
-                    Period Slot *
-                  </label>
-                  <Select
-                    value={bookSlotId}
-                    onChange={(e) => setBookSlotId(e.target.value)}
-                  >
-                    {MASTER_TIME_SLOTS.map((slot) => (
-                      <option key={slot.id} value={slot.id}>
-                        {slot.name} ({slot.label})
-                      </option>
-                    ))}
-                  </Select>
-                </div>
-              </div>
-
-              {/* Class & Subject Selector (Strictly Filtered by Class) */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1 font-mono">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
-                      Target Class / Batch *
+                {/* 1. Schedule Timing Row (Day, Period, Duration in a compact 3-column strip) */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                  <div className="space-y-1.5 font-sans">
+                    <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1">
+                      <span>Day of Week</span>
+                      <span className="text-rose-500 font-bold">*</span>
                     </label>
-                    {isTeacher && userScope.assignedClasses.length > 0 && (
-                      <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold">
-                        {scopedClasses.length} Assigned Classes
-                      </span>
-                    )}
-                  </div>
-                  <Select
-                    value={bookGrade}
-                    onChange={(e) => handleBookGradeChange(e.target.value)}
-                  >
-                    {scopedClasses.map((c: any) => (
-                      <option key={c.id || c.name} value={c.name}>
-                        {c.name} — {c.stream || 'General'} ({c.capacity || c.strength || 36} Students)
-                      </option>
-                    ))}
-                  </Select>
-                </div>
-
-                <div className="space-y-1 font-mono">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
-                      Curriculum Subject *
-                    </label>
-                    <span className="text-[10px] text-cyan-600 dark:text-cyan-400 font-bold">
-                      {bookClassSubjects.length} for {bookGrade}
-                    </span>
-                  </div>
-                  <Select
-                    value={bookSubjectCode}
-                    onChange={(e) => handleBookSubjectChange(e.target.value)}
-                  >
-                    {bookClassSubjects.length > 0 ? (
-                      bookClassSubjects.map((s) => (
-                        <option key={s.code} value={s.code}>
-                          {s.code} — {s.title}
-                        </option>
-                      ))
-                    ) : (
-                      DEFAULT_SUBJECTS.map((s) => (
-                        <option key={s.code} value={s.code}>
-                          {s.code} — {s.title}
-                        </option>
-                      ))
-                    )}
-                  </Select>
-                </div>
-              </div>
-
-              {/* Facility & Subject Teacher In-Charge */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1 font-mono">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
-                      Laboratory Facility *
-                    </label>
-                    <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold">
-                      Auto-synced
-                    </span>
-                  </div>
-                  <Select
-                    value={bookLabKey}
-                    onChange={(e) => setBookLabKey(e.target.value as MasterRoutineItem['labKey'])}
-                  >
-                    {((infraLabs && infraLabs.length > 0) ? infraLabs : LAB_ROOMS).map((lab: any) => (
-                      <option key={lab.id} value={lab.id}>
-                        {lab.name}
-                      </option>
-                    ))}
-                  </Select>
-                </div>
-
-                <div className="space-y-1 font-mono">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
-                      Subject Teacher *
-                    </label>
-                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">
-                      {isTeacher ? 'Self (Locked)' : 'Auto-assigned'}
-                    </span>
-                  </div>
-                  {isTeacher ? (
-                    <div className="p-2 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center justify-between">
-                      <span className="truncate">{currentUser?.full_name}</span>
-                      <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-extrabold bg-indigo-50 dark:bg-indigo-950/60 px-1.5 py-0.5 rounded border border-indigo-200 dark:border-indigo-800 shrink-0">
-                        Self
-                      </span>
-                    </div>
-                  ) : (
                     <Select
-                      value={bookTeacher}
-                      onChange={(e) => setBookTeacher(e.target.value)}
+                      value={bookDayKey}
+                      onChange={(e) => setBookDayKey(e.target.value as DayKey)}
+                      className="h-10 text-sm font-medium font-sans"
                     >
-                      {infraFaculty.map((f) => (
-                        <option key={f.id} value={f.name}>
-                          {f.name} ({f.role || 'Faculty'})
+                      {DAYS.filter((d) => !d.isWeekend).map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.label} ({d.nepaliName})
                         </option>
                       ))}
                     </Select>
+                  </div>
+
+                  <div className="space-y-1.5 font-sans">
+                    <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1">
+                      <span>Period Slot</span>
+                      <span className="text-rose-500 font-bold">*</span>
+                    </label>
+                    <Select
+                      value={bookSlotId}
+                      onChange={(e) => setBookSlotId(e.target.value)}
+                      className="h-10 text-sm font-medium font-sans"
+                    >
+                      {MASTER_TIME_SLOTS.map((slot) => (
+                        <option key={slot.id} value={slot.id}>
+                          {slot.name} ({slot.label})
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1.5 font-sans">
+                    <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1">
+                      <span>Slot Duration</span>
+                    </label>
+                    <Select
+                      value={bookSpan.toString()}
+                      onChange={(e) => setBookSpan(parseInt(e.target.value) || 1)}
+                      className="h-10 text-sm font-medium font-sans"
+                    >
+                      <option value="1">1 Period (45-50 min)</option>
+                      <option value="2">2 Periods (90 min Block)</option>
+                    </Select>
+                  </div>
+                </div>
+
+                {/* 2. Academic Curriculum (Class & Subject) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  <div className="space-y-1.5 font-sans">
+                    <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1">
+                      <span>Class / Batch</span>
+                      <span className="text-rose-500 font-bold">*</span>
+                    </label>
+                    <Select
+                      value={bookGrade}
+                      onChange={(e) => handleBookGradeChange(e.target.value)}
+                      className="h-10 text-sm font-medium font-sans"
+                    >
+                      {scopedClasses.map((c: any) => (
+                        <option key={c.id} value={c.name}>
+                          {c.name} {c.stream ? `— ${c.stream}` : ''}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1.5 font-sans">
+                    <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1">
+                      <span>Subject Curriculum</span>
+                      <span className="text-rose-500 font-bold">*</span>
+                    </label>
+                    <Select
+                      value={bookSubjectCode}
+                      onChange={(e) => handleBookSubjectChange(e.target.value)}
+                      className="h-10 text-sm font-medium font-sans"
+                    >
+                      {bookClassSubjects.map((s) => (
+                        <option key={s.code} value={s.code}>
+                          {s.code} — {s.title}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                </div>
+
+                {/* 3. Primary Laboratory & Faculty Assignment */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  <div className="space-y-1.5 font-sans">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1">
+                        <span>Primary Laboratory</span>
+                        <span className="text-rose-500 font-bold">*</span>
+                      </label>
+                      <span className="text-[10px] font-medium text-zinc-400 dark:text-zinc-500 font-sans">
+                        Auto-paired
+                      </span>
+                    </div>
+                    <Select
+                      value={bookLabKey}
+                      onChange={(e) => setBookLabKey(e.target.value as MasterRoutineItem['labKey'])}
+                      className="h-10 text-sm font-medium font-sans"
+                    >
+                      {((infraLabs && infraLabs.length > 0) ? infraLabs : LAB_ROOMS).map((lab: any) => {
+                        const isOcc = occupiedLabsInSlot.has(lab.id) ||
+                          (lab.type === 'computer_lab' && occupiedLabsInSlot.has('comp')) ||
+                          (lab.type === 'physics_lab' && occupiedLabsInSlot.has('phys')) ||
+                          (lab.type === 'chemistry_lab' && occupiedLabsInSlot.has('chem')) ||
+                          (lab.type === 'biology_lab' && occupiedLabsInSlot.has('bio')) ||
+                          (lab.type === 'electronics_lab' && occupiedLabsInSlot.has('elec'))
+                        const isMaint = maintenanceLabKeys.has(lab.id) ||
+                          (lab.type === 'computer_lab' && maintenanceLabKeys.has('comp')) ||
+                          (lab.type === 'physics_lab' && maintenanceLabKeys.has('phys')) ||
+                          (lab.type === 'chemistry_lab' && maintenanceLabKeys.has('chem')) ||
+                          (lab.type === 'biology_lab' && maintenanceLabKeys.has('bio')) ||
+                          (lab.type === 'electronics_lab' && maintenanceLabKeys.has('elec'))
+                        const isPrimary = lab.id === bookLabKey
+                        return (
+                          <option
+                            key={lab.id}
+                            value={lab.id}
+                            disabled={(isOcc && !isPrimary) || isMaint}
+                          >
+                            {lab.name} {isMaint ? '• [UNDER MAINTENANCE]' : isOcc && !isPrimary ? '• [OCCUPIED IN THIS PERIOD]' : ''}
+                          </option>
+                        )
+                      })}
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1.5 font-sans">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1">
+                        <span>Instructor</span>
+                        <span className="text-rose-500 font-bold">*</span>
+                      </label>
+                      <span className="text-[10px] font-medium text-zinc-400 dark:text-zinc-500 font-sans">
+                        {isTeacher ? 'Self-assigned' : 'Auto-paired'}
+                      </span>
+                    </div>
+                    {isTeacher ? (
+                      <div className="h-10 px-3.5 bg-zinc-50 dark:bg-zinc-800/80 border border-zinc-200 dark:border-zinc-700 rounded-xl text-sm font-sans text-zinc-900 dark:text-zinc-100 flex items-center justify-between">
+                        <span className="font-semibold truncate">{teacherName || 'Assigned Faculty'}</span>
+                        <Badge className="text-[9px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 shrink-0">
+                          Current User
+                        </Badge>
+                      </div>
+                    ) : (
+                      <Select
+                        value={bookTeacher}
+                        onChange={(e) => setBookTeacher(e.target.value)}
+                        className="h-10 text-sm font-medium font-sans"
+                      >
+                        {infraFaculty.map((f) => (
+                          <option key={f.id} value={f.name}>
+                            {f.name} ({f.role || 'Faculty'})
+                          </option>
+                        ))}
+                      </Select>
+                    )}
+                  </div>
+                </div>
+
+                {/* 4. Multi-Lab Facility Practical Section */}
+                <div className="rounded-xl border border-zinc-200/90 dark:border-zinc-800/90 bg-zinc-50/70 dark:bg-zinc-900/50 p-3.5 space-y-3 font-sans">
+                  <div className="flex items-center justify-between gap-3">
+                    <label
+                      htmlFor="dual-lab-toggle"
+                      className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-2 cursor-pointer"
+                    >
+                      <Building2 className="h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                      <span>Multi-Lab Facility Practical</span>
+                      <span
+                        title="Single class conducting a practical session across two or more laboratories simultaneously (e.g. Class 9 FCA utilizing both Computer Lab & Physics Lab for hardware verification, while other laboratories remain open for separate classes)."
+                        className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 cursor-help"
+                      >
+                        <Info className="h-3.5 w-3.5" />
+                      </span>
+                    </label>
+                    <input
+                      id="dual-lab-toggle"
+                      type="checkbox"
+                      checked={isDualLab}
+                      onChange={(e) => {
+                        const checked = e.target.checked
+                        setIsDualLab(checked)
+                        if (checked && secondaryLabKey === bookLabKey) {
+                          const allLabs = (infraLabs && infraLabs.length > 0) ? infraLabs : LAB_ROOMS
+                          const alternative = allLabs.find((l: any) => l.id !== bookLabKey && !occupiedLabsInSlot.has(l.id) && !maintenanceLabKeys.has(l.id))
+                          if (alternative) {
+                            setSecondaryLabKey(alternative.id as MasterRoutineItem['labKey'])
+                          }
+                        }
+                      }}
+                      className="h-4 w-4 rounded border-zinc-300 dark:border-zinc-700 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                    />
+                  </div>
+
+                  {isDualLab && (
+                    <div className="pt-3 border-t border-zinc-200 dark:border-zinc-800 grid grid-cols-1 sm:grid-cols-2 gap-3.5 animate-in fade-in duration-150">
+                      <div className="space-y-1.5 font-sans">
+                        <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1">
+                          <span>Secondary Laboratory</span>
+                          <span className="text-rose-500 font-bold">*</span>
+                        </label>
+                        <Select
+                          value={secondaryLabKey}
+                          onChange={(e) => setSecondaryLabKey(e.target.value as MasterRoutineItem['labKey'])}
+                          className="h-10 text-sm font-medium font-sans"
+                        >
+                          {((infraLabs && infraLabs.length > 0) ? infraLabs : LAB_ROOMS).map((lab: any) => {
+                            const isPrimary = lab.id === bookLabKey
+                            const isOcc = occupiedLabsInSlot.has(lab.id) ||
+                              (lab.type === 'computer_lab' && occupiedLabsInSlot.has('comp')) ||
+                              (lab.type === 'physics_lab' && occupiedLabsInSlot.has('phys')) ||
+                              (lab.type === 'chemistry_lab' && occupiedLabsInSlot.has('chem')) ||
+                              (lab.type === 'biology_lab' && occupiedLabsInSlot.has('bio')) ||
+                              (lab.type === 'electronics_lab' && occupiedLabsInSlot.has('elec'))
+                            const isMaint = maintenanceLabKeys.has(lab.id) ||
+                              (lab.type === 'computer_lab' && maintenanceLabKeys.has('comp')) ||
+                              (lab.type === 'physics_lab' && maintenanceLabKeys.has('phys')) ||
+                              (lab.type === 'chemistry_lab' && maintenanceLabKeys.has('chem')) ||
+                              (lab.type === 'biology_lab' && maintenanceLabKeys.has('bio')) ||
+                              (lab.type === 'electronics_lab' && maintenanceLabKeys.has('elec'))
+                            const isDisabled = isPrimary || isOcc || isMaint
+                            return (
+                              <option
+                                key={lab.id}
+                                value={lab.id}
+                                disabled={isDisabled}
+                              >
+                                {lab.name} {isPrimary ? '(Primary Lab)' : isMaint ? '(Under Maintenance)' : isOcc ? '(Occupied)' : ''}
+                              </option>
+                            )
+                          })}
+                        </Select>
+                      </div>
+
+                      <div className="space-y-1.5 font-sans">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                            Co-Teacher / Supervisor
+                          </label>
+                          <span className="text-[10px] font-medium text-zinc-400 dark:text-zinc-500 font-sans">
+                            Optional
+                          </span>
+                        </div>
+                        <Select
+                          value={coTeacher}
+                          onChange={(e) => setCoTeacher(e.target.value)}
+                          className="h-10 text-sm font-medium font-sans"
+                        >
+                          <option value="">Same Teacher ({currentTeacherDisplayName})</option>
+                          {infraFaculty
+                            .filter((f) => f.name !== currentTeacherDisplayName)
+                            .map((f) => (
+                              <option key={f.id} value={f.name}>
+                                {f.name} ({f.role || 'Faculty'})
+                              </option>
+                            ))}
+                        </Select>
+                      </div>
+
+                      {(!coTeacher || coTeacher === currentTeacherDisplayName) && (
+                        <div className="sm:col-span-2 p-2.5 rounded-lg bg-zinc-100/80 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700/60 text-xs text-zinc-600 dark:text-zinc-300 font-sans flex items-start gap-2">
+                          <Info className="h-4 w-4 text-zinc-400 shrink-0 mt-0.5" />
+                          <span>
+                            <strong>Single Teacher Supervision:</strong> {currentTeacherDisplayName} will supervise student groups across both facilities during this period.
+                          </span>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
-              </div>
 
-              <div className="space-y-1 font-mono">
-                <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
-                  Practical Syllabus Title / Focus
-                </label>
-                <Input
-                  type="text"
-                  required
-                  value={bookSubjectTitle}
-                  onChange={(e) => setBookSubjectTitle(e.target.value)}
-                  placeholder="e.g. Data Structures & Algorithms Lab"
-                />
-              </div>
+                {/* 5. Practical Experiment Syllabus & Expected Students (Combined into 1 row) */}
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5">
+                  <div className="sm:col-span-8 space-y-1.5 font-sans">
+                    <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1">
+                      <span>Practical Syllabus Title / Focus</span>
+                      <span className="text-rose-500 font-bold">*</span>
+                    </label>
+                    <Input
+                      type="text"
+                      required
+                      value={bookSubjectTitle}
+                      onChange={(e) => setBookSubjectTitle(e.target.value)}
+                      placeholder="e.g. Data Structures & Algorithms Lab"
+                      className="h-10 text-sm font-medium font-sans"
+                    />
+                  </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1 font-mono">
-                  <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
-                    Slot Duration
-                  </label>
-                  <Select
-                    value={bookSpan.toString()}
-                    onChange={(e) => setBookSpan(parseInt(e.target.value) || 1)}
-                  >
-                    <option value="1">1 Period (45-50 min)</option>
-                    <option value="2">2 Periods Combined (90 min Block)</option>
-                  </Select>
-                </div>
-
-                <div className="space-y-1 font-mono">
-                  <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
-                    Expected Students
-                  </label>
-                  <Input
-                    type="number"
-                    min="1"
-                    value={bookStudents}
-                    onChange={(e) => setBookStudents(parseInt(e.target.value) || 0)}
-                  />
+                  <div className="sm:col-span-4 space-y-1.5 font-sans">
+                    <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1">
+                      <span>Expected Students</span>
+                    </label>
+                    <Input
+                      type="number"
+                      min="1"
+                      value={bookStudents}
+                      onChange={(e) => setBookStudents(parseInt(e.target.value) || 0)}
+                      className="h-10 text-sm font-medium font-sans"
+                    />
+                  </div>
                 </div>
               </div>
-            </div>
           )}
 
           {/* B. LOG ATTENDANCE TAB */}
           {activeTab === 'log' && (
-            <div className="space-y-4 animate-in fade-in duration-150">
-              <div className="p-3.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/60 flex items-center justify-between font-mono">
+            <div className="space-y-4 animate-in fade-in duration-150 font-sans">
+              <div className="p-3.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/60 flex items-center justify-between font-sans">
                 <div>
-                  <h4 className="text-xs font-bold text-zinc-950 dark:text-white">
-                    {session?.subjectCode} — {session?.subjectTitle}
+                  <h4 className="text-xs font-bold text-zinc-950 dark:text-white flex items-center gap-2">
+                    <span>{session?.subjectCode} — {session?.subjectTitle}</span>
+                    {session?.isDualLab && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold font-sans px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30">
+                        <Building2 className="h-3 w-3 text-indigo-500" />
+                        Multi-Lab Facility
+                      </span>
+                    )}
                   </h4>
-                  <p className="text-[11px] text-zinc-500">
-                    {session?.grade} • {session?.lab}
+                  <p className="text-[11px] text-zinc-500 mt-0.5">
+                    {session?.grade} • {session?.isDualLab ? `${session?.lab} + ${session?.secondaryLab || 'Secondary Lab'}` : session?.lab}
+                    {session?.coTeacher && session.coTeacher !== session.teacher ? ` • Co-Teacher: ${session.coTeacher}` : ''}
                   </p>
                 </div>
-                <Badge variant="outline" className="font-mono text-[10px]">
+                <Badge variant="outline" className="text-[10px] font-medium">
                   {session?.timeSlot}
                 </Badge>
               </div>
 
-              <div className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/60 space-y-3">
+              <div className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/60 space-y-3 font-sans">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-mono font-bold text-zinc-800 dark:text-zinc-200 uppercase tracking-wider flex items-center gap-1.5">
+                    <span className="text-xs font-bold text-zinc-800 dark:text-zinc-200 uppercase tracking-wider flex items-center gap-1.5 font-sans">
                       <Users className="h-3.5 w-3.5 text-zinc-400" />
                       Attendance Registry
                     </span>
-                    <div className="flex items-center bg-zinc-200 dark:bg-zinc-800 p-0.5 rounded-md text-[10px] font-mono">
+                    <div className="flex items-center bg-zinc-200 dark:bg-zinc-800 p-0.5 rounded-md text-[10px] font-sans">
                       <button
                         type="button"
                         onClick={() => setAttendanceMode('counter')}
-                        className={`px-2 py-0.5 rounded transition-all ${
+                        className={`px-2 py-0.5 rounded transition-all font-medium ${
                           attendanceMode === 'counter'
                             ? 'bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white font-bold shadow-xs'
                             : 'text-zinc-500 hover:text-zinc-900'
@@ -958,7 +1238,7 @@ function SessionActionModalContent({
                       <button
                         type="button"
                         onClick={() => setAttendanceMode('grid')}
-                        className={`px-2 py-0.5 rounded transition-all ${
+                        className={`px-2 py-0.5 rounded transition-all font-medium ${
                           attendanceMode === 'grid'
                             ? 'bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white font-bold shadow-xs'
                             : 'text-zinc-500 hover:text-zinc-900'
@@ -984,8 +1264,8 @@ function SessionActionModalContent({
 
                 {attendanceMode === 'counter' ? (
                   <div className="grid grid-cols-3 gap-3">
-                    <div className="space-y-1">
-                      <label className="text-[11px] text-zinc-500 font-mono">Total Enrolled</label>
+                    <div className="space-y-1.5 font-sans">
+                      <label className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">Total Enrolled</label>
                       <Input
                         type="number"
                         min="1"
@@ -996,10 +1276,11 @@ function SessionActionModalContent({
                           if (absentCountInput > val) setAbsentCountInput(val)
                         }}
                         required
+                        className="h-10 text-sm font-medium font-sans"
                       />
                     </div>
-                    <div className="space-y-1">
-                      <label className="text-[11px] text-zinc-500 font-mono">Absent</label>
+                    <div className="space-y-1.5 font-sans">
+                      <label className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">Absent</label>
                       <Input
                         type="number"
                         min="0"
@@ -1009,20 +1290,20 @@ function SessionActionModalContent({
                           const val = Math.max(0, parseInt(e.target.value, 10) || 0)
                           setAbsentCountInput(Math.min(val, totalStudents))
                         }}
-                        className="border-amber-400 dark:border-amber-600 font-bold"
+                        className="h-10 text-sm font-bold font-sans border-amber-400 dark:border-amber-600"
                         required
                         autoFocus
                       />
                     </div>
-                    <div className="space-y-1">
-                      <label className="text-[11px] text-zinc-500 font-mono">Present</label>
-                      <div className="flex h-9 w-full rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 text-xs items-center justify-center font-mono font-bold">
+                    <div className="space-y-1.5 font-sans">
+                      <label className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">Present</label>
+                      <div className="flex h-10 w-full rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 text-sm items-center justify-center font-bold tabular-nums font-sans">
                         {presentStudents}
                       </div>
                     </div>
                   </div>
                 ) : (
-                  <div className="space-y-2">
+                  <div className="space-y-2 font-sans">
                     <div className="grid grid-cols-8 sm:grid-cols-10 gap-1 max-h-32 overflow-y-auto p-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
                       {Array.from({ length: totalStudents }, (_, i) => i + 1).map((roll) => {
                         const isAbsent = absentRolls.includes(roll)
@@ -1032,7 +1313,7 @@ function SessionActionModalContent({
                             type="button"
                             onClick={() => toggleRollNumber(roll)}
                             title={isAbsent ? `Roll ${roll}: Absent (click to mark present)` : `Roll ${roll}: Present (click to mark absent)`}
-                            className={`h-7 rounded text-xs font-mono font-bold transition-all cursor-pointer active:scale-95 select-none ${
+                            className={`h-7 rounded text-xs font-sans font-bold transition-all cursor-pointer active:scale-95 select-none ${
                               isAbsent
                                 ? 'bg-rose-600 text-white shadow-xs hover:bg-rose-700'
                                 : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700'
@@ -1047,9 +1328,10 @@ function SessionActionModalContent({
                 )}
               </div>
 
-              <div className="space-y-1 font-mono">
-                <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
-                  Practical Topic / What Was Learned *
+              <div className="space-y-1.5 font-sans">
+                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1">
+                  <span>Practical Topic / What Was Learned</span>
+                  <span className="text-rose-500 font-normal">*</span>
                 </label>
                 <Input
                   type="text"
@@ -1057,11 +1339,12 @@ function SessionActionModalContent({
                   value={topicLearned}
                   onChange={(e) => setTopicLearned(e.target.value)}
                   placeholder="e.g. Verification of Hooke's Law"
+                  className="h-10 text-sm font-medium font-sans"
                 />
               </div>
 
-              <div className="space-y-1 font-mono">
-                <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
+              <div className="space-y-1.5 font-sans">
+                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
                   Remarks (Optional)
                 </label>
                 <textarea
@@ -1069,7 +1352,7 @@ function SessionActionModalContent({
                   value={remarks}
                   onChange={(e) => setRemarks(e.target.value)}
                   placeholder="Equipment status, student notes..."
-                  className="flex w-full rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-2 text-xs text-zinc-900 dark:text-zinc-100"
+                  className="flex w-full rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3.5 py-2 text-sm text-zinc-900 dark:text-zinc-100 font-sans"
                 />
               </div>
             </div>
@@ -1077,7 +1360,7 @@ function SessionActionModalContent({
 
           {/* C. SKIP TAB */}
           {activeTab === 'skip' && (
-            <div className="space-y-4 animate-in fade-in duration-150 font-mono">
+            <div className="space-y-4 animate-in fade-in duration-150 font-sans">
               {!isOwnSession ? (
                 <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-800 dark:text-rose-200 space-y-1.5">
                   <div className="flex items-center gap-1.5 font-bold">
@@ -1109,7 +1392,7 @@ function SessionActionModalContent({
                         if (onSuccess) onSuccess('Session unskipped and restored to active timetable.')
                         onClose()
                       }}
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold mt-2"
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-sans text-xs font-bold mt-2 h-9 px-4"
                     >
                       <RotateCcw className="h-3 w-3 mr-1" />
                       Unskip / Restore Session
@@ -1118,17 +1401,18 @@ function SessionActionModalContent({
                 </div>
               ) : (
                 <>
-                  <div className="p-3.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-xs text-zinc-700 dark:text-zinc-300">
+                  <div className="p-3.5 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-xs text-zinc-700 dark:text-zinc-300 font-sans">
                     Marking this session as skipped records an institutional audit trail for why the laboratory was not utilized today.
                   </div>
 
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
+                  <div className="space-y-1.5 font-sans">
+                    <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
                       Reason for Non-Conduction
                     </label>
                     <Select
                       value={skipReason}
                       onChange={(e) => setSkipReason(e.target.value)}
+                      className="h-10 text-sm font-medium font-sans"
                     >
                       <option value="Theory Class Conducted in Classroom">Theory Class Conducted in Classroom</option>
                       <option value="Assigned Teacher on Leave / Absent">Assigned Teacher on Leave / Absent</option>
@@ -1139,8 +1423,8 @@ function SessionActionModalContent({
                     </Select>
                   </div>
 
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
+                  <div className="space-y-1.5 font-sans">
+                    <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
                       Notes (Optional)
                     </label>
                     <textarea
@@ -1148,7 +1432,7 @@ function SessionActionModalContent({
                       value={remarks}
                       onChange={(e) => setRemarks(e.target.value)}
                       placeholder="Additional notes..."
-                      className="flex w-full rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-2 text-xs text-zinc-900 dark:text-zinc-100"
+                      className="flex w-full rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3.5 py-2 text-sm text-zinc-900 dark:text-zinc-100 font-sans"
                     />
                   </div>
                 </>
@@ -1158,7 +1442,7 @@ function SessionActionModalContent({
 
           {/* D. MERGE TAB */}
           {activeTab === 'merge' && (
-            <div className="space-y-4 animate-in fade-in duration-150 font-mono">
+            <div className="space-y-4 animate-in fade-in duration-150 font-sans">
               {isAlreadyMergedOrExtended ? (
                 <div className="p-4 rounded-xl bg-violet-50 dark:bg-violet-950/40 border border-violet-200 dark:border-violet-800 text-xs space-y-2">
                   <div className="text-violet-900 dark:text-violet-200 font-bold flex items-center gap-1.5">
@@ -1195,8 +1479,8 @@ function SessionActionModalContent({
 
           {/* E. DELETE TAB */}
           {activeTab === 'delete' && (
-            <div className="space-y-4 animate-in fade-in duration-150 font-mono">
-              <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-xs text-rose-900 dark:text-rose-200 space-y-2">
+            <div className="space-y-4 animate-in fade-in duration-150 font-sans">
+              <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-xs text-rose-900 dark:text-rose-200 space-y-2 font-sans">
                 <div className="font-bold flex items-center gap-1.5 text-rose-600 dark:text-rose-400">
                   <Trash2 className="h-4 w-4" />
                   <span>Remove Schedule Slot</span>
@@ -1210,7 +1494,7 @@ function SessionActionModalContent({
 
           {/* F. PROXY / SUBSTITUTE ASSIGNMENT TAB */}
           {activeTab === 'substitute' && session && (
-            <div className="space-y-4 animate-in fade-in duration-150 font-mono">
+            <div className="space-y-4 animate-in fade-in duration-150 font-sans">
               <div className="p-3.5 rounded-xl bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200/80 dark:border-indigo-800/60 text-xs space-y-1">
                 <div className="flex items-center gap-1.5 font-bold text-indigo-950 dark:text-indigo-200">
                   <UserCheck className="h-4 w-4 text-indigo-600" />
@@ -1228,34 +1512,34 @@ function SessionActionModalContent({
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+              <div className="grid grid-cols-2 gap-3.5">
+                <div className="space-y-1.5 font-sans">
+                  <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
                     Original Subject Teacher
                   </label>
                   <Input
                     type="text"
                     disabled
                     value={session.teacher}
-                    className="bg-zinc-100 dark:bg-zinc-800 text-xs opacity-80"
+                    className="h-10 text-sm bg-zinc-100 dark:bg-zinc-800 text-xs opacity-80 font-sans"
                   />
                 </div>
 
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+                <div className="space-y-1.5 font-sans">
+                  <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
                     Effective Date
                   </label>
                   <Input
                     type="date"
                     value={subDate}
                     onChange={(e) => setSubDate(e.target.value)}
-                    className="text-xs bg-white dark:bg-zinc-900"
+                    className="h-10 text-sm bg-white dark:bg-zinc-900 font-sans"
                   />
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+              <div className="space-y-1.5 font-sans">
+                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
                   Select Substitute Subject Teacher *
                 </label>
                 <Select
@@ -1264,6 +1548,7 @@ function SessionActionModalContent({
                     setSubTeacherId(e.target.value)
                     setSubError(null)
                   }}
+                  className="h-10 text-sm font-medium font-sans"
                 >
                   {infraFaculty
                     .filter((f) => f.name.toLowerCase() !== session.teacher.toLowerCase())
@@ -1275,8 +1560,8 @@ function SessionActionModalContent({
                 </Select>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+              <div className="space-y-1.5 font-sans">
+                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
                   Reason for Proxy Assignment
                 </label>
                 <Input
@@ -1284,7 +1569,7 @@ function SessionActionModalContent({
                   placeholder="e.g. University practical examiner duty / sick leave"
                   value={subReason}
                   onChange={(e) => setSubReason(e.target.value)}
-                  className="text-xs bg-white dark:bg-zinc-900"
+                  className="h-10 text-sm bg-white dark:bg-zinc-900 font-sans"
                 />
               </div>
             </div>
@@ -1292,7 +1577,7 @@ function SessionActionModalContent({
 
           {/* G. REPORT INCIDENT / BREAKAGE TAB */}
           {activeTab === 'incident' && session && (
-            <div className="space-y-3.5 animate-in fade-in duration-150 font-mono">
+            <div className="space-y-3.5 animate-in fade-in duration-150 font-sans">
               <div className="p-3 rounded-xl bg-rose-50/70 dark:bg-rose-950/40 border border-rose-200/80 dark:border-rose-900/60 text-xs space-y-1">
                 <div className="flex items-center gap-1.5 font-bold text-rose-950 dark:text-rose-200">
                   <AlertTriangle className="h-4 w-4 text-rose-600" />
@@ -1303,14 +1588,15 @@ function SessionActionModalContent({
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+              <div className="grid grid-cols-2 gap-3.5">
+                <div className="space-y-1.5 font-sans">
+                  <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
                     Incident Type *
                   </label>
                   <Select
                     value={incType}
                     onChange={(e) => setIncType(e.target.value as any)}
+                    className="h-10 text-sm font-medium font-sans"
                   >
                     <option value="breakage">Equipment Breakage (Tools/Glassware)</option>
                     <option value="malfunction">Equipment Malfunction (No Power/Faulty)</option>
@@ -1321,13 +1607,14 @@ function SessionActionModalContent({
                   </Select>
                 </div>
 
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+                <div className="space-y-1.5 font-sans">
+                  <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
                     Severity Level *
                   </label>
                   <Select
                     value={incSeverity}
                     onChange={(e) => setIncSeverity(e.target.value as any)}
+                    className="h-10 text-sm font-medium font-sans"
                   >
                     <option value="minor">Minor (Low Cost / Internal Fix)</option>
                     <option value="moderate">Moderate (Requires Store Replacement)</option>
@@ -1336,8 +1623,8 @@ function SessionActionModalContent({
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+              <div className="space-y-1.5 font-sans">
+                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
                   Incident Headline / Title *
                 </label>
                 <Input
@@ -1346,14 +1633,13 @@ function SessionActionModalContent({
                   placeholder="e.g. Glassware fracture or device malfunction during experiment"
                   value={incTitle}
                   onChange={(e) => setIncTitle(e.target.value)}
-                  className="text-xs bg-white dark:bg-zinc-900"
+                  className="h-10 text-sm bg-white dark:bg-zinc-900 font-sans"
                 />
               </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200 flex items-center justify-between">
-                  <span>What Happened & Damage Circumstances *</span>
-                  <span className="text-[10px] text-zinc-400 font-normal">Specify equipment, cause, and safety steps</span>
+              <div className="space-y-1.5 font-sans">
+                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                  What Happened & Damage Circumstances *
                 </label>
                 <textarea
                   required
@@ -1361,12 +1647,12 @@ function SessionActionModalContent({
                   value={incRemarks}
                   onChange={(e) => setIncRemarks(e.target.value)}
                   placeholder="Describe what equipment broke or malfunctioned, how it occurred, safety steps taken, replacement needed..."
-                  className="flex w-full rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-2 text-xs text-zinc-900 dark:text-zinc-100 font-sans"
+                  className="flex w-full rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3.5 py-2 text-sm text-zinc-900 dark:text-zinc-100 font-sans"
                 />
               </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+              <div className="space-y-1.5 font-sans">
+                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
                   Involved Student Roll(s) (Optional)
                 </label>
                 <Input
@@ -1374,100 +1660,102 @@ function SessionActionModalContent({
                   placeholder="e.g. Roll 12, 19 (Class 12C)"
                   value={incRolls}
                   onChange={(e) => setIncRolls(e.target.value)}
-                  className="text-xs bg-white dark:bg-zinc-900"
+                  className="h-10 text-sm bg-white dark:bg-zinc-900 font-sans"
                 />
               </div>
             </div>
           )}
+        </div>
 
-          {/* Modal Footer Actions */}
-          <div className="pt-4 flex items-center justify-between border-t border-zinc-100 dark:border-zinc-800">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={onClose}
-              disabled={isSubmitting}
-            >
-              Cancel
-            </Button>
+        {/* Modal Sticky Docked Footer Actions */}
+        <div className="shrink-0 p-3.5 px-6 border-t border-zinc-200/80 dark:border-zinc-800 bg-zinc-50/95 dark:bg-zinc-900/95 backdrop-blur-sm flex items-center justify-between gap-3 font-sans">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onClose}
+            disabled={isSubmitting}
+            className="h-10 px-4 text-xs font-semibold font-sans"
+          >
+            Cancel
+          </Button>
 
-            <Button
-              type="submit"
-              size="sm"
-              disabled={
-                isSubmitting ||
-                (activeTab === 'skip' && (!isOwnSession || Boolean(session?.isSkipped || session?.status === 'skipped')))
-              }
-              className={`gap-1.5 font-bold text-white shadow-xs ${
-                activeTab === 'book'
-                  ? 'bg-indigo-600 hover:bg-indigo-700'
-                  : activeTab === 'log'
-                  ? 'bg-emerald-600 hover:bg-emerald-700'
-                  : activeTab === 'skip'
-                  ? 'bg-amber-600 hover:bg-amber-700'
-                  : activeTab === 'merge'
-                  ? 'bg-violet-600 hover:bg-violet-700'
-                  : activeTab === 'substitute'
-                  ? 'bg-indigo-600 hover:bg-indigo-700'
-                  : 'bg-rose-600 hover:bg-rose-700'
-              }`}
-            >
-              {isSubmitting ? (
-                'Processing...'
-              ) : activeTab === 'book' ? (
+          <Button
+            type="submit"
+            size="sm"
+            disabled={
+              isSubmitting ||
+              (activeTab === 'skip' && (!isOwnSession || Boolean(session?.isSkipped || session?.status === 'skipped')))
+            }
+            className={`h-10 px-5 gap-1.5 text-xs font-bold font-sans text-white shadow-xs ${
+              activeTab === 'book'
+                ? 'bg-indigo-600 hover:bg-indigo-700'
+                : activeTab === 'log'
+                ? 'bg-emerald-600 hover:bg-emerald-700'
+                : activeTab === 'skip'
+                ? 'bg-amber-600 hover:bg-amber-700'
+                : activeTab === 'merge'
+                ? 'bg-violet-600 hover:bg-violet-700'
+                : activeTab === 'substitute'
+                ? 'bg-indigo-600 hover:bg-indigo-700'
+                : 'bg-rose-600 hover:bg-rose-700'
+            }`}
+          >
+            {isSubmitting ? (
+              'Processing...'
+            ) : activeTab === 'book' ? (
+              <>
+                <CalendarPlus className="h-3.5 w-3.5" />
+                <span>{isTeacher ? 'Submit Slot Booking Request' : (session?.id && !isBookingMode ? 'Update & Save Schedule' : 'Allocate & Save Schedule')}</span>
+              </>
+            ) : activeTab === 'log' ? (
+              <>
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                <span>{existingLog ? 'Update Practical Record' : 'Confirm Practical Record'}</span>
+              </>
+            ) : activeTab === 'skip' ? (
+              <>
+                <AlertCircle className="h-3.5 w-3.5" />
+                <span>
+                  {!isOwnSession
+                    ? 'Skip Restricted (Other Teacher)'
+                    : session?.isSkipped || session?.status === 'skipped'
+                    ? 'Already Skipped'
+                    : 'Confirm Skip Flag'}
+                </span>
+              </>
+            ) : activeTab === 'merge' ? (
+              isAlreadyMergedOrExtended ? (
                 <>
-                  <CalendarPlus className="h-3.5 w-3.5" />
-                  <span>{isTeacher ? 'Submit Slot Booking Request' : 'Allocate & Save Schedule'}</span>
-                </>
-              ) : activeTab === 'log' ? (
-                <>
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                  <span>{existingLog ? 'Update Practical Record' : 'Confirm Practical Record'}</span>
-                </>
-              ) : activeTab === 'skip' ? (
-                <>
-                  <AlertCircle className="h-3.5 w-3.5" />
-                  <span>
-                    {!isOwnSession
-                      ? 'Skip Restricted (Other Teacher)'
-                      : session?.isSkipped || session?.status === 'skipped'
-                      ? 'Already Skipped'
-                      : 'Confirm Skip Flag'}
-                  </span>
-                </>
-              ) : activeTab === 'merge' ? (
-                isAlreadyMergedOrExtended ? (
-                  <>
-                    <Split className="h-3.5 w-3.5" />
-                    <span>Split Block</span>
-                  </>
-                ) : (
-                  <>
-                    <Merge className="h-3.5 w-3.5" />
-                    <span>Confirm Merge</span>
-                  </>
-                )
-              ) : activeTab === 'substitute' ? (
-                <>
-                  <UserCheck className="h-3.5 w-3.5" />
-                  <span>Assign Proxy Teacher</span>
-                </>
-              ) : activeTab === 'incident' ? (
-                <>
-                  <AlertTriangle className="h-3.5 w-3.5" />
-                  <span>Submit Damage Report</span>
+                  <Split className="h-3.5 w-3.5" />
+                  <span>Split Block</span>
                 </>
               ) : (
                 <>
-                  <Trash2 className="h-3.5 w-3.5" />
-                  <span>Confirm Delete</span>
+                  <Merge className="h-3.5 w-3.5" />
+                  <span>Confirm Merge</span>
                 </>
-              )}
-            </Button>
-          </div>
-        </form>
-      </div>
+              )
+            ) : activeTab === 'substitute' ? (
+              <>
+                <UserCheck className="h-3.5 w-3.5" />
+                <span>Assign Proxy Teacher</span>
+              </>
+            ) : activeTab === 'incident' ? (
+              <>
+                <AlertTriangle className="h-3.5 w-3.5" />
+                <span>Submit Damage Report</span>
+              </>
+            ) : (
+              <>
+                <Trash2 className="h-3.5 w-3.5" />
+                <span>Confirm Delete</span>
+              </>
+            )}
+          </Button>
+        </div>
+      </form>
     </div>
+  </div>
   )
 }

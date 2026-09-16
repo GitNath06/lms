@@ -746,15 +746,13 @@ export function useInfrastructureState() {
   const updateLab = useCallback((id: string, updates: Partial<LabFacilityItem>) => {
     setLabs((prev) => {
       const updated = prev.map((l) => (l.id === id ? { ...l, ...updates } : l))
-      queueMicrotask(() => {
-        saveToStorage(STORAGE_KEYS.LABS, updated)
-        cachedLabsPromise = null
-        lastInfraFetchTime = 0
-        updateLabFacility(id, updates).catch((err) => {
-          console.error('[LMR] Remote updateLabFacility failed:', err)
-        })
-      })
+      saveToStorage(STORAGE_KEYS.LABS, updated)
+      cachedLabsPromise = null
+      lastInfraFetchTime = 0
       return updated
+    })
+    updateLabFacility(id, updates).catch((err) => {
+      console.error('[LMR] Remote updateLabFacility failed:', err)
     })
   }, [])
 

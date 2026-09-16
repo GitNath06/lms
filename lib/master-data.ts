@@ -23,18 +23,89 @@ export interface MasterRoutineItem {
   teacher: string
   lab: 'Computer Lab' | 'Physics Lab' | 'Chemistry Lab' | 'Biology Lab' | 'Electronics Lab'
   labKey: 'comp' | 'phys' | 'chem' | 'bio' | 'elec'
+  labCode?: string
   defaultStudents: number
   category: 'Computer' | 'Physics' | 'Chemistry' | 'Biology' | 'Electronics' | 'General'
   dotColor: string
   accentColor: string
   badgeColor: string
   mergedParts?: [MergedSessionPart, MergedSessionPart]
+  secondaryLab?: string
+  secondaryLabKey?: 'comp' | 'phys' | 'chem' | 'bio' | 'elec'
+  isDualLab?: boolean
+  coTeacher?: string
   status?: 'confirmed' | 'requested' | 'skipped'
   isSkipped?: boolean
   skippedReason?: string
   skippedBy?: string
   requestedBy?: string
   declineReason?: string
+}
+
+export function isLabBusyInSlot(
+  routines: MasterRoutineItem[],
+  dayKey: DayKey,
+  slotId: string,
+  labKey: string,
+  excludeSessionId?: string
+): boolean {
+  if (!routines || !dayKey || !slotId || !labKey) return false
+  const normKey = labKey.toLowerCase().trim()
+  return routines.some((s) => {
+    if (excludeSessionId && s.id === excludeSessionId) return false
+    if (s.dayKey !== dayKey || s.slotId !== slotId) return false
+    if (s.isSkipped || s.status === 'skipped') return false
+    const primaryMatch = (s.labKey || '').toLowerCase().trim() === normKey
+    const secondaryMatch = Boolean(s.isDualLab && (s.secondaryLabKey || '').toLowerCase().trim() === normKey)
+    return primaryMatch || secondaryMatch
+  })
+}
+
+export function isTeacherBusyInSlot(
+  routines: MasterRoutineItem[],
+  dayKey: DayKey,
+  slotId: string,
+  teacherName: string,
+  excludeSessionId?: string
+): boolean {
+  if (!routines || !dayKey || !slotId || !teacherName) return false
+  const normTeacher = teacherName.toLowerCase().trim()
+  return routines.some((s) => {
+    if (excludeSessionId && s.id === excludeSessionId) return false
+    if (s.dayKey !== dayKey || s.slotId !== slotId) return false
+    if (s.isSkipped || s.status === 'skipped') return false
+    const sTeacher = (s.teacher || '').toLowerCase().trim()
+    const sCoTeacher = s.isDualLab ? (s.coTeacher || '').toLowerCase().trim() : ''
+    return sTeacher === normTeacher || (sCoTeacher !== '' && sCoTeacher === normTeacher)
+  })
+}
+
+export function getOccupiedLabsInSlot(
+  routines: MasterRoutineItem[],
+  dayKey: DayKey,
+  slotId: string,
+  excludeSessionId?: string
+): Set<string> {
+  const occupied = new Set<string>()
+  if (!routines || !dayKey || !slotId) return occupied
+  const targetSlotIdx = MASTER_TIME_SLOTS.findIndex((t) => t.id === slotId)
+  if (targetSlotIdx === -1) return occupied
+
+  routines.forEach((s) => {
+    if (excludeSessionId && s.id === excludeSessionId) return
+    if (s.dayKey !== dayKey) return
+    if (s.isSkipped || s.status === 'skipped') return
+
+    const sSlotIdx = MASTER_TIME_SLOTS.findIndex((t) => t.id === s.slotId)
+    if (sSlotIdx === -1) return
+    const sSpan = s.span || 1
+
+    if (targetSlotIdx >= sSlotIdx && targetSlotIdx < sSlotIdx + sSpan) {
+      if (s.labKey) occupied.add(s.labKey.toLowerCase().trim())
+      if (s.isDualLab && s.secondaryLabKey) occupied.add(s.secondaryLabKey.toLowerCase().trim())
+    }
+  })
+  return occupied
 }
 
 export interface HolidayItem {
@@ -1359,7 +1430,7 @@ export const MASTER_ROUTINE: MasterRoutineItem[] = [
     badgeColor: 'bg-cyan-100 dark:bg-cyan-900/60 text-cyan-800 dark:text-cyan-200 border-cyan-200 dark:border-cyan-700/60',
     accentColor: 'border-l-cyan-500 bg-cyan-50/80 dark:bg-cyan-950/40 text-zinc-950 dark:text-white border-cyan-200 dark:border-cyan-500/30',
   },
-  // Monday Period 4 (12:30-1:15) - Parallel Session 1: PHY-12
+  // Monday Period 4 (12:30-1:15) - Concurrent Session 1: PHY-12 (Separate Class & Lab)
   {
     id: 'mon-3a',
     day: 'Monday',
@@ -1380,7 +1451,7 @@ export const MASTER_ROUTINE: MasterRoutineItem[] = [
     badgeColor: 'bg-cyan-100 dark:bg-cyan-900/60 text-cyan-800 dark:text-cyan-200 border-cyan-200 dark:border-cyan-700/60',
     accentColor: 'border-l-cyan-500 bg-cyan-50/80 dark:bg-cyan-950/40 text-zinc-950 dark:text-white border-cyan-200 dark:border-cyan-500/30',
   },
-  // Monday Period 4 (12:30-1:15) - Parallel Session 2: COMP-7C
+  // Monday Period 4 (12:30-1:15) - Concurrent Session 2: COMP-7C (Separate Class & Lab)
   {
     id: 'mon-3b',
     day: 'Monday',
@@ -1483,7 +1554,7 @@ export const MASTER_ROUTINE: MasterRoutineItem[] = [
   },
 
   // ==================== TUESDAY ====================
-  // Tuesday Period 1 (10:10-11:00) - Parallel Session 1: DDMP-10 (Computer Lab)
+  // Tuesday Period 1 (10:10-11:00) - Concurrent Session 1: DDMP-10 (Computer Lab)
   {
     id: 'tue-1a',
     day: 'Tuesday',
@@ -1504,7 +1575,7 @@ export const MASTER_ROUTINE: MasterRoutineItem[] = [
     badgeColor: 'bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 border-amber-200 dark:border-amber-700/60',
     accentColor: 'border-l-amber-500 bg-amber-50/80 dark:bg-amber-950/40 text-zinc-950 dark:text-white border-amber-200 dark:border-amber-500/30',
   },
-  // Tuesday Period 1 (10:10-11:00) - Parallel Session 2: CHEM-12 (Chemistry Lab)
+  // Tuesday Period 1 (10:10-11:00) - Concurrent Session 2: CHEM-12 (Chemistry Lab)
   {
     id: 'tue-1b',
     day: 'Tuesday',
@@ -1667,7 +1738,7 @@ export const MASTER_ROUTINE: MasterRoutineItem[] = [
     badgeColor: 'bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 border-amber-200 dark:border-amber-700/60',
     accentColor: 'border-l-amber-500 bg-amber-50/80 dark:bg-amber-950/40 text-zinc-950 dark:text-white border-amber-200 dark:border-amber-500/30',
   },
-  // Wednesday Period 2 (11:00-11:45) - Parallel Session 1: OS-11 (Computer Lab)
+  // Wednesday Period 2 (11:00-11:45) - Concurrent Session 1: OS-11 (Computer Lab)
   {
     id: 'wed-2a',
     day: 'Wednesday',
@@ -1688,7 +1759,7 @@ export const MASTER_ROUTINE: MasterRoutineItem[] = [
     badgeColor: 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-200 border-indigo-200 dark:border-indigo-700/60',
     accentColor: 'border-l-indigo-500 bg-indigo-50/80 dark:bg-indigo-950/40 text-zinc-950 dark:text-white border-indigo-200 dark:border-indigo-500/30',
   },
-  // Wednesday Period 2 (11:00-11:45) - Parallel Session 2: CHEM-11 (Chemistry Lab)
+  // Wednesday Period 2 (11:00-11:45) - Concurrent Session 2: CHEM-11 (Chemistry Lab)
   {
     id: 'wed-2b',
     day: 'Wednesday',
@@ -1811,7 +1882,7 @@ export const MASTER_ROUTINE: MasterRoutineItem[] = [
     badgeColor: 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-200 border-indigo-200 dark:border-indigo-700/60',
     accentColor: 'border-l-indigo-500 bg-indigo-50/80 dark:bg-indigo-950/40 text-zinc-950 dark:text-white border-indigo-200 dark:border-indigo-500/30',
   },
-  // Thursday Period 1 (10:10-11:00) - Parallel Session 1: FCA-9 (Computer Lab)
+  // Thursday Period 1 (10:10-11:00) - Concurrent Session 1: FCA-9 (Computer Lab)
   {
     id: 'thu-2a',
     day: 'Thursday',
@@ -1832,7 +1903,7 @@ export const MASTER_ROUTINE: MasterRoutineItem[] = [
     badgeColor: 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-200 border-indigo-200 dark:border-indigo-700/60',
     accentColor: 'border-l-indigo-500 bg-indigo-50/80 dark:bg-indigo-950/40 text-zinc-950 dark:text-white border-indigo-200 dark:border-indigo-500/30',
   },
-  // Thursday Period 1 (10:10-11:00) - Parallel Session 2: CHEM-11 (Chemistry Lab)
+  // Thursday Period 1 (10:10-11:00) - Concurrent Session 2: CHEM-11 (Chemistry Lab)
   {
     id: 'thu-2b',
     day: 'Thursday',
@@ -1975,6 +2046,7 @@ export const MASTER_ROUTINE: MasterRoutineItem[] = [
     badgeColor: 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-200 border-indigo-200 dark:border-indigo-700/60',
     accentColor: 'border-l-indigo-500 bg-indigo-50/80 dark:bg-indigo-950/40 text-zinc-950 dark:text-white border-indigo-200 dark:border-indigo-500/30',
   },
+  // Friday Period 1 (10:10-11:00) - Dual-Lab Facility Practical: Class 9 FCA across Computer Lab + Physics Lab
   {
     id: 'fri-2',
     day: 'Friday',
@@ -1983,12 +2055,16 @@ export const MASTER_ROUTINE: MasterRoutineItem[] = [
     slotId: 't2',
     span: 1,
     subjectCode: 'FCA-9',
-    subjectTitle: 'Fund. Computer App',
+    subjectTitle: 'Fund. Computer App (Hardware Verification)',
     grade: 'Class 9',
     gradeKey: 'class-9',
     teacher: 'FCA9-Teacher',
+    coTeacher: 'PHY-Teacher',
     lab: 'Computer Lab',
     labKey: 'comp',
+    isDualLab: true,
+    secondaryLab: 'Physics Lab',
+    secondaryLabKey: 'phys',
     defaultStudents: 36,
     category: 'Computer',
     dotColor: 'bg-indigo-500',
@@ -2015,7 +2091,7 @@ export const MASTER_ROUTINE: MasterRoutineItem[] = [
     badgeColor: 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-200 border-indigo-200 dark:border-indigo-700/60',
     accentColor: 'border-l-indigo-500 bg-indigo-50/80 dark:bg-indigo-950/40 text-zinc-950 dark:text-white border-indigo-200 dark:border-indigo-500/30',
   },
-  // Friday Period 4 (12:30-1:15) - Parallel Session 1: PHY-11 (Physics Lab)
+  // Friday Period 4 (12:30-1:15) - Concurrent Session 1: PHY-11 (Physics Lab)
   {
     id: 'fri-4a',
     day: 'Friday',
@@ -2036,7 +2112,7 @@ export const MASTER_ROUTINE: MasterRoutineItem[] = [
     badgeColor: 'bg-cyan-100 dark:bg-cyan-900/60 text-cyan-800 dark:text-cyan-200 border-cyan-200 dark:border-cyan-700/60',
     accentColor: 'border-l-cyan-500 bg-cyan-50/80 dark:bg-cyan-950/40 text-zinc-950 dark:text-white border-cyan-200 dark:border-cyan-500/30',
   },
-  // Friday Period 4 (12:30-1:15) - Parallel Session 2: CT-12 (Computer Lab)
+  // Friday Period 4 (12:30-1:15) - Concurrent Session 2: CT-12 (Computer Lab)
   {
     id: 'fri-4b',
     day: 'Friday',

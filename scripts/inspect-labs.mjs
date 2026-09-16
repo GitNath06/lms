@@ -25,8 +25,8 @@ async function main() {
     `);
     console.log('--- LABS COLS ---', labCols.rows);
 
-    const labRows = await pool.query(`SELECT * FROM public.labs;`);
-    console.log('--- LAB ROWS ---', labRows.rows);
+    const remaining = await pool.query(`SELECT * FROM public.labs ORDER BY name;`);
+    console.log('--- LAB ROWS ---', JSON.stringify(remaining.rows, null, 2));
   } catch (err) {
     console.error(err);
   } finally {

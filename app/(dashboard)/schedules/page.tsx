@@ -82,10 +82,10 @@ export default function SchedulesPage() {
               <Calendar className="h-3.5 w-3.5" />
             </div>
             <div className="flex items-center gap-1.5">
-              <h2 className="text-xs sm:text-sm font-bold tracking-tight text-zinc-950 dark:text-white font-mono whitespace-nowrap">
+              <h2 className="text-xs sm:text-sm font-bold tracking-tight text-zinc-950 dark:text-white font-heading whitespace-nowrap">
                 Lab Timetable
               </h2>
-              <span className="px-1.5 py-0.2 text-[9px] font-mono font-bold rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/60 flex items-center gap-1 shrink-0">
+              <span className="px-1.5 py-0.2 text-[9px] font-sans font-bold tabular-nums rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/60 flex items-center gap-1 shrink-0">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-ping" />
                 2083
               </span>
@@ -93,11 +93,11 @@ export default function SchedulesPage() {
           </div>
 
           {/* Segmented Lab Switcher */}
-          <div className="flex items-center gap-0.5 p-0.5 bg-zinc-100 dark:bg-zinc-800/80 rounded-lg text-xs font-mono border border-zinc-200/60 dark:border-zinc-700/60 shrink-0">
+          <div className="flex items-center gap-0.5 p-0.5 bg-zinc-100 dark:bg-zinc-800/80 rounded-lg text-xs font-sans border border-zinc-200/60 dark:border-zinc-700/60 shrink-0">
             <button
               type="button"
               onClick={() => setLabFilter('all')}
-              className={`px-2 py-1 rounded-md transition-all font-bold text-[11px] ${
+              className={`px-2 py-1 rounded-md transition-all font-semibold text-[11px] ${
                 labFilter === 'all'
                   ? 'bg-white dark:bg-zinc-900 text-zinc-950 dark:text-white shadow-xs'
                   : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
@@ -120,7 +120,7 @@ export default function SchedulesPage() {
                   onClick={() => setLabFilter(l.id)}
                   className={`px-2 py-1 rounded-md transition-all flex items-center gap-1 text-[11px] ${
                     isActive
-                      ? 'bg-white dark:bg-zinc-900 text-indigo-600 dark:text-indigo-400 font-bold shadow-xs'
+                      ? 'bg-white dark:bg-zinc-900 text-indigo-600 dark:text-indigo-400 font-semibold shadow-xs'
                       : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
                   }`}
                 >
@@ -132,13 +132,13 @@ export default function SchedulesPage() {
           </div>
 
           {/* 1. Subject Teacher Filter */}
-          <div className="flex items-center gap-1 font-mono shrink-0">
+          <div className="flex items-center gap-1 font-sans shrink-0">
             {isTeacher ? (
               <div className="flex items-center gap-0.5 p-0.5 bg-zinc-100 dark:bg-zinc-800/80 rounded-lg text-xs border border-zinc-200/60 dark:border-zinc-700/60">
                 <button
                   type="button"
                   onClick={() => setTeacherFilter('my_sessions')}
-                  className={`px-2 py-1 rounded-md transition-all flex items-center gap-1 font-bold text-[11px] ${
+                  className={`px-2 py-1 rounded-md transition-all flex items-center gap-1 font-semibold text-[11px] ${
                     teacherFilter === 'my_sessions'
                       ? 'bg-indigo-600 text-white shadow-xs'
                       : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
@@ -151,27 +151,23 @@ export default function SchedulesPage() {
                 <button
                   type="button"
                   onClick={() => setTeacherFilter('all')}
-                  className={`px-2 py-1 rounded-md transition-all font-bold text-[11px] ${
+                  className={`px-2 py-1 rounded-md transition-all font-semibold text-[11px] ${
                     teacherFilter === 'all'
                       ? 'bg-white dark:bg-zinc-900 text-zinc-950 dark:text-white shadow-xs'
                       : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
                   }`}
                   title="Show all subject teachers"
                 >
-                  All Teachers
+                  <span>All Teachers</span>
                 </button>
               </div>
             ) : (
-              <div className="flex items-center gap-1.5 px-2 py-1 bg-zinc-100 dark:bg-zinc-800/80 rounded-lg border border-zinc-200/60 dark:border-zinc-700/60 text-xs">
-                <Filter className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
-                <span className="text-[11px] font-bold text-zinc-600 dark:text-zinc-400 hidden 2xl:inline whitespace-nowrap">
-                  Subject Teacher:
-                </span>
+              <div className="relative flex items-center">
                 <select
                   suppressHydrationWarning
                   value={teacherFilter}
                   onChange={(e) => setTeacherFilter(e.target.value)}
-                  className="bg-transparent font-bold text-zinc-900 dark:text-zinc-100 focus:outline-none cursor-pointer max-w-[130px] sm:max-w-[145px] truncate text-[11px]"
+                  className="h-8 pl-3 pr-7 bg-zinc-100/90 dark:bg-zinc-800/90 border border-zinc-200/80 dark:border-zinc-700/80 rounded-lg text-xs text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-sans cursor-pointer shadow-2xs max-w-[130px] sm:max-w-[145px] truncate"
                 >
                   <option value="all">All Subject Teachers</option>
                   {mounted &&
@@ -189,7 +185,7 @@ export default function SchedulesPage() {
         {/* Right Section: Week Navigation & Action Buttons */}
         <div className="flex items-center gap-2 shrink-0">
           {/* Week Navigation Controls (Rigid Fixed Width) */}
-          <div className="flex items-center bg-zinc-100/90 dark:bg-zinc-800/90 p-0.5 rounded-lg border border-zinc-200/70 dark:border-zinc-700/70 font-mono text-xs shrink-0">
+          <div className="flex items-center bg-zinc-100/90 dark:bg-zinc-800/90 p-0.5 rounded-lg border border-zinc-200/70 dark:border-zinc-700/70 font-sans text-xs shrink-0">
             <button
               type="button"
               onClick={() => setWeekOffset((w) => w - 1)}
@@ -200,7 +196,7 @@ export default function SchedulesPage() {
             </button>
 
             {/* Rigid container: exactly 315px wide so all English + Nepali dates and badges fit without any overflow */}
-            <div suppressHydrationWarning className="flex items-center justify-center gap-1.5 px-2 py-0.5 text-[11px] font-bold w-[315px] shrink-0 text-center select-none">
+            <div suppressHydrationWarning className="flex items-center justify-center gap-1.5 px-2 py-0.5 text-[11px] font-semibold w-[315px] shrink-0 text-center select-none font-sans">
               <CalendarDays className="h-3 w-3 text-indigo-500 shrink-0" />
               <span suppressHydrationWarning className="text-zinc-800 dark:text-zinc-200 whitespace-nowrap">
                 {startDayInfo?.formattedEng} – {endDayInfo?.formattedEng}
@@ -239,7 +235,7 @@ export default function SchedulesPage() {
           <Button
             variant="outline"
             size="sm"
-            className="h-8 px-2.5 text-xs font-semibold gap-1.5 border-zinc-200 dark:border-zinc-800 font-mono shrink-0"
+            className="h-8 px-2.5 text-xs font-semibold gap-1.5 border-zinc-200 dark:border-zinc-800 font-sans shrink-0"
             onClick={() => {
               if (typeof window !== 'undefined') window.print()
             }}
@@ -250,7 +246,7 @@ export default function SchedulesPage() {
 
           <Button
             size="sm"
-            className="h-8 px-3 text-xs font-semibold gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-mono shadow-xs shrink-0 whitespace-nowrap"
+            className="h-8 px-3 text-xs font-semibold gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-sans shadow-xs shrink-0 whitespace-nowrap"
             onClick={() => setIsAdhocOpen(true)}
           >
             <Plus className="h-3.5 w-3.5" />
@@ -275,7 +271,7 @@ export default function SchedulesPage() {
         onClose={() => setIsAdhocOpen(false)}
         currentUser={currentUser}
         session={{
-          id: `adhoc-${Date.now()}`,
+          id: `adhoc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           day: 'Monday',
           dayKey: 'mon',
           timeSlot: '10:10 - 11:00',

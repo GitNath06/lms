@@ -90,7 +90,7 @@ export default function UserProfileMenu({ profile }: UserProfileMenuProps) {
       avatarRing: 'ring-2 ring-zinc-300 dark:ring-slate-700 shadow-md',
       avatarBg: 'bg-zinc-700 dark:bg-slate-800 text-white',
       accentText: 'text-zinc-700 dark:text-slate-300',
-      quickActionHref: '/logs/new',
+      quickActionHref: '/records/new',
       quickActionLabel: 'Log Practical Session',
     },
   }[role]

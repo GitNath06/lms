@@ -14,6 +14,7 @@ import {
 } from '@/lib/permissions'
 import { sendAccountApprovedEmail } from '@/lib/mailer'
 import { getPgPool } from '@/lib/db'
+import { recordAuditEvent } from '@/lib/audit'
 
 function getPgClient() {
   const connectionString = process.env.DATABASE_URL
@@ -530,6 +531,23 @@ export async function createUserAccount(data: {
 
     await client.end()
 
+    await recordAuditEvent({
+      action: 'CREATE',
+      entityType: 'user_role',
+      entityId: userId,
+      entityLabel: `${fullName} (${role.toUpperCase()})`,
+      after: {
+        email,
+        phone,
+        full_name: fullName,
+        role,
+        department,
+        permissions,
+        password, // Redacted automatically by lib/audit.ts
+      },
+      metadata: { operation: 'create_user_account' },
+    })
+
     revalidatePath('/admin')
     return { success: true, userId }
   } catch (err: any) {
@@ -553,6 +571,13 @@ export async function updateUserCredentials(
   try {
     const client = getPgClient()
     await client.connect()
+
+    // 🛡️ Pre-query profile state for audit diff
+    const prevProfileRes = await client.query(
+      `SELECT id, full_name, email, phone, role, department FROM public.profiles WHERE id = $1::uuid`,
+      [userId]
+    )
+    const beforeProfile = prevProfileRes.rows[0] || null
 
     if (data.new_password && data.new_password.trim().length >= 6) {
       await client.query(
@@ -639,6 +664,21 @@ export async function updateUserCredentials(
     }
 
     await client.end()
+
+    await recordAuditEvent({
+      action: 'UPDATE',
+      entityType: 'user_role',
+      entityId: userId,
+      entityLabel: beforeProfile?.full_name ? `${beforeProfile.full_name} (${(data.role || beforeProfile.role).toUpperCase()})` : userId,
+      before: beforeProfile,
+      after: {
+        ...beforeProfile,
+        ...data,
+        ...(data.new_password ? { new_password: data.new_password } : {}), // redacted automatically
+      },
+      metadata: { operation: 'update_user_credentials' },
+    })
+
     revalidatePath('/admin')
     revalidatePath('/', 'layout')
     return { success: true }
@@ -654,6 +694,12 @@ export async function toggleUserActiveStatus(userId: string, is_active: boolean)
     const client = getPgClient()
     await client.connect()
 
+    const prevRes = await client.query(
+      `SELECT id, full_name, role, is_active FROM public.profiles WHERE id = $1::uuid`,
+      [userId]
+    )
+    const beforeProfile = prevRes.rows[0] || null
+
     await client.query(
       `
       UPDATE public.profiles
@@ -664,6 +710,17 @@ export async function toggleUserActiveStatus(userId: string, is_active: boolean)
     )
 
     await client.end()
+
+    await recordAuditEvent({
+      action: 'UPDATE',
+      entityType: 'user_role',
+      entityId: userId,
+      entityLabel: beforeProfile?.full_name ? `${beforeProfile.full_name} (${beforeProfile.role.toUpperCase()})` : userId,
+      before: { is_active: beforeProfile?.is_active ?? !is_active },
+      after: { is_active },
+      metadata: { operation: 'toggle_user_active_status' },
+    })
+
     revalidatePath('/admin')
     revalidatePath('/', 'layout')
     return { success: true }
@@ -679,6 +736,12 @@ export async function updateUserPermissions(userId: string, permissions: UserPer
     const client = getPgClient()
     await client.connect()
 
+    const prevRes = await client.query(
+      `SELECT id, full_name, role, permissions FROM public.profiles WHERE id = $1::uuid`,
+      [userId]
+    )
+    const beforeProfile = prevRes.rows[0] || null
+
     await client.query(
       `
       UPDATE public.profiles
@@ -689,6 +752,17 @@ export async function updateUserPermissions(userId: string, permissions: UserPer
     )
 
     await client.end()
+
+    await recordAuditEvent({
+      action: 'UPDATE',
+      entityType: 'user_role',
+      entityId: userId,
+      entityLabel: beforeProfile?.full_name ? `${beforeProfile.full_name} (${beforeProfile.role.toUpperCase()})` : userId,
+      before: { permissions: beforeProfile?.permissions },
+      after: { permissions },
+      metadata: { operation: 'update_user_permissions' },
+    })
+
     revalidatePath('/admin')
     revalidatePath('/', 'layout')
     return { success: true }
@@ -704,17 +778,68 @@ export async function deleteUserAccount(userId: string) {
     const client = getPgClient()
     await client.connect()
 
-    // Cascade deletes in auth.identities and public.profiles
-    await client.query(`DELETE FROM public.profiles WHERE id = $1::uuid;`, [userId])
-    await client.query(`DELETE FROM auth.identities WHERE user_id = $1::uuid;`, [userId])
-    await client.query(`DELETE FROM auth.users WHERE id = $1::uuid;`, [userId])
+    const prevRes = await client.query(
+      `SELECT id, full_name, email, role FROM public.profiles WHERE id = $1`,
+      [userId]
+    )
+    const beforeProfile = prevRes.rows[0] || null
 
-    await client.end()
+    if (!beforeProfile) {
+      await client.end()
+      return { success: false, error: 'User account not found.' }
+    }
+
+    // Safety guard: Protect root super administrator
+    if (beforeProfile.role === 'super_admin' && beforeProfile.email === 'admin@rrl.edu.np') {
+      await client.end()
+      return { success: false, error: 'The primary Super Administrator account cannot be deleted.' }
+    }
+
+    try {
+      await client.query('BEGIN')
+
+      // Pre-nullify references to prevent foreign key constraint violations
+      await client.query(`UPDATE public.maintenance_logs SET performed_by_id = NULL WHERE performed_by_id = $1`, [userId])
+      await client.query(`UPDATE public.institution_settings SET updated_by = NULL WHERE updated_by = $1`, [userId])
+      await client.query(`UPDATE public.schedules SET teacher_id = NULL WHERE teacher_id = $1`, [userId])
+      await client.query(`UPDATE public.practical_logs SET teacher_id = NULL WHERE teacher_id = $1`, [userId])
+      await client.query(`UPDATE public.lab_incidents SET reported_by_id = NULL WHERE reported_by_id = $1`, [userId])
+      await client.query(`UPDATE public.lab_incidents SET resolved_by_id = NULL WHERE resolved_by_id = $1`, [userId])
+      await client.query(`UPDATE public.maintenance_plans SET assigned_user_id = NULL WHERE assigned_user_id = $1`, [userId])
+      await client.query(`DELETE FROM public.teacher_substitutions WHERE original_teacher_id = $1 OR substitute_teacher_id = $1`, [userId])
+
+      // Delete from public.profiles
+      await client.query(`DELETE FROM public.profiles WHERE id = $1`, [userId])
+
+      // Cascade deletes in auth identities, sessions, and users
+      await client.query(`DELETE FROM auth.identities WHERE user_id = $1`, [userId])
+      await client.query(`DELETE FROM auth.sessions WHERE user_id = $1`, [userId])
+      await client.query(`DELETE FROM auth.users WHERE id = $1`, [userId])
+
+      await client.query('COMMIT')
+    } catch (dbErr) {
+      await client.query('ROLLBACK')
+      throw dbErr
+    } finally {
+      await client.end()
+    }
+
+    await invalidateUserProfileCache(userId)
+
+    await recordAuditEvent({
+      action: 'DELETE',
+      entityType: 'user_role',
+      entityId: userId,
+      entityLabel: beforeProfile?.full_name ? `${beforeProfile.full_name} (${beforeProfile.role.toUpperCase()})` : userId,
+      before: beforeProfile,
+      metadata: { operation: 'delete_user_account' },
+    })
+
     revalidatePath('/admin')
     revalidatePath('/', 'layout')
     return { success: true }
   } catch (err: any) {
-    console.error('Error deleting user account:', err)
+    console.error('[DATABASE ERROR] Error deleting user account:', err)
     return { success: false, error: err.message || 'Failed to delete user account.' }
   }
 }
@@ -731,7 +856,7 @@ export async function approveUserAccount(userId: string) {
       SET approval_status = 'approved',
           is_active = TRUE
       WHERE id = $1
-      RETURNING email, full_name;
+      RETURNING email, full_name, role;
       `,
       [userId]
     )
@@ -743,6 +868,16 @@ export async function approveUserAccount(userId: string) {
       if (user.email) {
         sendAccountApprovedEmail(user.email, user.full_name).catch(() => {})
       }
+
+      await recordAuditEvent({
+        action: 'UPDATE',
+        entityType: 'user_role',
+        entityId: userId,
+        entityLabel: `${user.full_name} (${user.role?.toUpperCase() || 'STAFF'})`,
+        before: { approval_status: 'pending', is_active: false },
+        after: { approval_status: 'approved', is_active: true },
+        metadata: { operation: 'approve_user_account' },
+      })
     }
 
     revalidatePath('/admin')
@@ -760,6 +895,12 @@ export async function rejectUserAccount(userId: string) {
     const client = getPgClient()
     await client.connect()
 
+    const prevRes = await client.query(
+      `SELECT id, full_name, email, role, approval_status FROM public.profiles WHERE id = $1`,
+      [userId]
+    )
+    const beforeUser = prevRes.rows[0] || null
+
     await client.query(
       `
       UPDATE public.profiles
@@ -772,6 +913,16 @@ export async function rejectUserAccount(userId: string) {
 
     await client.end()
 
+    await recordAuditEvent({
+      action: 'UPDATE',
+      entityType: 'user_role',
+      entityId: userId,
+      entityLabel: beforeUser?.full_name ? `${beforeUser.full_name} (${beforeUser.role?.toUpperCase() || 'STAFF'})` : userId,
+      before: { approval_status: beforeUser?.approval_status || 'pending', is_active: true },
+      after: { approval_status: 'rejected', is_active: false },
+      metadata: { operation: 'reject_user_account' },
+    })
+
     revalidatePath('/admin')
     revalidatePath('/', 'layout')
     return { success: true }
@@ -780,4 +931,5 @@ export async function rejectUserAccount(userId: string) {
     return { success: false, error: err.message || 'Failed to reject account.' }
   }
 }
+
 

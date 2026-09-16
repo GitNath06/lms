@@ -74,30 +74,36 @@ export default function DualCalendarPicker({
     return getBsMonthCalendar(currentBsYear, currentBsMonth)
   }, [currentBsYear, currentBsMonth])
 
-  // Filter holidays belonging to the currently selected BS Year (Deduplicated by ID)
+  // Filter holidays belonging to the currently selected BS Year (Deduplicated by dateStr + title)
   const yearHolidays = useMemo(() => {
     const npYearStr = toNepaliDigits(currentBsYear)
     const enYearStr = currentBsYear.toString()
-    const seenIds = new Set<string>()
+    const dedupMap = new Map<string, HolidayItem>()
 
-    return holidays
-      .filter((h) => {
-        if (!h || !h.id || seenIds.has(h.id)) return false
-        seenIds.add(h.id)
+    holidays.forEach((h) => {
+      if (!h || !h.title || !h.dateStr) return
 
-        if (h.bsDateStr) {
-          if (h.bsDateStr.includes(npYearStr) || h.bsDateStr.includes(enYearStr)) {
-            return true
-          }
-        }
+      let belongsToYear = false
+      if (h.bsDateStr && (h.bsDateStr.includes(npYearStr) || h.bsDateStr.includes(enYearStr))) {
+        belongsToYear = true
+      } else {
         try {
           const np = getNepaliDate(new Date(h.dateStr))
-          return np.bsYear === currentBsYear
+          if (np.bsYear === currentBsYear) belongsToYear = true
         } catch (e) {
-          return false
+          belongsToYear = false
         }
-      })
-      .sort((a, b) => a.dateStr.localeCompare(b.dateStr))
+      }
+
+      if (belongsToYear) {
+        const compositeKey = `${h.dateStr}_${h.title.trim()}`
+        if (!dedupMap.has(compositeKey)) {
+          dedupMap.set(compositeKey, h)
+        }
+      }
+    })
+
+    return Array.from(dedupMap.values()).sort((a, b) => a.dateStr.localeCompare(b.dateStr))
   }, [holidays, currentBsYear])
 
   // Directory filtered list
@@ -241,30 +247,30 @@ export default function DualCalendarPicker({
   return (
     <div className="space-y-6">
       {/* TODAY STATUS BANNER */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 px-4 py-2.5 rounded-xl bg-emerald-50/90 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/60 text-emerald-900 dark:text-emerald-200 font-mono text-xs shadow-2xs">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 px-4 py-2.5 rounded-xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 font-mono text-xs shadow-2xs">
         <div className="flex items-center gap-2">
-          <span className="flex h-2.5 w-2.5 relative">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-600 dark:bg-emerald-400"></span>
+          <span className="flex h-2 w-2 relative">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-600 dark:bg-indigo-400"></span>
           </span>
-          <span className="font-semibold">
-            आजको आधिकारिक मिति (Today in Nepal):
+          <span className="font-semibold text-zinc-600 dark:text-zinc-400">
+            आजको आधिकारिक मिति (Today):
           </span>
-          <span className="font-bold underline decoration-emerald-500/50">
+          <span className="font-bold">
             {todayInfo.formattedDateNp}
           </span>
-          <span className="text-emerald-700 dark:text-emerald-300 opacity-85">
+          <span className="text-zinc-500 dark:text-zinc-400">
             • {todayInfo.englishDate} (A.D.)
           </span>
         </div>
         <div className="flex items-center gap-3">
-          <Badge variant="outline" className="font-mono text-[10px] bg-emerald-100/60 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300 border-emerald-300/60">
+          <Badge variant="outline" className="font-mono text-[10px] bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700">
             Current: {toNepaliDigits(todayInfo.bsYear)} B.S.
           </Badge>
           <button
             type="button"
             onClick={handleJumpToToday}
-            className="text-[11px] font-bold text-emerald-800 dark:text-emerald-300 hover:text-emerald-950 dark:hover:text-white underline cursor-pointer"
+            className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 hover:underline cursor-pointer"
           >
             Go to Today ➔
           </button>
@@ -413,7 +419,7 @@ export default function DualCalendarPicker({
                   selected
                     ? 'bg-indigo-50 dark:bg-indigo-950/70 ring-2 ring-indigo-500 z-10'
                     : isToday
-                    ? 'bg-emerald-50/70 dark:bg-emerald-950/40 ring-2 ring-emerald-500 z-10'
+                    ? 'bg-indigo-50/50 dark:bg-indigo-950/30 ring-2 ring-indigo-500 z-10'
                     : holiday
                     ? 'bg-rose-50/70 dark:bg-rose-950/30 hover:bg-rose-100/80 dark:hover:bg-rose-950/50'
                     : isWeekend
@@ -426,7 +432,7 @@ export default function DualCalendarPicker({
                   <span
                     className={`text-lg sm:text-xl font-bold font-mono tracking-tight ${
                       isToday
-                        ? 'text-emerald-700 dark:text-emerald-300 font-black'
+                        ? 'text-indigo-600 dark:text-indigo-400 font-black'
                         : holiday
                         ? 'text-rose-700 dark:text-rose-300 font-extrabold'
                         : isWeekend
@@ -438,7 +444,7 @@ export default function DualCalendarPicker({
                   </span>
 
                   {isToday ? (
-                    <span className="px-1.5 py-0.5 rounded-full text-[9px] font-mono font-bold bg-emerald-600 text-white shadow-xs">
+                    <span className="px-1.5 py-0.5 rounded-full text-[9px] font-mono font-bold bg-indigo-600 text-white shadow-xs">
                       आज
                     </span>
                   ) : isWeekend ? (
@@ -452,15 +458,7 @@ export default function DualCalendarPicker({
                 {holiday && (
                   <div className="my-1">
                     <span
-                      className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-mono font-bold border truncate max-w-full ${
-                        holiday.type === 'cultural'
-                          ? 'bg-purple-100 dark:bg-purple-950/80 text-purple-900 dark:text-purple-200 border-purple-300 dark:border-purple-800'
-                          : holiday.type === 'vacation'
-                          ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-900 dark:text-amber-200 border-amber-300 dark:border-amber-800'
-                          : holiday.type === 'department'
-                          ? 'bg-cyan-100 dark:bg-cyan-950/80 text-cyan-900 dark:text-cyan-200 border-cyan-300 dark:border-cyan-800'
-                          : 'bg-rose-100 dark:bg-rose-950/80 text-rose-900 dark:text-rose-200 border-rose-300 dark:border-rose-800'
-                      }`}
+                      className="inline-block px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700 truncate max-w-full"
                       title={holiday.title}
                     >
                       {holiday.titleNp || holiday.title}
@@ -470,7 +468,7 @@ export default function DualCalendarPicker({
 
                 {/* Bottom Row: English Date */}
                 <div className="flex items-center justify-between mt-auto pt-1 text-[10px] font-mono text-zinc-400 dark:text-zinc-500">
-                  <span className={isToday ? 'font-bold text-emerald-700 dark:text-emerald-300' : ''}>
+                  <span className={isToday ? 'font-bold text-indigo-600 dark:text-indigo-400' : ''}>
                     {day.adDayString}
                   </span>
                   {selected && (
@@ -714,21 +712,15 @@ export default function DualCalendarPicker({
                       <td className="py-2.5 px-4">
                         <Badge
                           variant="outline"
-                          className={`text-[9px] uppercase font-bold ${
-                            h.type === 'cultural'
-                              ? 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800'
-                              : h.type === 'vacation'
-                              ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
-                              : 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800'
-                          }`}
+                          className="text-[9px] uppercase font-bold bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700"
                         >
                           {h.type}
                         </Badge>
                       </td>
                       <td className="py-2.5 px-4">
-                        <span className="inline-flex items-center gap-1 text-[11px] text-rose-600 dark:text-rose-400 font-semibold">
-                          <Ban className="h-3 w-3" />
-                          <span>Practicals Suspended</span>
+                        <span className="inline-flex items-center gap-1.5 text-[11px] text-zinc-500 dark:text-zinc-400 font-mono">
+                          <span className="h-1.5 w-1.5 rounded-full bg-zinc-400 dark:bg-zinc-500" />
+                          <span>Suspended</span>
                         </span>
                       </td>
                       <td className="py-2.5 px-4 text-right">
@@ -743,18 +735,19 @@ export default function DualCalendarPicker({
                             <span>Inspect</span>
                             <ChevronRight className="h-3 w-3 ml-0.5" />
                           </Button>
-                          {isEditModeUnlocked && (
+                          <span title={!isEditModeUnlocked ? 'Unlock edit mode to delete holiday' : undefined}>
                             <Button
                               type="button"
                               size="sm"
                               variant="ghost"
+                              disabled={!isEditModeUnlocked}
                               onClick={() => onDeleteHoliday(h.id)}
-                              className="h-7 w-7 p-0 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                              className="h-7 w-7 p-0 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 disabled:opacity-40 disabled:cursor-not-allowed"
                               title="Delete holiday"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
-                          )}
+                          </span>
                         </div>
                       </td>
                     </tr>

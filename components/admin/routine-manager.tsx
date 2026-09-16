@@ -491,43 +491,39 @@ export default function RoutineManager({ isEditModeUnlocked }: RoutineManagerPro
     }))
   }, [filteredRoutines])
 
-  // Get Lab Icon & Accent
+  // Get Lab Icon & Accent (Neutral Institutional Standard)
   const getLabVisuals = (labKey: string) => {
+    const baseVisual = {
+      color: 'text-zinc-700 dark:text-zinc-300',
+      bg: 'bg-zinc-100/80 dark:bg-zinc-800/80 border-zinc-200/80 dark:border-zinc-700/80',
+      borderL: 'border-l-zinc-400 dark:border-l-zinc-600',
+    }
+
     switch (labKey) {
       case 'comp':
         return {
-          icon: <Terminal className="h-3.5 w-3.5 text-emerald-500" />,
-          color: 'text-emerald-700 dark:text-emerald-300',
-          bg: 'bg-emerald-500/10 dark:bg-emerald-500/20 border-emerald-500/30',
-          borderL: 'border-l-emerald-500',
+          icon: <Terminal className="h-3.5 w-3.5 text-zinc-500 dark:text-zinc-400" />,
+          ...baseVisual,
         }
       case 'phys':
         return {
-          icon: <Atom className="h-3.5 w-3.5 text-indigo-500" />,
-          color: 'text-indigo-700 dark:text-indigo-300',
-          bg: 'bg-indigo-500/10 dark:bg-indigo-500/20 border-indigo-500/30',
-          borderL: 'border-l-indigo-500',
+          icon: <Atom className="h-3.5 w-3.5 text-zinc-500 dark:text-zinc-400" />,
+          ...baseVisual,
         }
       case 'chem':
         return {
-          icon: <FlaskRound className="h-3.5 w-3.5 text-amber-500" />,
-          color: 'text-amber-700 dark:text-amber-300',
-          bg: 'bg-amber-500/10 dark:bg-amber-500/20 border-amber-500/30',
-          borderL: 'border-l-amber-500',
+          icon: <FlaskRound className="h-3.5 w-3.5 text-zinc-500 dark:text-zinc-400" />,
+          ...baseVisual,
         }
       case 'bio':
         return {
-          icon: <Building2 className="h-3.5 w-3.5 text-cyan-500" />,
-          color: 'text-cyan-700 dark:text-cyan-300',
-          bg: 'bg-cyan-500/10 dark:bg-cyan-500/20 border-cyan-500/30',
-          borderL: 'border-l-cyan-500',
+          icon: <Building2 className="h-3.5 w-3.5 text-zinc-500 dark:text-zinc-400" />,
+          ...baseVisual,
         }
       default:
         return {
-          icon: <Building2 className="h-3.5 w-3.5 text-purple-500" />,
-          color: 'text-purple-700 dark:text-purple-300',
-          bg: 'bg-purple-500/10 dark:bg-purple-500/20 border-purple-500/30',
-          borderL: 'border-l-purple-500',
+          icon: <Building2 className="h-3.5 w-3.5 text-zinc-500 dark:text-zinc-400" />,
+          ...baseVisual,
         }
     }
   }
@@ -573,23 +569,34 @@ export default function RoutineManager({ isEditModeUnlocked }: RoutineManagerPro
             <span>Add Practical Slot</span>
           </Button>
 
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setIsResetConfirmOpen(true)}
-            className="h-9 px-3 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white font-mono text-xs gap-1.5 cursor-pointer"
-            title="Reset to default institutional timetable"
+          <span
+            title={
+              !isEditModeUnlocked
+                ? 'Unlock edit mode to perform modifications'
+                : 'Reset to default institutional timetable'
+            }
           >
-            <RotateCcw className="h-3.5 w-3.5" />
-            <span className="hidden md:inline">Reset Routine</span>
-          </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!isEditModeUnlocked}
+              onClick={() => {
+                if (!isEditModeUnlocked) return
+                setIsResetConfirmOpen(true)
+              }}
+              className="h-9 px-3 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white font-mono text-xs gap-1.5 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              <span className="hidden md:inline">Reset Routine</span>
+            </Button>
+          </span>
         </div>
       </div>
 
-      {/* 2. KPI Summary Ribbon */}
+      {/* 2. KPI Summary Ribbon - Neutral Institutional Fact Standards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="p-3 rounded-xl border border-zinc-200/80 dark:border-zinc-800 bg-white/60 dark:bg-zinc-900/40 flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400">
+          <div className="p-2 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
             <Calendar className="h-4 w-4" />
           </div>
           <div>
@@ -599,17 +606,17 @@ export default function RoutineManager({ isEditModeUnlocked }: RoutineManagerPro
         </div>
 
         <div className="p-3 rounded-xl border border-zinc-200/80 dark:border-zinc-800 bg-white/60 dark:bg-zinc-900/40 flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400">
+          <div className="p-2 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
             <Clock className="h-4 w-4" />
           </div>
           <div>
             <div className="text-[11px] text-zinc-500 font-mono uppercase">Weekly Hours</div>
-            <div className="text-sm font-bold font-mono text-emerald-600 dark:text-emerald-400">{stats.practicalHrsStr}</div>
+            <div className="text-sm font-bold font-mono text-zinc-950 dark:text-white">{stats.practicalHrsStr}</div>
           </div>
         </div>
 
         <div className="p-3 rounded-xl border border-zinc-200/80 dark:border-zinc-800 bg-white/60 dark:bg-zinc-900/40 flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400">
+          <div className="p-2 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
             <Building2 className="h-4 w-4" />
           </div>
           <div>
@@ -619,7 +626,7 @@ export default function RoutineManager({ isEditModeUnlocked }: RoutineManagerPro
         </div>
 
         <div className="p-3 rounded-xl border border-zinc-200/80 dark:border-zinc-800 bg-white/60 dark:bg-zinc-900/40 flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-cyan-50 dark:bg-cyan-950/40 text-cyan-600 dark:text-cyan-400">
+          <div className="p-2 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
             <Users className="h-4 w-4" />
           </div>
           <div>

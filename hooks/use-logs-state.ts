@@ -25,6 +25,10 @@ export interface PracticalLogRecord {
   teacher: string
   lab: string
   labId?: string
+  isDualLab?: boolean
+  secondaryLab?: string
+  secondaryLabId?: string
+  coTeacher?: string
   status: 'conducted' | 'skipped'
   topicLearned?: string
   totalStudents: number

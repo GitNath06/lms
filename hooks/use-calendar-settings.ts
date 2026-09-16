@@ -30,17 +30,7 @@ const CACHE_TTL = 30000 // 30 seconds
 
 
 export function useCalendarSettings() {
-  const [settings, setSettings] = useState<CalendarSettings>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const stored = localStorage.getItem(STORAGE_KEY)
-        if (stored) {
-          return JSON.parse(stored)
-        }
-      } catch (e) {}
-    }
-    return DEFAULT_SETTINGS
-  })
+  const [settings, setSettings] = useState<CalendarSettings>(DEFAULT_SETTINGS)
   const [mounted, setMounted] = useState(false)
 
   // 1. Initial hydration + Authoritative DB Reconcile + Supabase Realtime Subscription

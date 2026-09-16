@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --experimental-strip-types --test tests/lab-status.test.mjs",
+    "test": "node --experimental-strip-types --test tests/lab-status.test.mjs tests/admin-guards.test.mjs tests/navigation-and-compression.test.mjs tests/audit-trail.test.mjs tests/audit-presenter.test.mjs",
     "seed": "node scripts/seed-supabase.mjs"
   },
   "dependencies": {

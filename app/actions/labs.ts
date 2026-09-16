@@ -1,8 +1,9 @@
 'use server'
-
+ 
 import { revalidatePath } from 'next/cache'
 import { getPgPool } from '@/lib/db'
 import { getServerUserScope } from '@/lib/context/user-scope'
+import { recordAuditEvent } from '@/lib/audit'
 
 import {
   type LabFacilityStatus,
@@ -40,6 +41,14 @@ export async function updateLabFacility(
 
     const pool = getPgPool()
 
+    // Fetch existing state for tamper-evident structured diff (match on id, code, or name)
+    const prevRes = await pool.query(
+      'SELECT * FROM public.labs WHERE id = $1 OR (code IS NOT NULL AND UPPER(code) = UPPER($1)) OR (name IS NOT NULL AND UPPER(name) = UPPER($1))',
+      [id]
+    )
+    const beforeState = prevRes.rows[0] || null
+    const targetLabId = beforeState?.id || id
+
     const res = await pool.query(
       `
       UPDATE public.labs
@@ -60,7 +69,7 @@ export async function updateLabFacility(
         updates.type || null,
         validatedStatus,
         isActive,
-        id,
+        targetLabId,
       ]
     )
 
@@ -83,21 +92,42 @@ export async function updateLabFacility(
         RETURNING *;
         `,
         [
-          id,
+          targetLabId,
           updates.name || 'Laboratory Facility',
-          updates.code ? updates.code.toUpperCase() : id.toUpperCase(),
+          updates.code ? updates.code.toUpperCase() : targetLabId.toUpperCase(),
           updates.capacity !== undefined ? Number(updates.capacity) : 40,
           updates.type || 'computer_lab',
           insertStatus,
           insertIsActive,
         ]
       )
+
+      await recordAuditEvent({
+        action: 'CREATE',
+        entityType: 'lab',
+        entityId: targetLabId,
+        entityLabel: insertRes.rows[0]?.name || targetLabId,
+        after: insertRes.rows[0],
+        metadata: { operation: 'upsert_lab_facility' },
+      })
+
       revalidatePath('/admin')
       revalidatePath('/maintenance')
       revalidatePath('/schedules')
       revalidatePath('/')
       return { success: true, data: insertRes.rows[0] }
     }
+
+    // Record UPDATE audit event with structured diff
+    await recordAuditEvent({
+      action: 'UPDATE',
+      entityType: 'lab',
+      entityId: targetLabId,
+      entityLabel: res.rows[0]?.name || beforeState?.name || updates.name || targetLabId,
+      before: beforeState || { id: targetLabId },
+      after: res.rows[0],
+      metadata: { operation: 'update_lab_facility' },
+    })
 
     // Revalidate affected cache paths
     revalidatePath('/admin')
@@ -156,6 +186,15 @@ export async function createLabFacility(
       ]
     )
 
+    await recordAuditEvent({
+      action: 'CREATE',
+      entityType: 'lab',
+      entityId: lab.id,
+      entityLabel: lab.name.trim(),
+      after: res.rows[0],
+      metadata: { operation: 'create_lab_facility' },
+    })
+
     revalidatePath('/admin')
     revalidatePath('/maintenance')
     revalidatePath('/schedules')
@@ -184,16 +223,62 @@ export async function deleteLabFacility(
     }
 
     const pool = getPgPool()
-    // Soft delete by setting is_active = false and status = 'Inactive' to preserve historical timetable and maintenance logs
-    await pool.query(
-      `UPDATE public.labs SET is_active = false, status = 'Inactive' WHERE id = $1;`,
-      [id]
-    )
 
-    revalidatePath('/admin')
-    revalidatePath('/maintenance')
-    revalidatePath('/schedules')
-    revalidatePath('/')
+    // Query before-state for audit record
+    const prevRes = await pool.query('SELECT * FROM public.labs WHERE id = $1', [id])
+    const beforeState = prevRes.rows[0] || null
+
+    // Attempt permanent deletion from PostgreSQL
+    try {
+      const delRes = await pool.query(`DELETE FROM public.labs WHERE id = $1 RETURNING id;`, [id])
+      if (delRes.rowCount && delRes.rowCount > 0) {
+        await recordAuditEvent({
+          action: 'DELETE',
+          entityType: 'lab',
+          entityId: id,
+          entityLabel: beforeState?.name || id,
+          before: beforeState,
+          metadata: { operation: 'permanent_delete_lab' },
+        })
+
+        revalidatePath('/admin')
+        revalidatePath('/maintenance')
+        revalidatePath('/schedules')
+        revalidatePath('/')
+        return { success: true }
+      }
+    } catch (fkErr: any) {
+      // Foreign key violation (PostgreSQL 23503) means active/historical records link to this room
+      if (fkErr.code === '23503') {
+        await pool.query(
+          `UPDATE public.labs SET is_active = false, status = 'Inactive' WHERE id = $1;`,
+          [id]
+        )
+
+        await recordAuditEvent({
+          action: 'UPDATE',
+          entityType: 'lab',
+          entityId: id,
+          entityLabel: beforeState?.name || id,
+          before: beforeState,
+          after: { ...beforeState, is_active: false, status: 'Inactive' },
+          metadata: {
+            operation: 'soft_deactivate_lab',
+            reason: 'linked_historical_records_fk_23503',
+          },
+        })
+
+        revalidatePath('/admin')
+        revalidatePath('/maintenance')
+        revalidatePath('/schedules')
+        revalidatePath('/')
+        return {
+          success: false,
+          error: 'This laboratory has linked historical records (practical logs, timetables, or maintenance) and cannot be permanently purged. It has been deactivated instead.',
+        }
+      }
+      throw fkErr
+    }
 
     return { success: true }
   } catch (err: any) {
@@ -201,3 +286,4 @@ export async function deleteLabFacility(
     return { success: false, error: err?.message || 'Failed to delete laboratory' }
   }
 }
+

@@ -243,7 +243,7 @@ export function QuickOperationsCard() {
           </Button>
         </Link>
 
-        <Link href="/logs/new" className="w-full">
+        <Link href="/records/new" className="w-full">
           <Button
             size="sm"
             className="w-full h-8 px-2 text-xs font-bold gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-2xs cursor-pointer"

@@ -11,6 +11,7 @@ import {
   Wrench,
   Dna,
   Cpu,
+  Building2,
 } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { MasterRoutineItem } from '@/lib/master-data'
@@ -76,8 +77,11 @@ export default function FacilityTelemetryCard({
     return ongoingSessions.some(
       (s) =>
         s.labKey === lab.id ||
+        (s.isDualLab && s.secondaryLabKey === lab.id) ||
         s.lab?.toLowerCase() === lab.name.toLowerCase() ||
-        s.lab?.toLowerCase().includes(lab.id.toLowerCase())
+        (s.isDualLab && s.secondaryLab?.toLowerCase() === lab.name.toLowerCase()) ||
+        s.lab?.toLowerCase().includes(lab.id.toLowerCase()) ||
+        (s.isDualLab && s.secondaryLab?.toLowerCase().includes(lab.id.toLowerCase()))
     )
   }).length
 
@@ -117,8 +121,11 @@ export default function FacilityTelemetryCard({
             ? ongoingSessions.find(
                 (s) =>
                   s.labKey === lab.id ||
+                  (s.isDualLab && s.secondaryLabKey === lab.id) ||
                   s.lab?.toLowerCase() === lab.name.toLowerCase() ||
-                  s.lab?.toLowerCase().includes(lab.id.toLowerCase())
+                  (s.isDualLab && s.secondaryLab?.toLowerCase() === lab.name.toLowerCase()) ||
+                  s.lab?.toLowerCase().includes(lab.id.toLowerCase()) ||
+                  (s.isDualLab && s.secondaryLab?.toLowerCase().includes(lab.id.toLowerCase()))
               )
             : null
           const isOccupied = !!activeSession
@@ -186,9 +193,17 @@ export default function FacilityTelemetryCard({
               ) : isOccupied && activeSession ? (
                 <div className="mt-1.5 pt-1.5 border-t border-emerald-500/20 dark:border-emerald-500/20 text-xs">
                   <div className="flex items-center justify-between font-sans text-xs">
-                    <span className="font-bold text-zinc-900 dark:text-white truncate">
-                      {activeSession.subjectCode} ({activeSession.grade})
-                    </span>
+                    <div className="flex items-center gap-1.5 truncate">
+                      <span className="font-bold text-zinc-900 dark:text-white truncate">
+                        {activeSession.subjectCode} ({activeSession.grade})
+                      </span>
+                      {activeSession.isDualLab && (
+                        <span className="inline-flex items-center gap-1 text-[9.5px] font-semibold font-sans px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30 shrink-0">
+                          <Building2 className="h-2.5 w-2.5 text-indigo-500" />
+                          Multi-Lab
+                        </span>
+                      )}
+                    </div>
                     <span className="text-zinc-500 dark:text-slate-400 text-xs font-mono shrink-0">
                       {activeSession.timeSlot}
                     </span>

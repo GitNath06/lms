@@ -9,6 +9,7 @@ import {
   Clock,
   ArrowUpRight,
   Plus,
+  Building2,
 } from 'lucide-react'
 import { MasterRoutineItem } from '@/lib/master-data'
 
@@ -64,9 +65,9 @@ export default function LiveLabPods({
           const Icon = lab.icon
           const activeSessionInLab = activeSessions.find(
             (s) =>
-              (lab.key === 'comp' && s.lab === 'Computer Lab') ||
-              (lab.key === 'phys' && s.lab === 'Physics Lab') ||
-              (lab.key === 'chem' && s.lab === 'Chemistry Lab')
+              (lab.key === 'comp' && (s.lab === 'Computer Lab' || s.labKey === 'comp' || s.secondaryLabKey === 'comp' || s.secondaryLab === 'Computer Lab')) ||
+              (lab.key === 'phys' && (s.lab === 'Physics Lab' || s.labKey === 'phys' || s.secondaryLabKey === 'phys' || s.secondaryLab === 'Physics Lab')) ||
+              (lab.key === 'chem' && (s.lab === 'Chemistry Lab' || s.labKey === 'chem' || s.secondaryLabKey === 'chem' || s.secondaryLab === 'Chemistry Lab'))
           )
 
           const isOccupied = !!activeSessionInLab
@@ -112,12 +113,20 @@ export default function LiveLabPods({
 
                 {/* Session Details or Free State */}
                 {isOccupied && activeSessionInLab ? (
-                  <div className="my-2 p-2.5 rounded-lg bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200/80 dark:border-zinc-700/60 space-y-1 font-mono text-xs">
+                  <div className="my-2 p-2.5 rounded-lg bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200/80 dark:border-zinc-700/60 space-y-1 font-sans text-xs">
                     <div className="flex items-center justify-between text-[10px] text-zinc-500">
                       <span>{activeSessionInLab.timeSlot}</span>
-                      <span className="font-bold text-zinc-800 dark:text-zinc-200">
-                        {activeSessionInLab.grade}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {activeSessionInLab.isDualLab && (
+                          <span className="px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30 text-[9.5px] font-sans font-semibold flex items-center gap-1">
+                            <Building2 className="h-2.5 w-2.5 text-indigo-500" />
+                            Multi-Lab
+                          </span>
+                        )}
+                        <span className="font-bold text-zinc-800 dark:text-zinc-200">
+                          {activeSessionInLab.grade}
+                        </span>
+                      </div>
                     </div>
                     <div className="font-bold text-zinc-950 dark:text-white truncate font-sans">
                       {activeSessionInLab.subjectCode} — {activeSessionInLab.subjectTitle}

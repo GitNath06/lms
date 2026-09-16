@@ -480,4 +480,43 @@ create policy "Admins can manage institution settings"
 
 alter publication supabase_realtime add table public.institution_settings;
 
+-- -----------------------------------------------------------------------------
+-- Institutional Audit & Change Log (Activity / Governance Trail)
+-- -----------------------------------------------------------------------------
 
+create table if not exists public.audit_logs (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default timezone('utc'::text, now()),
+  actor_id uuid references auth.users(id) on delete set null,
+  actor_name text not null,
+  actor_role text not null,
+  action text not null,          -- 'CREATE' | 'UPDATE' | 'DELETE' | 'RESET' | 'OVERRIDE'
+  entity_type text not null,     -- 'lab' | 'schedule' | 'user_role' | 'incident_category' | 'curriculum' | 'policy'
+  entity_id text,                -- Target record ID or code
+  entity_label text not null,    -- Human-readable target (e.g., 'Computer Lab 01', 'Class 9 FCA')
+  changes jsonb,                 -- Structured diff: { "before": {...}, "after": {...} }
+  metadata jsonb default '{}'::jsonb -- IP, user agent, safety lock status, origin route
+);
+
+create index if not exists idx_audit_logs_created_at on public.audit_logs (created_at desc);
+create index if not exists idx_audit_logs_entity_type on public.audit_logs (entity_type);
+create index if not exists idx_audit_logs_actor_id on public.audit_logs (actor_id);
+
+-- Tamper-Resistance: Revoke destructive mutations
+revoke update, delete, truncate on public.audit_logs from public, authenticated, anon;
+
+-- Row Level Security: Super Admins only
+alter table public.audit_logs enable row level security;
+
+create policy "Allow super admins to view audit logs" 
+on public.audit_logs for select 
+using (
+  (auth.jwt() ->> 'role' = 'super_admin') 
+  or exists (select 1 from public.profiles where id = auth.uid() and role = 'super_admin')
+);
+
+create policy "Allow authenticated users to insert audit logs" 
+on public.audit_logs for insert 
+with check (true);
+
+alter publication supabase_realtime add table public.audit_logs;

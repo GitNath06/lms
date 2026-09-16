@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
+import { recordClientAuditEvent } from '@/app/actions/audit'
 
 interface IncidentCategoriesManagerProps {
   categories: IncidentCategoryItem[]
@@ -127,6 +128,7 @@ export function IncidentCategoriesManager({
   }
 
   // Save (create or update)
+  // Save (create or update)
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault()
     if (!isEditModeUnlocked) return
@@ -134,13 +136,22 @@ export function IncidentCategoriesManager({
     const sanitizedCode = formCode.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_')
 
     if (editingCategory) {
-      onUpdateCategory(editingCategory.id, {
+      const updatedFields = {
         name: formName.trim(),
         code: sanitizedCode || editingCategory.code,
         severity: formSeverity,
         targetLab: formTargetLab as any,
         description: formDescription.trim(),
-      })
+      }
+      onUpdateCategory(editingCategory.id, updatedFields)
+      recordClientAuditEvent({
+        action: 'UPDATE',
+        entityType: 'incident_category',
+        entityId: editingCategory.id,
+        entityLabel: formName.trim(),
+        before: editingCategory,
+        after: { ...editingCategory, ...updatedFields },
+      }).catch(() => {})
       triggerToast(`Classification "${formName.trim()}" updated.`)
     } else {
       const newCat: IncidentCategoryItem = {
@@ -153,6 +164,13 @@ export function IncidentCategoriesManager({
         is_active: true,
       }
       onAddCategory(newCat)
+      recordClientAuditEvent({
+        action: 'CREATE',
+        entityType: 'incident_category',
+        entityId: newCat.id,
+        entityLabel: newCat.name,
+        after: newCat,
+      }).catch(() => {})
       triggerToast(`New incident classification "${formName.trim()}" registered.`)
     }
 
@@ -179,6 +197,14 @@ export function IncidentCategoriesManager({
         referenceCount: references.length,
         onConfirm: () => {
           onDeactivateCategory(cat.id)
+          recordClientAuditEvent({
+            action: 'UPDATE',
+            entityType: 'incident_category',
+            entityId: cat.id,
+            entityLabel: cat.name,
+            before: { is_active: true },
+            after: { is_active: false },
+          }).catch(() => {})
           setConfirmDialog((prev) => ({ ...prev, isOpen: false }))
           triggerToast(`Category "${cat.name}" has been archived to preserve historical audits.`)
         },
@@ -193,6 +219,13 @@ export function IncidentCategoriesManager({
         referenceCount: 0,
         onConfirm: () => {
           onDeleteCategory(cat.id)
+          recordClientAuditEvent({
+            action: 'DELETE',
+            entityType: 'incident_category',
+            entityId: cat.id,
+            entityLabel: cat.name,
+            before: cat,
+          }).catch(() => {})
           setConfirmDialog((prev) => ({ ...prev, isOpen: false }))
           triggerToast(`Category "${cat.name}" removed permanently.`)
         },
@@ -205,6 +238,14 @@ export function IncidentCategoriesManager({
     if (!isEditModeUnlocked) return
     const newStatus = cat.is_active === false ? true : false
     onUpdateCategory(cat.id, { is_active: newStatus })
+    recordClientAuditEvent({
+      action: 'UPDATE',
+      entityType: 'incident_category',
+      entityId: cat.id,
+      entityLabel: cat.name,
+      before: { is_active: !newStatus },
+      after: { is_active: newStatus },
+    }).catch(() => {})
     triggerToast(
       `Classification "${cat.name}" is now ${newStatus ? 'Active' : 'Archived / Inactive'}.`
     )

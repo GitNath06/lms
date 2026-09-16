@@ -347,7 +347,7 @@ export async function sendSkippedSessionAlertEmail(params: {
       </div>
 
       <div style="text-align: center; margin-bottom: 24px;">
-        <a href="${APP_URL}/logs" 
+        <a href="${APP_URL}/records" 
            style="display: inline-block; background: #d97706; color: #ffffff; text-decoration: none; padding: 10px 24px; border-radius: 10px; font-weight: 600; font-size: 13px;">
           Review Logbook Record
         </a>
@@ -364,7 +364,7 @@ export async function sendSkippedSessionAlertEmail(params: {
     to,
     subject,
     html,
-    text: `Hello ${teacherName}, your practical session ${subjectCode} (${timeSlot}, ${labName}) was marked skipped with reason: "${skipReason}". Review in portal: ${APP_URL}/logs`,
+    text: `Hello ${teacherName}, your practical session ${subjectCode} (${timeSlot}, ${labName}) was marked skipped with reason: "${skipReason}". Review in portal: ${APP_URL}/records`,
   })
 }
 

@@ -52,7 +52,7 @@ export interface LiveScheduleState {
 
 export function useLiveSchedule(customRoutines?: MasterRoutineItem[]): LiveScheduleState {
   const [mounted, setMounted] = useState(false)
-  const [now, setNow] = useState<Date>(() => (typeof window !== 'undefined' ? getEffectiveDate() : new Date()))
+  const [now, setNow] = useState<Date>(() => new Date())
   const [isSimulating, setIsSimulating] = useState(false)
   const [holidayInfo, setHolidayInfo] = useState<{ isHoliday: boolean; holidayTitle?: string }>({ isHoliday: false })
 
