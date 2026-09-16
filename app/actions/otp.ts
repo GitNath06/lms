@@ -67,6 +67,13 @@ export async function generateAndSendSignupOtp(emailRaw: string, fullNameRaw: st
     // Send email via mailer
     const mailRes = await sendVerificationOtpEmail(email, fullName, otpCode)
 
+    if (!mailRes.success) {
+      console.error('Failed to dispatch verification email:', mailRes.error)
+      return {
+        error: `Could not dispatch verification email (${mailRes.error || 'SMTP delivery failure'}). Please check your email address or try again shortly.`,
+      }
+    }
+
     return {
       success: true,
       message: `A 6-digit verification code has been sent to ${email}.`,
@@ -363,6 +370,13 @@ export async function generateAndSendPasswordResetOtp(emailRaw: string) {
     await client.end()
 
     const mailRes = await sendPasswordResetOtpEmail(email, fullName, otpCode)
+
+    if (!mailRes.success) {
+      console.error('Failed to dispatch password reset email:', mailRes.error)
+      return {
+        error: `Could not dispatch password reset code (${mailRes.error || 'SMTP delivery failure'}). Please try again shortly.`,
+      }
+    }
 
     return {
       success: true,

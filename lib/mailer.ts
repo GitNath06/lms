@@ -8,23 +8,32 @@ interface SendEmailParams {
   text?: string
 }
 
+type Transporter = ReturnType<typeof nodemailer.createTransport>
+let cachedTransporter: Transporter | null = null
+let lastConfigKey = ''
+
 function getTransporter() {
   const user = process.env.GMAIL_USER?.trim()
   const pass = process.env.GMAIL_APP_PASSWORD?.trim().replace(/\s+/g, '')
 
   if (user && pass) {
-    return nodemailer.createTransport({
-      service: 'gmail',
-      pool: true,
-      maxConnections: 2,
-      maxMessages: 50,
-      rateDelta: 1000,
-      rateLimit: 3, // Max 3 emails per second to prevent Gmail 421/454 throttles
-      auth: {
-        user,
-        pass,
-      },
-    })
+    const configKey = `${user}:${pass}`
+    if (!cachedTransporter || lastConfigKey !== configKey) {
+      cachedTransporter = nodemailer.createTransport({
+        service: 'gmail',
+        pool: true,
+        maxConnections: 2,
+        maxMessages: 50,
+        rateDelta: 1000,
+        rateLimit: 3, // Max 3 emails per second to prevent Gmail 421/454 throttles
+        auth: {
+          user,
+          pass,
+        },
+      })
+      lastConfigKey = configKey
+    }
+    return cachedTransporter
   }
 
   return null
