@@ -1,5 +1,6 @@
 {
   "server_url": "http://localhost:3000",
+  "station_code": "",
   "agent_key": "",
   "debug": false
 }

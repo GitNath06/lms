@@ -13,6 +13,7 @@
 [CmdletBinding()]
 param(
     [string]$ServerUrl = "",
+    [string]$StationCode = "",
     [switch]$DebugMode
 )
 
@@ -31,12 +32,14 @@ $configFile = Join-Path $scriptDir "config.json"
 $sampleConfigFile = Join-Path $scriptDir "config.sample.json"
 
 $resolvedServerUrl = $ServerUrl
+$resolvedStationCode = $StationCode
 $agentKey = ""
 
-if ([string]::IsNullOrWhiteSpace($resolvedServerUrl) -and (Test-Path $configFile)) {
+if (Test-Path $configFile) {
     try {
         $config = Get-Content $configFile -Raw | ConvertFrom-Json
-        if ($config.server_url) { $resolvedServerUrl = $config.server_url }
+        if ([string]::IsNullOrWhiteSpace($resolvedServerUrl) -and $config.server_url) { $resolvedServerUrl = $config.server_url }
+        if ([string]::IsNullOrWhiteSpace($resolvedStationCode) -and $config.station_code) { $resolvedStationCode = $config.station_code }
         if ($config.agent_key) { $agentKey = $config.agent_key }
         if ($config.debug) { $DebugMode = $true }
     } catch {
@@ -47,12 +50,15 @@ if ([string]::IsNullOrWhiteSpace($resolvedServerUrl) -and (Test-Path $configFile
 if ([string]::IsNullOrWhiteSpace($resolvedServerUrl)) {
     $resolvedServerUrl = "http://localhost:3000"
 }
+if ([string]::IsNullOrWhiteSpace($resolvedStationCode)) {
+    $resolvedStationCode = $env:COMPUTERNAME
+}
 
 # Remove trailing slash
 $resolvedServerUrl = $resolvedServerUrl.TrimEnd('/')
 
 Write-Host "[*] Target LabSync Server : $resolvedServerUrl" -ForegroundColor Gray
-Write-Host "[*] Computer Hostname     : $env:COMPUTERNAME" -ForegroundColor Gray
+Write-Host "[*] Station Identifier    : $resolvedStationCode" -ForegroundColor Gray
 
 # 2. Extract Hardware Telemetry & Silicon Identifiers
 Write-Host "[+] Querying physical machine telemetry..." -ForegroundColor White
@@ -109,7 +115,7 @@ Write-Host "    • Network Link   : $lanIp ($macAddr)" -ForegroundColor Gray
 
 # 3. Construct Payload
 $telemetryPayload = @{
-    computer_name  = $env:COMPUTERNAME
+    computer_name  = $resolvedStationCode
     machine_guid   = $compositeGuid
     hardware_specs = @{
         cpu             = $cpuName
