@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { getPgPool } from '@/lib/db'
-import { getServerUserScope } from '@/lib/context/user-scope'
+import { getServerUserScope } from '@/lib/context/server-user-scope'
 import { recordAuditEvent } from '@/lib/audit'
 import type {
   AuditLogFilterParams,

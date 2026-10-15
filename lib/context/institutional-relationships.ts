@@ -4,7 +4,7 @@ export interface TeacherAssignment {
   teacherId: string // internal code e.g. 't1', 't2', or uuid
   name: string
   email: string
-  department: string
+  department?: string
   assignedClasses: string[]
   assignedSubjects: Array<{
     code: string
@@ -23,8 +23,7 @@ export const INSTITUTIONAL_TEACHERS: TeacherAssignment[] = [
     teacherId: 't4', // Er. Anish Karki
     name: 'Er. Anish Karki',
     email: 'a.karki@rrl.edu.np',
-    department: 'Electronics & Computer',
-    assignedClasses: ['12C', '11C', '10A', '9B', '8A', '7B', '6A'],
+    assignedClasses: ['12C', '11C', '10C', '9C', '10 Eng', '9 Eng', '10A', '9B', '8A', '7B', '6A'],
     assignedSubjects: [
       { code: 'COMP-12', title: 'Data Structures & Algorithms Lab', grade: '12C', labId: 'comp', labName: 'Computer Engineering Lab 01', defaultTopic: 'Verification of Binary Search Tree Operations & Node Insertion' },
       { code: 'ELEC-12', title: 'Digital Electronics & Logic Gates', grade: '12C', labId: 'elec', labName: 'Electronics & Hardware Lab', defaultTopic: 'Design and Implementation of Combinational Half & Full Adders' },
@@ -130,23 +129,9 @@ export function getTeacherAssignments(identifier?: string | null): TeacherAssign
 
   if (match) return match
 
-  // Fallback for general teacher
-  return {
-    teacherId: identifier,
-    name: identifier,
-    email: '',
-    department: 'Science & Technology',
-    assignedClasses: DEFAULT_CLASSES.map((c) => c.name),
-    assignedSubjects: DEFAULT_SUBJECTS.map((s) => ({
-      code: s.code,
-      title: s.title,
-      grade: s.grade,
-      labId: s.labId,
-      labName: s.lab,
-      defaultTopic: s.defaultTopic,
-    })),
-    assignedLabIds: LAB_ROOMS.map((l) => l.id),
-  }
+  // CRITICAL SECURITY FIX: Unmatched / unassigned teacher receives null.
+  // NEVER fall back to DEFAULT_CLASSES, DEFAULT_SUBJECTS, or LAB_ROOMS.
+  return null
 }
 
 /**

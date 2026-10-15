@@ -1,38 +1,6 @@
 import type { Metadata } from 'next'
-import { Plus_Jakarta_Sans, Inter, Noto_Sans_Devanagari, JetBrains_Mono, Outfit } from 'next/font/google'
 import './globals.css'
 import Providers from '@/app/providers'
-
-const outfit = Outfit({
-  variable: '--font-display-source',
-  subsets: ['latin'],
-  display: 'swap',
-})
-
-const jakarta = Plus_Jakarta_Sans({
-  variable: '--font-heading-source',
-  subsets: ['latin'],
-  display: 'swap',
-})
-
-const inter = Inter({
-  variable: '--font-sans-source',
-  subsets: ['latin'],
-  display: 'swap',
-})
-
-const notoDevanagari = Noto_Sans_Devanagari({
-  variable: '--font-devanagari',
-  subsets: ['devanagari'],
-  weight: ['400', '500', '600', '700'],
-  display: 'swap',
-})
-
-const mono = JetBrains_Mono({
-  variable: '--font-mono-source',
-  subsets: ['latin'],
-  display: 'swap',
-})
 
 export const metadata: Metadata = {
   title: 'Lab Management System | LabSync LIMS',
@@ -48,8 +16,16 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${outfit.variable} ${jakarta.variable} ${inter.variable} ${notoDevanagari.variable} ${mono.variable} h-full antialiased`}
+      className="h-full antialiased font-sans"
     >
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+Devanagari:wght@400;500;600;700&family=Outfit:wght@500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap"
+        />
+      </head>
       <body className="min-h-full flex flex-col bg-slate-50 dark:bg-[#0B0F19] text-zinc-900 dark:text-zinc-100 transition-colors duration-200">
         <Providers>
           {children}

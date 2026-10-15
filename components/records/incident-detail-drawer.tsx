@@ -16,12 +16,19 @@ import {
   RotateCcw,
   Sparkles,
   Lock,
+  Camera,
+  Maximize2,
+  Users,
 } from 'lucide-react'
 import { IncidentRecordItem } from '@/types/records'
 import { updateIncidentWorkflow } from '@/app/actions/records'
+import { getStudentsByClass } from '@/app/actions/students'
+import type { StudentWithEnrollment } from '@/lib/types/students'
+import { useInfrastructureState } from '@/hooks/use-infrastructure-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { formatIncidentCaseNumber } from '@/lib/report-spec/incident-spec'
 
 interface IncidentDetailDrawerProps {
   incident: IncidentRecordItem | null
@@ -46,6 +53,17 @@ export default function IncidentDetailDrawer({
   const [escalationReason, setEscalationReason] = useState('')
   const [showEscalateInput, setShowEscalateInput] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
+  const [involvedStudents, setInvolvedStudents] = useState<StudentWithEnrollment[]>([])
+  const { faculty } = useInfrastructureState()
+
+  const teacherProfile = incident?.subject_teacher_name
+    ? faculty.find(
+        (f) =>
+          f.name.toLowerCase().includes(incident.subject_teacher_name.toLowerCase()) ||
+          incident.subject_teacher_name.toLowerCase().includes(f.name.toLowerCase())
+      )
+    : null
 
   useEffect(() => {
     setMounted(true)
@@ -57,6 +75,21 @@ export default function IncidentDetailDrawer({
       setEscalationReason(incident.escalation_reason || '')
       setShowEscalateInput(false)
       setErrorMessage(null)
+
+      if (incident.class_id && incident.student_rolls) {
+        getStudentsByClass({ classId: incident.class_id }).then((res) => {
+          if (res.success && res.data) {
+            const rolls = (incident.student_rolls || '')
+              .split(/[,&]/)
+              .map((s) => parseInt(s.replace(/\D/g, ''), 10))
+              .filter((n) => Number.isFinite(n) && n > 0)
+            const matched = res.data.filter((s) => rolls.includes(s.roll_number))
+            setInvolvedStudents(matched)
+          }
+        })
+      } else {
+        setInvolvedStudents([])
+      }
     }
   }, [incident])
 
@@ -153,7 +186,7 @@ export default function IncidentDetailDrawer({
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-xs font-mono font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                  Case #{incident.id}
+                  Case {formatIncidentCaseNumber(incident.id, (incident as any).incident_number)}
                 </span>
                 <Badge
                   className={`text-[10px] uppercase font-mono font-bold ${
@@ -276,7 +309,14 @@ export default function IncidentDetailDrawer({
               <span className="text-[10px] font-mono text-zinc-400 uppercase">Period / Date</span>
               <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100 mt-0.5 truncate flex items-center gap-1.5">
                 <Calendar className="h-3 w-3 text-amber-500" />
-                <span>{incident.session_label || incident.date}</span>
+                <span>
+                  {incident.session_label ||
+                    ((incident.date as unknown) instanceof Date
+                      ? (incident.date as unknown as Date).toISOString().split('T')[0]
+                      : typeof incident.date === 'string'
+                      ? (incident.date.includes('T') ? incident.date.split('T')[0] : incident.date)
+                      : String(incident.date || '—'))}
+                </span>
               </div>
             </div>
 
@@ -291,20 +331,96 @@ export default function IncidentDetailDrawer({
 
             <div className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200 dark:border-zinc-800">
               <span className="text-[10px] font-mono text-zinc-400 uppercase">Subject Teacher</span>
-              <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5 mt-0.5 truncate">
-                <UserCheck className="h-3 w-3 text-emerald-500" />
+              <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2 mt-0.5 truncate">
+                <div className="h-6 w-6 rounded-full overflow-hidden bg-zinc-200 dark:bg-zinc-700 flex items-center justify-center text-[10px] font-bold text-zinc-600 dark:text-zinc-300 shrink-0 border border-zinc-300 dark:border-zinc-600">
+                  {teacherProfile?.photo_url ? (
+                    <img
+                      src={teacherProfile.photo_url}
+                      alt={incident.subject_teacher_name}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <span>{incident.subject_teacher_name?.slice(0, 1).toUpperCase()}</span>
+                  )}
+                </div>
                 <span className="truncate">{incident.subject_teacher_name}</span>
               </div>
             </div>
           </div>
 
-          {/* Student Roll Info */}
+          {/* Involved / Responsible Students Section */}
           {incident.student_rolls && (
-            <div className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-800/30 border border-zinc-200 dark:border-zinc-800 flex items-center justify-between text-xs">
-              <span className="text-zinc-500 font-mono uppercase text-[10px]">Involved Student Roll(s):</span>
-              <span className="font-mono font-bold text-zinc-900 dark:text-white bg-zinc-200 dark:bg-zinc-700 px-2 py-0.5 rounded-md">
-                {incident.student_rolls}
-              </span>
+            <div className="p-3.5 rounded-2xl bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200 dark:border-zinc-800 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5 font-sans">
+                  <Users className="h-4 w-4 text-rose-500" />
+                  <span>Involved / Responsible Student(s)</span>
+                </span>
+                <span className="font-mono text-[10px] text-zinc-500 dark:text-zinc-400 bg-zinc-200 dark:bg-zinc-700/80 px-2 py-0.5 rounded-md font-bold">
+                  {incident.student_rolls}
+                </span>
+              </div>
+
+              {involvedStudents.length > 0 ? (
+                <div className="flex flex-wrap gap-2 pt-0.5">
+                  {involvedStudents.map((st) => (
+                    <div
+                      key={st.student_id}
+                      className="flex items-center gap-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 pl-1.5 pr-3 py-1.5 rounded-xl shadow-2xs"
+                    >
+                      <div className="h-7 w-7 rounded-full overflow-hidden border border-white/20 bg-zinc-800 flex items-center justify-center shrink-0">
+                        {st.photo_url ? (
+                          <img src={st.photo_url} alt={st.full_name} className="h-full w-full object-cover" />
+                        ) : (
+                          <span className="text-[10px] font-bold text-indigo-300 font-heading">
+                            {st.full_name.slice(0, 1).toUpperCase()}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-col text-left">
+                        <span className="text-xs font-bold text-zinc-900 dark:text-white leading-tight">
+                          {st.full_name}
+                        </span>
+                        <span className="text-[10px] font-mono text-zinc-500 leading-tight">
+                          Roll {st.roll_number} {st.admission_no ? `• ${st.admission_no}` : ''}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[11px] text-zinc-500 font-mono">
+                  Identified roll(s): {incident.student_rolls}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Photo Evidence Section */}
+          {incident.photo_url && (
+            <div className="p-3.5 rounded-2xl bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200 dark:border-zinc-800 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5 font-sans">
+                  <Camera className="h-4 w-4 text-indigo-500" />
+                  <span>Photo Evidence / Damage Documentation</span>
+                </span>
+                <span className="text-[10px] font-mono text-zinc-400">Attached Record</span>
+              </div>
+              <div
+                onClick={() => setLightboxUrl(incident.photo_url!)}
+                className="relative rounded-xl overflow-hidden border border-zinc-200 dark:border-zinc-700 bg-zinc-900 cursor-pointer group max-h-56 sm:max-h-64 flex items-center justify-center shadow-2xs"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={incident.photo_url}
+                  alt="Incident Evidence"
+                  className="w-full h-auto max-h-56 sm:max-h-64 object-contain group-hover:scale-[1.02] transition-transform duration-200"
+                />
+                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 text-white text-xs font-medium">
+                  <Maximize2 className="h-4 w-4" />
+                  <span>Click to enlarge photo</span>
+                </div>
+              </div>
             </div>
           )}
 
@@ -324,7 +440,7 @@ export default function IncidentDetailDrawer({
                 <textarea
                   value={resolutionNotes}
                   onChange={(e) => setResolutionNotes(e.target.value)}
-                  placeholder="Record actions taken, e.g. repaired equipment, replaced from buffer store, or sent for vendor calibration..."
+                  placeholder="Actions taken, repairs, or replacements..."
                   className="w-full h-20 p-2.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs font-sans text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 resize-none"
                 />
               </div>
@@ -382,7 +498,7 @@ export default function IncidentDetailDrawer({
                       <Input
                         value={escalationReason}
                         onChange={(e) => setEscalationReason(e.target.value)}
-                        placeholder="e.g. Severe power surge damage; safety risk requires department head directive..."
+                        placeholder="Reason for HOD escalation..."
                         className="bg-white dark:bg-zinc-900 text-xs h-8"
                       />
                       <div className="flex justify-end gap-2 pt-1">
@@ -419,6 +535,33 @@ export default function IncidentDetailDrawer({
           )}
         </div>
       </div>
+
+      {/* Lightbox Modal for Photo Evidence */}
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 z-[10001] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150"
+          onClick={() => setLightboxUrl(null)}
+        >
+          <div
+            className="relative max-w-3xl max-h-[85vh] rounded-2xl overflow-hidden bg-zinc-950 border border-zinc-800 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setLightboxUrl(null)}
+              className="absolute top-3 right-3 p-1.5 rounded-full bg-black/70 hover:bg-black text-white transition-colors z-10 cursor-pointer"
+            >
+              <X className="h-4 w-4" />
+            </button>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={lightboxUrl}
+              alt="Full Evidence Preview"
+              className="max-h-[85vh] w-auto object-contain"
+            />
+          </div>
+        </div>
+      )}
     </div>,
     document.body
   )

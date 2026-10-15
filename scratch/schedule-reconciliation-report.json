@@ -1,0 +1,516 @@
+{
+  "totalSchedules": 46,
+  "alreadyReconciled": 0,
+  "safeToUpdate": [
+    {
+      "scheduleId": "fri-1",
+      "subjectName": "WPD-9 - Web Page Design",
+      "batchName": "Class 9",
+      "matchedClassSubject": {
+        "id": "7305956c-9c94-452b-8338-883818dcb597",
+        "academic_year_id": "2083",
+        "class_id": "9eng",
+        "subject_id": "wpd-9",
+        "teacher_id": "4911cee7-dae4-48a2-90de-9b039712de35",
+        "default_lab_id": "comp",
+        "class_name": "9 Eng",
+        "class_grade": 9,
+        "subject_code": "WPD-9",
+        "subject_name": "Web Page Design & Development Lab"
+      }
+    },
+    {
+      "scheduleId": "fri-4a",
+      "subjectName": "PHY-11 - Physics Lab",
+      "batchName": "Class 11",
+      "matchedClassSubject": {
+        "id": "10e505a4-82da-485d-8ce8-f5439f2f21f8",
+        "academic_year_id": "2083",
+        "class_id": "11eng",
+        "subject_id": "phy-11",
+        "teacher_id": "e5e3628a-2a76-4db1-8fe1-b6d1fb58037e",
+        "default_lab_id": "phys",
+        "class_name": "11 Eng",
+        "class_grade": 11,
+        "subject_code": "PHY-11",
+        "subject_name": "Optics & Wave Mechanics Lab"
+      }
+    },
+    {
+      "scheduleId": "fri-5",
+      "subjectName": "PHY-11 - Physics Lab",
+      "batchName": "Class 11",
+      "matchedClassSubject": {
+        "id": "10e505a4-82da-485d-8ce8-f5439f2f21f8",
+        "academic_year_id": "2083",
+        "class_id": "11eng",
+        "subject_id": "phy-11",
+        "teacher_id": "e5e3628a-2a76-4db1-8fe1-b6d1fb58037e",
+        "default_lab_id": "phys",
+        "class_name": "11 Eng",
+        "class_grade": 11,
+        "subject_code": "PHY-11",
+        "subject_name": "Optics & Wave Mechanics Lab"
+      }
+    },
+    {
+      "scheduleId": "mon-1",
+      "subjectName": "COMP-12 - Computer Science",
+      "batchName": "Class 12",
+      "matchedClassSubject": {
+        "id": "21b3ac5d-f594-43c3-b55f-9ae241cf6a08",
+        "academic_year_id": "2083",
+        "class_id": "12eng",
+        "subject_id": "comp-12",
+        "teacher_id": "4911cee7-dae4-48a2-90de-9b039712de35",
+        "default_lab_id": "comp",
+        "class_name": "12 Eng",
+        "class_grade": 12,
+        "subject_code": "COMP-12",
+        "subject_name": "Data Structures & Algorithms"
+      }
+    },
+    {
+      "scheduleId": "mon-2",
+      "subjectName": "PHY-12 - Physics Lab",
+      "batchName": "Class 12",
+      "matchedClassSubject": {
+        "id": "bc7a9813-c341-43c1-85f1-1afa266f4647",
+        "academic_year_id": "2083",
+        "class_id": "12eng",
+        "subject_id": "phy-12",
+        "teacher_id": "e5e3628a-2a76-4db1-8fe1-b6d1fb58037e",
+        "default_lab_id": "phys",
+        "class_name": "12 Eng",
+        "class_grade": 12,
+        "subject_code": "PHY-12",
+        "subject_name": "Modern Physics & Wave Optics Lab"
+      }
+    },
+    {
+      "scheduleId": "mon-3a",
+      "subjectName": "PHY-12 - Physics Lab",
+      "batchName": "Class 12",
+      "matchedClassSubject": {
+        "id": "bc7a9813-c341-43c1-85f1-1afa266f4647",
+        "academic_year_id": "2083",
+        "class_id": "12eng",
+        "subject_id": "phy-12",
+        "teacher_id": "e5e3628a-2a76-4db1-8fe1-b6d1fb58037e",
+        "default_lab_id": "phys",
+        "class_name": "12 Eng",
+        "class_grade": 12,
+        "subject_code": "PHY-12",
+        "subject_name": "Modern Physics & Wave Optics Lab"
+      }
+    },
+    {
+      "scheduleId": "mon-3b",
+      "subjectName": "COMP-7C - Comp (Sec C)",
+      "batchName": "Class 7",
+      "matchedClassSubject": {
+        "id": "dd67a9c2-3e9d-46f2-901a-9b41f2ab8270",
+        "academic_year_id": "2083",
+        "class_id": "7b",
+        "subject_id": "ict-7",
+        "teacher_id": "4911cee7-dae4-48a2-90de-9b039712de35",
+        "default_lab_id": "comp",
+        "class_name": "7B",
+        "class_grade": 7,
+        "subject_code": "ICT-7",
+        "subject_name": "Computer Applications Lab"
+      }
+    },
+    {
+      "scheduleId": "mon-4",
+      "subjectName": "JAVA-12 - Java Programming",
+      "batchName": "Class 12",
+      "matchedClassSubject": {
+        "id": "21b3ac5d-f594-43c3-b55f-9ae241cf6a08",
+        "academic_year_id": "2083",
+        "class_id": "12eng",
+        "subject_id": "comp-12",
+        "teacher_id": "4911cee7-dae4-48a2-90de-9b039712de35",
+        "default_lab_id": "comp",
+        "class_name": "12 Eng",
+        "class_grade": 12,
+        "subject_code": "COMP-12",
+        "subject_name": "Data Structures & Algorithms"
+      }
+    },
+    {
+      "scheduleId": "mon-5",
+      "subjectName": "DBMS-10 - Database Mgmt",
+      "batchName": "Class 10",
+      "matchedClassSubject": {
+        "id": "1c1b9f81-2440-4f15-9375-c0fc2c8d32a7",
+        "academic_year_id": "2083",
+        "class_id": "10eng",
+        "subject_id": "dbms-10",
+        "teacher_id": "4911cee7-dae4-48a2-90de-9b039712de35",
+        "default_lab_id": "comp",
+        "class_name": "10 Eng",
+        "class_grade": 10,
+        "subject_code": "DBMS-10",
+        "subject_name": "Database Management Systems Lab"
+      }
+    },
+    {
+      "scheduleId": "sched-12c-prakash",
+      "subjectName": "COMP-12 - Applied Computing",
+      "batchName": "12 Eng",
+      "matchedClassSubject": {
+        "id": "21b3ac5d-f594-43c3-b55f-9ae241cf6a08",
+        "academic_year_id": "2083",
+        "class_id": "12eng",
+        "subject_id": "comp-12",
+        "teacher_id": "4911cee7-dae4-48a2-90de-9b039712de35",
+        "default_lab_id": "comp",
+        "class_name": "12 Eng",
+        "class_grade": 12,
+        "subject_code": "COMP-12",
+        "subject_name": "Data Structures & Algorithms"
+      }
+    },
+    {
+      "scheduleId": "sun-1",
+      "subjectName": "COMP-12 - Data Structures Lab",
+      "batchName": "Class 12",
+      "matchedClassSubject": {
+        "id": "21b3ac5d-f594-43c3-b55f-9ae241cf6a08",
+        "academic_year_id": "2083",
+        "class_id": "12eng",
+        "subject_id": "comp-12",
+        "teacher_id": "4911cee7-dae4-48a2-90de-9b039712de35",
+        "default_lab_id": "comp",
+        "class_name": "12 Eng",
+        "class_grade": 12,
+        "subject_code": "COMP-12",
+        "subject_name": "Data Structures & Algorithms"
+      }
+    },
+    {
+      "scheduleId": "sun-2",
+      "subjectName": "CHEM-12 - Titration & Organic Analysis",
+      "batchName": "Class 12",
+      "matchedClassSubject": {
+        "id": "cf4cd5d7-ed01-47b1-ba10-b9d064b01435",
+        "academic_year_id": "2083",
+        "class_id": "12eng",
+        "subject_id": "chem-12",
+        "teacher_id": "dc417f53-dfbf-4ad3-9973-52ad5988e2f6",
+        "default_lab_id": "chem",
+        "class_name": "12 Eng",
+        "class_grade": 12,
+        "subject_code": "CHEM-12",
+        "subject_name": "Organic & Analytical Chemistry Lab"
+      }
+    },
+    {
+      "scheduleId": "sun-3",
+      "subjectName": "PHY-11 - Optics & Mechanics",
+      "batchName": "Class 11",
+      "matchedClassSubject": {
+        "id": "10e505a4-82da-485d-8ce8-f5439f2f21f8",
+        "academic_year_id": "2083",
+        "class_id": "11eng",
+        "subject_id": "phy-11",
+        "teacher_id": "e5e3628a-2a76-4db1-8fe1-b6d1fb58037e",
+        "default_lab_id": "phys",
+        "class_name": "11 Eng",
+        "class_grade": 11,
+        "subject_code": "PHY-11",
+        "subject_name": "Optics & Wave Mechanics Lab"
+      }
+    },
+    {
+      "scheduleId": "sun-4",
+      "subjectName": "DBMS-10 - SQL Database Management",
+      "batchName": "Class 10",
+      "matchedClassSubject": {
+        "id": "1c1b9f81-2440-4f15-9375-c0fc2c8d32a7",
+        "academic_year_id": "2083",
+        "class_id": "10eng",
+        "subject_id": "dbms-10",
+        "teacher_id": "4911cee7-dae4-48a2-90de-9b039712de35",
+        "default_lab_id": "comp",
+        "class_name": "10 Eng",
+        "class_grade": 10,
+        "subject_code": "DBMS-10",
+        "subject_name": "Database Management Systems Lab"
+      }
+    },
+    {
+      "scheduleId": "thu-1",
+      "subjectName": "WPD-9 - Web Page Design",
+      "batchName": "Class 9",
+      "matchedClassSubject": {
+        "id": "7305956c-9c94-452b-8338-883818dcb597",
+        "academic_year_id": "2083",
+        "class_id": "9eng",
+        "subject_id": "wpd-9",
+        "teacher_id": "4911cee7-dae4-48a2-90de-9b039712de35",
+        "default_lab_id": "comp",
+        "class_name": "9 Eng",
+        "class_grade": 9,
+        "subject_code": "WPD-9",
+        "subject_name": "Web Page Design & Development Lab"
+      }
+    },
+    {
+      "scheduleId": "thu-2b",
+      "subjectName": "CHEM-11 - Chemistry Lab",
+      "batchName": "Class 11",
+      "matchedClassSubject": {
+        "id": "e00ddd08-86f6-43e1-8060-5f50da31536e",
+        "academic_year_id": "2083",
+        "class_id": "11eng",
+        "subject_id": "chem-11",
+        "teacher_id": "dc417f53-dfbf-4ad3-9973-52ad5988e2f6",
+        "default_lab_id": "chem",
+        "class_name": "11 Eng",
+        "class_grade": 11,
+        "subject_code": "CHEM-11",
+        "subject_name": "Physical & Inorganic Chemistry Lab"
+      }
+    },
+    {
+      "scheduleId": "thu-3",
+      "subjectName": "CHEM-11 - Chemistry Lab",
+      "batchName": "Class 11",
+      "matchedClassSubject": {
+        "id": "e00ddd08-86f6-43e1-8060-5f50da31536e",
+        "academic_year_id": "2083",
+        "class_id": "11eng",
+        "subject_id": "chem-11",
+        "teacher_id": "dc417f53-dfbf-4ad3-9973-52ad5988e2f6",
+        "default_lab_id": "chem",
+        "class_name": "11 Eng",
+        "class_grade": 11,
+        "subject_code": "CHEM-11",
+        "subject_name": "Physical & Inorganic Chemistry Lab"
+      }
+    },
+    {
+      "scheduleId": "tue-1b",
+      "subjectName": "CHEM-12 - Chemistry Lab",
+      "batchName": "Class 12",
+      "matchedClassSubject": {
+        "id": "cf4cd5d7-ed01-47b1-ba10-b9d064b01435",
+        "academic_year_id": "2083",
+        "class_id": "12eng",
+        "subject_id": "chem-12",
+        "teacher_id": "dc417f53-dfbf-4ad3-9973-52ad5988e2f6",
+        "default_lab_id": "chem",
+        "class_name": "12 Eng",
+        "class_grade": 12,
+        "subject_code": "CHEM-12",
+        "subject_name": "Organic & Analytical Chemistry Lab"
+      }
+    },
+    {
+      "scheduleId": "tue-2",
+      "subjectName": "CHEM-12 - Chemistry Lab",
+      "batchName": "Class 12",
+      "matchedClassSubject": {
+        "id": "cf4cd5d7-ed01-47b1-ba10-b9d064b01435",
+        "academic_year_id": "2083",
+        "class_id": "12eng",
+        "subject_id": "chem-12",
+        "teacher_id": "dc417f53-dfbf-4ad3-9973-52ad5988e2f6",
+        "default_lab_id": "chem",
+        "class_name": "12 Eng",
+        "class_grade": 12,
+        "subject_code": "CHEM-12",
+        "subject_name": "Organic & Analytical Chemistry Lab"
+      }
+    },
+    {
+      "scheduleId": "tue-4",
+      "subjectName": "DBMS-10 - Database Mgmt",
+      "batchName": "Class 10",
+      "matchedClassSubject": {
+        "id": "1c1b9f81-2440-4f15-9375-c0fc2c8d32a7",
+        "academic_year_id": "2083",
+        "class_id": "10eng",
+        "subject_id": "dbms-10",
+        "teacher_id": "4911cee7-dae4-48a2-90de-9b039712de35",
+        "default_lab_id": "comp",
+        "class_name": "10 Eng",
+        "class_grade": 10,
+        "subject_code": "DBMS-10",
+        "subject_name": "Database Management Systems Lab"
+      }
+    },
+    {
+      "scheduleId": "wed-2b",
+      "subjectName": "CHEM-11 - Chemistry Lab",
+      "batchName": "Class 11",
+      "matchedClassSubject": {
+        "id": "e00ddd08-86f6-43e1-8060-5f50da31536e",
+        "academic_year_id": "2083",
+        "class_id": "11eng",
+        "subject_id": "chem-11",
+        "teacher_id": "dc417f53-dfbf-4ad3-9973-52ad5988e2f6",
+        "default_lab_id": "chem",
+        "class_name": "11 Eng",
+        "class_grade": 11,
+        "subject_code": "CHEM-11",
+        "subject_name": "Physical & Inorganic Chemistry Lab"
+      }
+    }
+  ],
+  "ambiguous": [],
+  "unresolved": [
+    {
+      "scheduleId": "fri-2",
+      "subjectName": "FCA-9 - Fund. Computer App (Hardware Verification)",
+      "batchName": "Class 9",
+      "labId": "comp"
+    },
+    {
+      "scheduleId": "fri-3",
+      "subjectName": "CN-12 - Computer Networks",
+      "batchName": "Class 12",
+      "labId": "comp"
+    },
+    {
+      "scheduleId": "fri-4b",
+      "subjectName": "CT-12 - Comp Technology",
+      "batchName": "Class 12",
+      "labId": "comp"
+    },
+    {
+      "scheduleId": "fri-6",
+      "subjectName": "CRM-10 - Computer Repair",
+      "batchName": "Class 10",
+      "labId": "comp"
+    },
+    {
+      "scheduleId": "fri-7",
+      "subjectName": "OOP-10 - OOP (C++)",
+      "batchName": "Class 10",
+      "labId": "comp"
+    },
+    {
+      "scheduleId": "mon-6",
+      "subjectName": "WMAD/OS-11 - Web & Mobile / OS",
+      "batchName": "Class 11",
+      "labId": "comp"
+    },
+    {
+      "scheduleId": "mon-7",
+      "subjectName": "CP-9 - Computer Prog",
+      "batchName": "Class 9",
+      "labId": "comp"
+    },
+    {
+      "scheduleId": "sched-10c-anish",
+      "subjectName": "COMP-10 - Web Fundamentals",
+      "batchName": "10 Eng",
+      "labId": "comp"
+    },
+    {
+      "scheduleId": "sched-9c-anish",
+      "subjectName": "COMP-09 - Foundations of Computing",
+      "batchName": "9 Eng",
+      "labId": "comp"
+    },
+    {
+      "scheduleId": "thu-2a",
+      "subjectName": "FCA-9 - Fund. Computer App",
+      "batchName": "Class 9",
+      "labId": "comp"
+    },
+    {
+      "scheduleId": "thu-4",
+      "subjectName": "FES-9 - Fund. Electrical Sys",
+      "batchName": "Class 9",
+      "labId": "phys"
+    },
+    {
+      "scheduleId": "thu-5",
+      "subjectName": "SEP-12 - Software Eng & Proj",
+      "batchName": "Class 12",
+      "labId": "comp"
+    },
+    {
+      "scheduleId": "thu-6",
+      "subjectName": "CRM-10 - Computer Repair",
+      "batchName": "Class 10",
+      "labId": "comp"
+    },
+    {
+      "scheduleId": "thu-7",
+      "subjectName": "OOP-10 - OOP (C++)",
+      "batchName": "Class 10",
+      "labId": "comp"
+    },
+    {
+      "scheduleId": "tue-1a",
+      "subjectName": "DDMP-10 - Digital Design & MP",
+      "batchName": "Class 10",
+      "labId": "comp"
+    },
+    {
+      "scheduleId": "tue-3",
+      "subjectName": "COMP-7AB - Comp (Sec A/B)",
+      "batchName": "Class 7",
+      "labId": "comp"
+    },
+    {
+      "scheduleId": "tue-5",
+      "subjectName": "COA-11 - Comp Org & Arch",
+      "batchName": "Class 11",
+      "labId": "comp"
+    },
+    {
+      "scheduleId": "tue-6",
+      "subjectName": "VP-12 - Visual Prog",
+      "batchName": "Class 12",
+      "labId": "comp"
+    },
+    {
+      "scheduleId": "tue-7",
+      "subjectName": "CP-9 - Computer Prog",
+      "batchName": "Class 9",
+      "labId": "comp"
+    },
+    {
+      "scheduleId": "wed-1",
+      "subjectName": "DDMP-10 - Digital Design & MP",
+      "batchName": "Class 10",
+      "labId": "comp"
+    },
+    {
+      "scheduleId": "wed-2a",
+      "subjectName": "OS-11 - Operating System",
+      "batchName": "Class 11",
+      "labId": "comp"
+    },
+    {
+      "scheduleId": "wed-3",
+      "subjectName": "FES-9 - Fund. Electrical Sys",
+      "batchName": "Class 9",
+      "labId": "phys"
+    },
+    {
+      "scheduleId": "wed-4",
+      "subjectName": "COMP-6AB - Comp (Sec A/B)",
+      "batchName": "Class 6",
+      "labId": "comp"
+    },
+    {
+      "scheduleId": "wed-5",
+      "subjectName": "COA-11 - Comp Org & Arch",
+      "batchName": "Class 11",
+      "labId": "comp"
+    },
+    {
+      "scheduleId": "wed-6",
+      "subjectName": "COMP-8AB - Comp (Sec A/B)",
+      "batchName": "Class 8",
+      "labId": "comp"
+    }
+  ]
+}

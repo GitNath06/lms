@@ -1,5 +1,3 @@
-'use client'
-
 import React from 'react'
 import Link from 'next/link'
 import { ChevronRight, Home, LucideIcon } from 'lucide-react'

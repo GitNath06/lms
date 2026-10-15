@@ -330,7 +330,7 @@ export default function AdvancedCalendar({
     currentUser?.role === 'hod'
 
   return (
-    <div className="flex flex-col h-full bg-white/95 dark:bg-zinc-950/95 border border-zinc-200/90 dark:border-zinc-800/90 rounded-2xl shadow-sm overflow-hidden select-none relative backdrop-blur-xl">
+    <div className="flex flex-col h-full bg-white/95 dark:bg-zinc-950/95 border border-zinc-200 dark:border-zinc-800/90 rounded-2xl shadow-[0_1px_3px_0_rgba(0,0,0,0.06),0_1px_2px_-1px_rgba(0,0,0,0.06)] overflow-hidden select-none relative backdrop-blur-xl">
       {/* 🌌 Dynamic Ambient Aurora Glow Blobs Layer */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
         <div
@@ -356,9 +356,9 @@ export default function AdvancedCalendar({
       <div className="flex-1 overflow-auto relative z-10">
         <div className="min-w-[1540px] flex flex-col h-full">
           {/* Top Axis: Time Slots Header */}
-          <div className="flex border-b border-zinc-200/90 dark:border-zinc-800/90 bg-zinc-50/95 dark:bg-zinc-900/95 sticky top-0 z-30 backdrop-blur-md">
+          <div className="flex border-b border-zinc-200 dark:border-zinc-800/90 bg-zinc-50/95 dark:bg-zinc-900/95 sticky top-0 z-30 backdrop-blur-md">
             {/* Axis Label */}
-            <div className="w-48 shrink-0 border-r border-zinc-200/90 dark:border-zinc-800/90 p-3.5 flex items-center justify-between text-xs font-mono font-extrabold text-zinc-700 dark:text-zinc-200 uppercase tracking-wider sticky left-0 z-40 bg-zinc-50 dark:bg-zinc-900 shadow-xs">
+            <div className="w-48 shrink-0 border-r border-zinc-200 dark:border-zinc-800/90 p-3.5 flex items-center justify-between text-xs font-mono font-extrabold text-zinc-700 dark:text-zinc-200 uppercase tracking-wider sticky left-0 z-40 bg-zinc-50 dark:bg-zinc-900 shadow-xs">
               <span className="flex items-center gap-2">
                 <CalendarDays className="h-4 w-4 text-indigo-500" />
                 DAY // 2083
@@ -373,7 +373,7 @@ export default function AdvancedCalendar({
             </div>
 
             {/* 10 Period Slots */}
-            <div className="flex-1 grid grid-cols-10 divide-x divide-zinc-200/80 dark:divide-zinc-800/80">
+            <div className="flex-1 grid grid-cols-10 divide-x divide-zinc-200 dark:divide-zinc-800/80">
               {MASTER_TIME_SLOTS.map((slot) => {
                 const isBreak = slot.id === 't6'
                 const isSlotActive = weekOffset === 0 && activeSlotId === slot.id
@@ -507,10 +507,10 @@ export default function AdvancedCalendar({
                       isToday
                         ? 'border-l-4 border-l-emerald-500 bg-emerald-50/95 dark:bg-zinc-900/98 border-r-emerald-500/50'
                         : isHoliday
-                        ? 'border-zinc-200/80 dark:border-zinc-800/80 bg-zinc-50/95 dark:bg-zinc-950/95 border-l-4 border-l-amber-500'
+                        ? 'border-zinc-200 dark:border-zinc-800/80 bg-zinc-50/95 dark:bg-zinc-950/95 border-l-4 border-l-amber-500'
                         : isWeekend
-                        ? 'border-zinc-200/80 dark:border-zinc-800/80 bg-zinc-100/90 dark:bg-zinc-900/80'
-                        : 'border-zinc-200/80 dark:border-zinc-800/80 bg-zinc-50/90 dark:bg-zinc-950/90'
+                        ? 'border-zinc-200 dark:border-zinc-800/80 bg-zinc-100/90 dark:bg-zinc-900/80'
+                        : 'border-zinc-200 dark:border-zinc-800/80 bg-zinc-50/90 dark:bg-zinc-950/90'
                     }`}
                   >
                     <div>

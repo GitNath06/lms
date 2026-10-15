@@ -12,7 +12,7 @@ import {
   isDateWithinHoliday
 } from '@/lib/master-data'
 import { useCalendarSettings } from '@/hooks/use-calendar-settings'
-import { parseSlotTimeRange } from '@/lib/utils'
+import { parseSlotTimeRange, sortSessionsChronologically } from '@/lib/utils'
 import { getEffectiveDate, isSimulatingTime, TIME_TRAVEL_EVENT } from '@/lib/time-simulator'
 
 interface PeriodMinuteRange {
@@ -124,7 +124,7 @@ export function useLiveSchedule(customRoutines?: MasterRoutineItem[]): LiveSched
   
   // Find currently active period
   let activeSlotId: string | null = null
-  let activePeriodName = isHoliday ? (holidayTitle || 'Holiday Recess') : isWeekend ? 'Weekend Recess' : 'Outside Lab Hours'
+  let activePeriodName = isHoliday ? (holidayTitle || 'Holiday') : isWeekend ? 'Week Off' : 'Outside Lab Hours'
   let minutesRemaining = 0
 
   if (mounted && !isHoliday && !isWeekend) {
@@ -145,8 +145,7 @@ export function useLiveSchedule(customRoutines?: MasterRoutineItem[]): LiveSched
   const routineSource = (customRoutines && customRoutines.length > 0) ? customRoutines : MASTER_ROUTINE
   
   // If today is a weekend or holiday, preview the official starting school day (Mon if Sunday is weekend, else Sun)
-  const queryDayKey: DayKey = (isWeekend || isHoliday) ? (sundayWeekend ? 'mon' : 'sun') : dayKey
-  const todaySessions = (isWeekend || isHoliday) ? [] : routineSource.filter((s) => s.dayKey === queryDayKey)
+  const todaySessions = (isWeekend || isHoliday) ? [] : sortSessionsChronologically(routineSource.filter((s) => s.dayKey === dayKey))
 
   // Find active sessions right now across labs
   const activeSessions = activeSlotId

@@ -196,7 +196,7 @@ function AcademicCalendarModalContent({
                 </Badge>
               </div>
               <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                Official Nepal Government Gazette Holidays, Institutional Recesses & Practical Schedule Status
+                Official Nepal Government Gazette Holidays, Institutional Holidays & Practical Schedule Status
               </p>
             </div>
           </div>
@@ -413,7 +413,7 @@ function AcademicCalendarModalContent({
                         )}
                         {isSelectedWeekend && !selectedHoliday && (
                           <Badge variant="outline" className="text-rose-600 dark:text-rose-400 border-rose-500/30 bg-rose-50 dark:bg-rose-950/40 text-[10px] font-mono">
-                            WEEKEND RECESS
+                            WEEK OFF
                           </Badge>
                         )}
                       </div>
@@ -431,7 +431,7 @@ function AcademicCalendarModalContent({
                             {selectedHoliday.titleNp || selectedHoliday.title} ({selectedHoliday.name || selectedHoliday.title})
                           </p>
                           <p className="text-xs text-zinc-600 dark:text-zinc-300">
-                            {selectedHoliday.description || 'Official academic recess. Regular laboratory practical sessions suspended.'}
+                            {selectedHoliday.description || 'Official holiday. Regular laboratory practical sessions suspended.'}
                           </p>
                           <div className="flex items-center gap-2 pt-1 text-[11px] font-mono text-rose-600 dark:text-rose-400 font-bold">
                             <Ban className="h-3.5 w-3.5" />
@@ -441,14 +441,14 @@ function AcademicCalendarModalContent({
                       ) : isSelectedWeekend ? (
                         <div className="space-y-1 pt-1">
                           <p className="text-xs font-bold text-rose-600 dark:text-rose-400">
-                            Institutional Weekend Recess ({selectedDay.dayOfWeek === 6 ? 'Saturday' : 'Sunday'}). Laboratories closed.
+                            Institutional Week Off ({selectedDay.dayOfWeek === 6 ? 'Saturday' : 'Sunday'}). Laboratories closed.
                           </p>
                           <p className="text-xs text-zinc-600 dark:text-zinc-400">
-                            Official weekly academic recess. Regular laboratory practical sessions are suspended.
+                            Official weekly week off. Regular laboratory practical sessions are suspended.
                           </p>
                           <div className="flex items-center gap-2 pt-1 text-[11px] font-mono text-rose-600 dark:text-rose-400 font-bold">
                             <Ban className="h-3.5 w-3.5" />
-                            <span>Scheduled Weekend Off • No Practical Logs Required</span>
+                            <span>Scheduled Week Off • No Practical Logs Required</span>
                           </div>
                         </div>
                       ) : (
@@ -513,7 +513,7 @@ function AcademicCalendarModalContent({
                           variant="outline"
                           className="text-[10px] font-mono border-amber-500/40 bg-amber-50/60 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300"
                         >
-                          {holiday.type.toUpperCase()} RECESS
+                          {holiday.type.toUpperCase()} HOLIDAY
                         </Badge>
 
                         <span className="text-[11px] font-mono font-bold text-zinc-500 dark:text-zinc-400">
@@ -558,7 +558,7 @@ function AcademicCalendarModalContent({
         <div className="px-6 py-3 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-950/40 flex items-center justify-between text-xs font-mono text-zinc-500">
           <div className="flex items-center gap-2">
             <ShieldCheck className="h-4 w-4 text-emerald-500" />
-            <span>Official Holiday Engine Active • Automatic Recess Enforcement</span>
+            <span>Official Holiday Engine Active • Automatic Holiday Enforcement</span>
           </div>
 
           <Button

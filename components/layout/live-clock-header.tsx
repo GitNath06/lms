@@ -22,14 +22,14 @@ export default function LiveClockHeader() {
       <div className="flex items-center gap-2.5 select-none">
         {/* Live Active Period Beacon */}
         {activeSlotId ? (
-          <span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-mono font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/60 shadow-2xs">
+          <span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-heading font-extrabold tracking-wider bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/60 shadow-2xs">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-ping" />
             {activePeriodName.toUpperCase()}
           </span>
         ) : (
-          <span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-mono text-zinc-500 dark:text-zinc-400 bg-zinc-100/70 dark:bg-zinc-800/60 border border-zinc-200/60 dark:border-zinc-700/60">
-            <span className="h-1.5 w-1.5 rounded-full bg-zinc-400" />
-            RECESS / OFF-HOURS
+          <span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-heading font-semibold tracking-wide text-zinc-700 dark:text-slate-200 bg-zinc-100 dark:bg-surface-2 border border-zinc-200/80 dark:border-border-subtle">
+            <span className="h-1.5 w-1.5 rounded-full bg-zinc-400 dark:bg-slate-400" />
+            BREAK / OFF-HOURS
           </span>
         )}
 
@@ -45,7 +45,7 @@ export default function LiveClockHeader() {
             <span className="font-semibold text-zinc-900 dark:text-zinc-100 group-hover:text-amber-700 dark:group-hover:text-amber-300 transition-colors">
               {nepaliDate.formattedDateNp}
             </span>
-            <span className="text-[10px] font-mono text-zinc-400 hidden md:inline">
+            <span className="text-[11.5px] font-sans font-medium text-zinc-500 dark:text-slate-300 hidden md:inline">
               ({nepaliDate.englishDate})
             </span>
             <ChevronDown className="h-3 w-3 text-zinc-400 group-hover:text-amber-500 transition-colors ml-0.5" />
@@ -53,8 +53,8 @@ export default function LiveClockHeader() {
 
           <div className="h-3.5 w-px bg-zinc-200 dark:bg-zinc-800 hidden sm:block" />
 
-          {/* Live Clock with Tabular Numbers */}
-          <div className="flex items-center gap-1.5 text-zinc-800 dark:text-zinc-200 font-mono tabular-nums font-bold">
+          {/* Live Clock with Tabular Numbers (Secondary hierarchy) */}
+          <div className="flex items-center gap-1.5 text-zinc-700 dark:text-slate-300 font-mono tabular-nums font-medium">
             <Clock className="h-3.5 w-3.5 text-zinc-400 dark:text-slate-400" />
             <span>{timeString}</span>
           </div>

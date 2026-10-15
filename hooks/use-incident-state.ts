@@ -101,6 +101,8 @@ export function useIncidentState() {
           subject_teacher_name: item.subject_teacher_name,
           batch_name: item.batch_name,
           title: item.title,
+          circumstances: item.circumstances,
+          photo_url: item.photo_url,
           incident_type: item.incident_type,
           severity: item.severity,
           equipment_name: item.equipment_name,
@@ -126,7 +128,16 @@ export function useIncidentState() {
   const persistIncidents = useCallback(
     (updater: LabIncidentRecord[] | ((prev: LabIncidentRecord[]) => LabIncidentRecord[]), meta?: { action?: string; incidentId?: string; incident?: LabIncidentRecord; updates?: any }) => {
       setIncidents((prev) => {
-        const updated = typeof updater === 'function' ? updater(prev) : updater
+        const rawUpdated = typeof updater === 'function' ? updater(prev) : updater
+        // Guarantee deduplication by ID
+        const seen = new Set<string>()
+        const updated: LabIncidentRecord[] = []
+        for (const item of rawUpdated) {
+          if (item && item.id && !seen.has(item.id)) {
+            seen.add(item.id)
+            updated.push(item)
+          }
+        }
         try {
           if (typeof window !== 'undefined') {
             localStorage.setItem(INCIDENTS_KEY, JSON.stringify(updated))
@@ -146,7 +157,16 @@ export function useIncidentState() {
   const persistNotifs = useCallback(
     (updater: LabNotificationRecord[] | ((prev: LabNotificationRecord[]) => LabNotificationRecord[])) => {
       setNotifications((prev) => {
-        const updated = typeof updater === 'function' ? updater(prev) : updater
+        const rawUpdated = typeof updater === 'function' ? updater(prev) : updater
+        // Guarantee deduplication by ID
+        const seen = new Set<string>()
+        const updated: LabNotificationRecord[] = []
+        for (const item of rawUpdated) {
+          if (item && item.id && !seen.has(item.id)) {
+            seen.add(item.id)
+            updated.push(item)
+          }
+        }
         try {
           if (typeof window !== 'undefined') {
             localStorage.setItem(NOTIFS_KEY, JSON.stringify(updated))
@@ -174,7 +194,16 @@ export function useIncidentState() {
         const pending = getPendingOutbox()
         const pendingIds = new Set(pending.map((p) => p.id))
         const filteredRemote = remoteInc.filter((r) => !pendingIds.has(r.id))
-        const merged = [...pending, ...filteredRemote]
+        
+        // Guarantee strict uniqueness of merged incidents
+        const seen = new Set<string>()
+        const merged: LabIncidentRecord[] = []
+        for (const item of [...pending, ...filteredRemote]) {
+          if (item && item.id && !seen.has(item.id)) {
+            seen.add(item.id)
+            merged.push(item)
+          }
+        }
         try {
           localStorage.setItem(INCIDENTS_KEY, JSON.stringify(merged))
         } catch {}
@@ -182,10 +211,19 @@ export function useIncidentState() {
       }
 
       if (Array.isArray(remoteNotifs)) {
+        // Guarantee strict uniqueness of notifications
+        const seen = new Set<string>()
+        const dedupedNotifs: LabNotificationRecord[] = []
+        for (const notif of remoteNotifs) {
+          if (notif && notif.id && !seen.has(notif.id)) {
+            seen.add(notif.id)
+            dedupedNotifs.push(notif)
+          }
+        }
         try {
-          localStorage.setItem(NOTIFS_KEY, JSON.stringify(remoteNotifs))
+          localStorage.setItem(NOTIFS_KEY, JSON.stringify(dedupedNotifs))
         } catch {}
-        setNotifications(remoteNotifs)
+        setNotifications(dedupedNotifs)
       }
     } catch (e) {
       console.warn('Using local incidents cache:', e)
@@ -234,18 +272,32 @@ export function useIncidentState() {
         const savedInc = localStorage.getItem(INCIDENTS_KEY)
         if (savedInc) {
           const parsed = JSON.parse(savedInc)
-          setIncidents((prev) => {
-            if (prev.length === parsed.length && JSON.stringify(prev) === savedInc) return prev
-            return parsed
-          })
+          if (Array.isArray(parsed)) {
+            const seen = new Set<string>()
+            const deduped: LabIncidentRecord[] = []
+            for (const item of parsed) {
+              if (item && item.id && !seen.has(item.id)) {
+                seen.add(item.id)
+                deduped.push(item)
+              }
+            }
+            setIncidents(deduped)
+          }
         }
         const savedNotifs = localStorage.getItem(NOTIFS_KEY)
         if (savedNotifs) {
           const parsed = JSON.parse(savedNotifs)
-          setNotifications((prev) => {
-            if (prev.length === parsed.length && JSON.stringify(prev) === savedNotifs) return prev
-            return parsed
-          })
+          if (Array.isArray(parsed)) {
+            const seen = new Set<string>()
+            const deduped: LabNotificationRecord[] = []
+            for (const notif of parsed) {
+              if (notif && notif.id && !seen.has(notif.id)) {
+                seen.add(notif.id)
+                deduped.push(notif)
+              }
+            }
+            setNotifications(deduped)
+          }
         }
       } catch (e) {}
     }
@@ -276,8 +328,8 @@ export function useIncidentState() {
       created_at: new Date().toISOString(),
     }
 
-    // 1. Optimistic save with targeted meta
-    persistIncidents((prev) => [newRecord, ...prev], {
+    // 1. Optimistic save with targeted meta (filter pre-existing by id to avoid duplicates)
+    persistIncidents((prev) => [newRecord, ...prev.filter((i) => i.id !== recordId)], {
       action: 'created',
       incidentId: recordId,
       incident: newRecord,
@@ -295,7 +347,7 @@ export function useIncidentState() {
     // Generate local notifications optimistically for Admin, Lab In-Charge, and HOD
     const localNotifs: LabNotificationRecord[] = [
       {
-        id: `notif-${Date.now()}-local-admin`,
+        id: `notif-${recordId}-admin`,
         incident_id: recordId,
         target_role: 'super_admin',
         target_lab_id: data.lab_id,
@@ -306,7 +358,7 @@ export function useIncidentState() {
         created_at: new Date().toISOString(),
       },
       {
-        id: `notif-${Date.now()}-local-incharge`,
+        id: `notif-${recordId}-incharge`,
         incident_id: recordId,
         target_role: 'lab_incharge',
         target_lab_id: data.lab_id,
@@ -320,7 +372,7 @@ export function useIncidentState() {
 
     if (isCritical || data.severity === 'moderate') {
       localNotifs.push({
-        id: `notif-${Date.now()}-local-hod`,
+        id: `notif-${recordId}-hod`,
         incident_id: recordId,
         target_role: 'hod',
         target_lab_id: data.lab_id,
@@ -332,7 +384,8 @@ export function useIncidentState() {
       })
     }
 
-    persistNotifs((prev) => [...localNotifs, ...prev])
+    // Filter out any notification with same incident_id to avoid double notifications
+    persistNotifs((prev) => [...localNotifs, ...prev.filter((n) => n.incident_id !== recordId)])
 
     // Broadcast instant incident event across components and tabs
     if (typeof window !== 'undefined') {
@@ -346,12 +399,20 @@ export function useIncidentState() {
     // 2. Queue in outbox
     addToOutbox(newRecord)
 
-    // 3. Attempt server action if online
+    // 3. Attempt server action if online (pass the EXACT recordId to prevent double record creation!)
     if (navigator.onLine) {
       try {
-        const res = await reportIncident(data)
+        const res = await reportIncident({
+          ...data,
+          id: recordId,
+        })
         if (res && res.success) {
           removeFromOutbox(recordId)
+          if (res.incident) {
+            persistIncidents((prev) =>
+              prev.map((i) => (i.id === recordId ? res.incident! : i))
+            )
+          }
         }
       } catch (e) {
         console.warn('Network offline, incident queued in outbox:', e)

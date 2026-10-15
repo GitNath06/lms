@@ -13,7 +13,11 @@ import {
   ChevronRight,
   Sparkles,
   Wrench,
+  Monitor,
+  BarChart3,
 } from 'lucide-react'
+
+import { useInfrastructureState } from '@/hooks/use-infrastructure-state'
 
 interface SidebarNavProps {
   isSuperAdmin: boolean
@@ -25,6 +29,12 @@ export default function SidebarNav({
   canAccessMaintenance = true,
 }: SidebarNavProps) {
   const pathname = usePathname()
+  const { labs } = useInfrastructureState()
+
+  const compLab = labs?.find((l) => l.id === 'comp' || l.type === 'computer_lab')
+  const labStatus = compLab?.status || 'Operational'
+  const isOperational = labStatus === 'Operational' && compLab?.is_active !== false
+  const isMaintenance = labStatus === 'Under Maintenance'
 
   const navItems = [
     {
@@ -44,29 +54,35 @@ export default function SidebarNav({
       href: '/records',
       icon: ClipboardList,
       activeColor: 'text-indigo-600 dark:text-indigo-400',
-      badge: 'Official',
-      badgeColor: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20',
     },
     {
       label: 'Incidents & Repairs',
       href: '/records/incidents',
       icon: AlertTriangle,
-      activeColor: 'text-rose-600 dark:text-rose-400',
-      badge: 'Active',
-      badgeColor: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20',
+      activeColor: 'text-indigo-600 dark:text-indigo-400',
+    },
+    {
+      label: 'Floor Plan',
+      href: '/computer-lab',
+      icon: Monitor,
+      activeColor: 'text-indigo-600 dark:text-indigo-400',
     },
     ...(canAccessMaintenance
       ? [
           {
-            label: 'Lab Maintenance',
+            label: 'Lab Diagnostics & Maintenance',
             href: '/maintenance',
             icon: Wrench,
             activeColor: 'text-indigo-600 dark:text-indigo-400',
-            badge: 'Routines',
-            badgeColor: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20',
           },
         ]
       : []),
+    {
+      label: 'Institutional Analytics',
+      href: '/analytics',
+      icon: BarChart3,
+      activeColor: 'text-indigo-600 dark:text-indigo-400',
+    },
     {
       label: 'Daily Lab Report',
       href: '/print/records',
@@ -98,13 +114,17 @@ export default function SidebarNav({
                 />
                 <span className="truncate">{item.label}</span>
               </div>
-
-              {item.badge && (
+              {item.href === '/computer-lab' && (
                 <span
-                  className={`px-1.5 py-0.2 rounded-full text-[9px] font-mono font-bold border ${item.badgeColor}`}
-                >
-                  {item.badge}
-                </span>
+                  className={`h-2 w-2 rounded-full ${
+                    isOperational
+                      ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.7)] animate-pulse'
+                      : isMaintenance
+                      ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.7)]'
+                      : 'bg-zinc-400'
+                  }`}
+                  title={`Floor Plan: ${labStatus}`}
+                />
               )}
             </Link>
           </li>
@@ -125,9 +145,6 @@ export default function SidebarNav({
               <Shield className="h-4 w-4 text-amber-500 group-hover:scale-110 transition-transform" />
               <span className="truncate">Super Admin Control</span>
             </div>
-            <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/30">
-              Tier-1
-            </span>
           </Link>
         </li>
       )}

@@ -1,0 +1,324 @@
+[
+  {
+    "table_name": "class_subjects",
+    "column_name": "academic_year_id",
+    "foreign_table_name": "academic_years",
+    "foreign_column_name": "id",
+    "constraint_name": "class_subjects_academic_year_id_fkey"
+  },
+  {
+    "table_name": "class_subjects",
+    "column_name": "class_id",
+    "foreign_table_name": "classes",
+    "foreign_column_name": "id",
+    "constraint_name": "class_subjects_class_id_fkey"
+  },
+  {
+    "table_name": "class_subjects",
+    "column_name": "default_lab_id",
+    "foreign_table_name": "labs",
+    "foreign_column_name": "id",
+    "constraint_name": "class_subjects_default_lab_id_fkey"
+  },
+  {
+    "table_name": "class_subjects",
+    "column_name": "subject_id",
+    "foreign_table_name": "subjects",
+    "foreign_column_name": "id",
+    "constraint_name": "class_subjects_subject_id_fkey"
+  },
+  {
+    "table_name": "class_subjects",
+    "column_name": "teacher_id",
+    "foreign_table_name": "profiles",
+    "foreign_column_name": "id",
+    "constraint_name": "class_subjects_teacher_id_fkey"
+  },
+  {
+    "table_name": "classes",
+    "column_name": "stream_id",
+    "foreign_table_name": "streams",
+    "foreign_column_name": "id",
+    "constraint_name": "classes_stream_id_fkey"
+  },
+  {
+    "table_name": "lab_incidents",
+    "column_name": "class_id",
+    "foreign_table_name": "classes",
+    "foreign_column_name": "id",
+    "constraint_name": "lab_incidents_class_id_fkey"
+  },
+  {
+    "table_name": "lab_incidents",
+    "column_name": "lab_id",
+    "foreign_table_name": "labs",
+    "foreign_column_name": "id",
+    "constraint_name": "lab_incidents_lab_id_fkey"
+  },
+  {
+    "table_name": "lab_incidents",
+    "column_name": "reported_by_id",
+    "foreign_table_name": "profiles",
+    "foreign_column_name": "id",
+    "constraint_name": "lab_incidents_reported_by_id_fkey"
+  },
+  {
+    "table_name": "lab_incidents",
+    "column_name": "resolved_by_id",
+    "foreign_table_name": "profiles",
+    "foreign_column_name": "id",
+    "constraint_name": "lab_incidents_resolved_by_id_fkey"
+  },
+  {
+    "table_name": "lab_incidents",
+    "column_name": "schedule_id",
+    "foreign_table_name": "schedules",
+    "foreign_column_name": "id",
+    "constraint_name": "lab_incidents_schedule_id_fkey"
+  },
+  {
+    "table_name": "lab_incidents",
+    "column_name": "subject_id",
+    "foreign_table_name": "subjects",
+    "foreign_column_name": "id",
+    "constraint_name": "lab_incidents_subject_id_fkey"
+  },
+  {
+    "table_name": "lab_incidents",
+    "column_name": "subject_teacher_id",
+    "foreign_table_name": "profiles",
+    "foreign_column_name": "id",
+    "constraint_name": "lab_incidents_subject_teacher_id_fkey"
+  },
+  {
+    "table_name": "log_attendance",
+    "column_name": "enrollment_id",
+    "foreign_table_name": "student_enrollments",
+    "foreign_column_name": "id",
+    "constraint_name": "fk_log_attendance_enrollment_student"
+  },
+  {
+    "table_name": "log_attendance",
+    "column_name": "enrollment_id",
+    "foreign_table_name": "student_enrollments",
+    "foreign_column_name": "student_id",
+    "constraint_name": "fk_log_attendance_enrollment_student"
+  },
+  {
+    "table_name": "log_attendance",
+    "column_name": "log_id",
+    "foreign_table_name": "practical_logs",
+    "foreign_column_name": "id",
+    "constraint_name": "log_attendance_log_id_fkey"
+  },
+  {
+    "table_name": "log_attendance",
+    "column_name": "student_id",
+    "foreign_table_name": "student_enrollments",
+    "foreign_column_name": "id",
+    "constraint_name": "fk_log_attendance_enrollment_student"
+  },
+  {
+    "table_name": "log_attendance",
+    "column_name": "student_id",
+    "foreign_table_name": "student_enrollments",
+    "foreign_column_name": "student_id",
+    "constraint_name": "fk_log_attendance_enrollment_student"
+  },
+  {
+    "table_name": "log_attendance",
+    "column_name": "student_id",
+    "foreign_table_name": "students",
+    "foreign_column_name": "id",
+    "constraint_name": "log_attendance_student_id_fkey"
+  },
+  {
+    "table_name": "practical_logs",
+    "column_name": "academic_year_id",
+    "foreign_table_name": "academic_years",
+    "foreign_column_name": "id",
+    "constraint_name": "practical_logs_academic_year_id_fkey"
+  },
+  {
+    "table_name": "practical_logs",
+    "column_name": "class_subject_id",
+    "foreign_table_name": "class_subjects",
+    "foreign_column_name": "id",
+    "constraint_name": "practical_logs_class_subject_id_fkey"
+  },
+  {
+    "table_name": "practical_logs",
+    "column_name": "lab_id",
+    "foreign_table_name": "labs",
+    "foreign_column_name": "id",
+    "constraint_name": "practical_logs_lab_id_fkey"
+  },
+  {
+    "table_name": "practical_logs",
+    "column_name": "logged_by",
+    "foreign_table_name": "profiles",
+    "foreign_column_name": "id",
+    "constraint_name": "practical_logs_logged_by_fkey"
+  },
+  {
+    "table_name": "practical_logs",
+    "column_name": "schedule_id",
+    "foreign_table_name": "schedules",
+    "foreign_column_name": "id",
+    "constraint_name": "fk_practical_logs_schedule"
+  },
+  {
+    "table_name": "practical_logs",
+    "column_name": "teacher_id",
+    "foreign_table_name": "profiles",
+    "foreign_column_name": "id",
+    "constraint_name": "practical_logs_teacher_id_fkey"
+  },
+  {
+    "table_name": "schedules",
+    "column_name": "academic_year_id",
+    "foreign_table_name": "academic_years",
+    "foreign_column_name": "id",
+    "constraint_name": "schedules_academic_year_id_fkey"
+  },
+  {
+    "table_name": "schedules",
+    "column_name": "class_subject_id",
+    "foreign_table_name": "class_subjects",
+    "foreign_column_name": "id",
+    "constraint_name": "schedules_class_subject_id_fkey"
+  },
+  {
+    "table_name": "schedules",
+    "column_name": "lab_id",
+    "foreign_table_name": "labs",
+    "foreign_column_name": "id",
+    "constraint_name": "schedules_lab_id_fkey"
+  },
+  {
+    "table_name": "schedules",
+    "column_name": "teacher_id",
+    "foreign_table_name": "profiles",
+    "foreign_column_name": "id",
+    "constraint_name": "schedules_teacher_id_fkey"
+  },
+  {
+    "table_name": "session_seat_overrides",
+    "column_name": "created_by",
+    "foreign_table_name": "profiles",
+    "foreign_column_name": "id",
+    "constraint_name": "session_seat_overrides_created_by_fkey"
+  },
+  {
+    "table_name": "session_seat_overrides",
+    "column_name": "enrollment_id",
+    "foreign_table_name": "student_enrollments",
+    "foreign_column_name": "id",
+    "constraint_name": "session_seat_overrides_enrollment_id_fkey"
+  },
+  {
+    "table_name": "session_seat_overrides",
+    "column_name": "original_workstation_id",
+    "foreign_table_name": "workstations",
+    "foreign_column_name": "id",
+    "constraint_name": "session_seat_overrides_original_workstation_id_fkey"
+  },
+  {
+    "table_name": "session_seat_overrides",
+    "column_name": "practical_log_id",
+    "foreign_table_name": "practical_logs",
+    "foreign_column_name": "id",
+    "constraint_name": "session_seat_overrides_practical_log_id_fkey"
+  },
+  {
+    "table_name": "session_seat_overrides",
+    "column_name": "schedule_id",
+    "foreign_table_name": "schedules",
+    "foreign_column_name": "id",
+    "constraint_name": "session_seat_overrides_schedule_id_fkey"
+  },
+  {
+    "table_name": "session_seat_overrides",
+    "column_name": "workstation_id",
+    "foreign_table_name": "workstations",
+    "foreign_column_name": "id",
+    "constraint_name": "session_seat_overrides_workstation_id_fkey"
+  },
+  {
+    "table_name": "student_enrollments",
+    "column_name": "academic_year_id",
+    "foreign_table_name": "academic_years",
+    "foreign_column_name": "id",
+    "constraint_name": "student_enrollments_academic_year_id_fkey"
+  },
+  {
+    "table_name": "student_enrollments",
+    "column_name": "class_id",
+    "foreign_table_name": "classes",
+    "foreign_column_name": "id",
+    "constraint_name": "student_enrollments_class_id_fkey"
+  },
+  {
+    "table_name": "student_enrollments",
+    "column_name": "student_id",
+    "foreign_table_name": "students",
+    "foreign_column_name": "id",
+    "constraint_name": "student_enrollments_student_id_fkey"
+  },
+  {
+    "table_name": "subjects",
+    "column_name": "default_lab_id",
+    "foreign_table_name": "labs",
+    "foreign_column_name": "id",
+    "constraint_name": "subjects_default_lab_id_fkey"
+  },
+  {
+    "table_name": "workstation_seat_plans",
+    "column_name": "academic_year_id",
+    "foreign_table_name": "academic_years",
+    "foreign_column_name": "id",
+    "constraint_name": "workstation_seat_plans_academic_year_id_fkey"
+  },
+  {
+    "table_name": "workstation_seat_plans",
+    "column_name": "assigned_by",
+    "foreign_table_name": "profiles",
+    "foreign_column_name": "id",
+    "constraint_name": "workstation_seat_plans_assigned_by_fkey"
+  },
+  {
+    "table_name": "workstation_seat_plans",
+    "column_name": "class_id",
+    "foreign_table_name": "classes",
+    "foreign_column_name": "id",
+    "constraint_name": "workstation_seat_plans_class_id_fkey"
+  },
+  {
+    "table_name": "workstation_seat_plans",
+    "column_name": "enrollment_id",
+    "foreign_table_name": "student_enrollments",
+    "foreign_column_name": "id",
+    "constraint_name": "workstation_seat_plans_enrollment_id_fkey"
+  },
+  {
+    "table_name": "workstation_seat_plans",
+    "column_name": "lab_id",
+    "foreign_table_name": "labs",
+    "foreign_column_name": "id",
+    "constraint_name": "workstation_seat_plans_lab_id_fkey"
+  },
+  {
+    "table_name": "workstation_seat_plans",
+    "column_name": "workstation_id",
+    "foreign_table_name": "workstations",
+    "foreign_column_name": "id",
+    "constraint_name": "workstation_seat_plans_workstation_id_fkey"
+  },
+  {
+    "table_name": "workstations",
+    "column_name": "lab_id",
+    "foreign_table_name": "labs",
+    "foreign_column_name": "id",
+    "constraint_name": "workstations_lab_id_fkey"
+  }
+]

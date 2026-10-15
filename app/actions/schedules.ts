@@ -6,8 +6,26 @@ import { Database } from '@/types/database'
 import { isSupabaseConfigured } from '@/lib/supabase/config'
 import { recordAuditEvent } from '@/lib/audit'
 import { getPgPool } from '@/lib/db'
-import { MASTER_ROUTINE } from '@/lib/master-data'
-import { parseSlotTimeRange } from '@/lib/utils'
+import { MASTER_ROUTINE, computeCombinedTimeRange } from '@/lib/master-data'
+import { parseSlotTimeRange, sortSessionsChronologically } from '@/lib/utils'
+
+function cleanMergedSubjectName(name?: string, fallbackPrimary?: string, fallbackSecondary?: string): string {
+  if (name) {
+    const trimmed = name.trim()
+    const parts = trimmed.split(/\s*(?:&|\+)\s*/).map((p) => p.trim()).filter(Boolean)
+    if (parts.length > 1 && new Set(parts).size === 1) {
+      return parts[0]
+    }
+    return trimmed
+  }
+  if (fallbackPrimary && fallbackSecondary) {
+    if (fallbackPrimary.trim() === fallbackSecondary.trim()) {
+      return fallbackPrimary.trim()
+    }
+    return `${fallbackPrimary.trim()} & ${fallbackSecondary.trim()}`
+  }
+  return fallbackPrimary || ''
+}
 
 type ScheduleInsert = Database['public']['Tables']['schedules']['Insert']
 type LabRow = Database['public']['Tables']['labs']['Row']
@@ -90,7 +108,7 @@ export async function getSchedules(filters?: { dayKey?: string; labId?: string }
       return []
     }
 
-    return (data as any[]) || []
+    return sortSessionsChronologically((data as any[]) || [])
   } catch (e) {
     return []
   }
@@ -107,6 +125,8 @@ export async function createSchedule(data: {
   span?: number
   start_time: string
   end_time: string
+  class_subject_id?: string | null
+  academic_year_id?: string | null
   metadata?: any
 }) {
   if (!isSupabaseConfigured()) {
@@ -165,12 +185,84 @@ export async function createSchedule(data: {
       }
     }
 
-    // 3-Way Multi-Period Span Conflict Detection (Room, Teacher, Batch)
+    // Resolve class_subject_id and dual-write display snapshots
+    let resolvedClassSubjectId = data.class_subject_id || null
+    let targetClassId: string | null = null
+    let resolvedAcademicYearId = data.academic_year_id || null
+    let displaySubjectName = data.subject_name
+    let displayBatchName = data.batch_name
+    let resolvedTeacherId = data.teacher_id || null
+
+    if (resolvedClassSubjectId) {
+      const { data: cs } = await supabase
+        .from('class_subjects')
+        .select(`
+          id, class_id, subject_id, teacher_id, academic_year_id,
+          classes:class_id ( id, name ),
+          subjects:subject_id ( id, code, name )
+        `)
+        .eq('id', resolvedClassSubjectId)
+        .maybeSingle()
+
+      if (cs) {
+        targetClassId = (cs as any).class_id
+        resolvedAcademicYearId = (cs as any).academic_year_id
+        if (!resolvedTeacherId) resolvedTeacherId = (cs as any).teacher_id
+        const sub = (cs as any).subjects
+        const cls = (cs as any).classes
+        if (sub?.code && sub?.name) {
+          displaySubjectName = `${sub.code} - ${sub.name}`
+        }
+        if (cls?.name) {
+          displayBatchName = cls.name
+        }
+      }
+    } else {
+      // Look up candidate class_subjects
+      const norm = (s?: string | null) => (s ? s.trim().toLowerCase() : '')
+      const { data: csList } = await supabase
+        .from('class_subjects')
+        .select(`
+          id, class_id, subject_id, teacher_id, academic_year_id,
+          classes:class_id ( id, name, grade ),
+          subjects:subject_id ( id, code, name )
+        `)
+
+      if (csList && csList.length > 0) {
+        const normBatch = norm(data.batch_name)
+        const normSub = norm(data.subject_name)
+        const matched = (csList as any[]).find((cs) => {
+          const clsName = norm(cs.classes?.name)
+          const clsId = norm(cs.class_id)
+          const subCode = norm(cs.subjects?.code)
+          const classMatch = normBatch === clsName || normBatch === clsId || normBatch.includes(clsName) || (cs.classes?.grade && normBatch.includes(String(cs.classes.grade)))
+          const subjectMatch = subCode && normSub.includes(subCode)
+          return classMatch && subjectMatch
+        })
+
+        if (matched) {
+          resolvedClassSubjectId = matched.id
+          targetClassId = matched.class_id
+          resolvedAcademicYearId = matched.academic_year_id
+          if (!resolvedTeacherId) resolvedTeacherId = matched.teacher_id
+          const sub = matched.subjects
+          const cls = matched.classes
+          if (sub?.code && sub?.name) {
+            displaySubjectName = `${sub.code} - ${sub.name}`
+          }
+          if (cls?.name) {
+            displayBatchName = cls.name
+          }
+        }
+      }
+    }
+
+    // 3-Way Multi-Period Span Conflict Detection (Room, Teacher, Cohort)
     const targetRange = getSlotRange(data.slot_id, data.span || 1)
 
     const { data: daySchedules } = await supabase
       .from('schedules')
-      .select('id, lab_id, teacher_id, subject_name, batch_name, slot_id, span, metadata')
+      .select('id, lab_id, teacher_id, subject_name, batch_name, slot_id, span, metadata, class_subject_id, class_subjects(class_id)')
       .eq('day_key', data.day_key)
       .neq('status', 'cancelled')
 
@@ -189,7 +281,7 @@ export async function createSchedule(data: {
           }
         }
         // 2. Faculty / Teacher Collision
-        const sameTeacherId = data.teacher_id && existing.teacher_id && data.teacher_id === existing.teacher_id
+        const sameTeacherId = resolvedTeacherId && existing.teacher_id && resolvedTeacherId === existing.teacher_id
         const reqTeacherName = data.metadata?.teacher?.trim()?.toLowerCase()
         const existTeacherName = existing.metadata?.teacher?.trim()?.toLowerCase()
         const sameTeacherName = reqTeacherName && existTeacherName && reqTeacherName === existTeacherName
@@ -198,12 +290,19 @@ export async function createSchedule(data: {
             error: `Faculty Collision: ${data.metadata?.teacher || 'The assigned teacher'} is already conducting "${existing.subject_name}" in another laboratory during this period.`,
           }
         }
-        // 3. Student Class Batch Collision
-        const reqBatch = data.batch_name?.trim()?.toLowerCase()
-        const existBatch = existing.batch_name?.trim()?.toLowerCase()
-        if (reqBatch && existBatch && (reqBatch === existBatch || reqBatch.includes(existBatch) || existBatch.includes(reqBatch))) {
+        // 3. Student Class Batch Collision (Exact Cohort Comparison - No Substring False Positives)
+        const existClassId = (existing.class_subjects as any)?.class_id
+        if (targetClassId && existClassId && targetClassId === existClassId) {
           return {
-            error: `Class Batch Collision: Student group "${data.batch_name}" is already scheduled for "${existing.subject_name}" in another lab during this period.`,
+            error: `Class Batch Collision: Student cohort "${displayBatchName || data.batch_name}" is already scheduled for "${existing.subject_name}" in another lab during this period.`,
+          }
+        } else if (!targetClassId || !existClassId) {
+          const reqBatch = (displayBatchName || data.batch_name)?.trim()?.toLowerCase()
+          const existBatch = existing.batch_name?.trim()?.toLowerCase()
+          if (reqBatch && existBatch && reqBatch === existBatch) {
+            return {
+              error: `Class Batch Collision: Student group "${data.batch_name}" is already scheduled for "${existing.subject_name}" in another lab during this period.`,
+            }
           }
         }
       }
@@ -213,9 +312,9 @@ export async function createSchedule(data: {
 
     const payload: ScheduleInsert = {
       lab_id: data.lab_id,
-      teacher_id: data.teacher_id || null,
-      subject_name: data.subject_name,
-      batch_name: data.batch_name,
+      teacher_id: resolvedTeacherId,
+      subject_name: displaySubjectName,
+      batch_name: displayBatchName,
       day_key: data.day_key,
       slot_id: data.slot_id,
       span: data.span || 1,
@@ -224,6 +323,8 @@ export async function createSchedule(data: {
       is_merged: (data.span || 1) > 1,
       status: scheduleStatus,
       metadata: data.metadata || null,
+      class_subject_id: resolvedClassSubjectId,
+      academic_year_id: resolvedAcademicYearId,
     }
 
     const { data: newSchedule, error } = await (supabase
@@ -333,17 +434,26 @@ export async function mergeSchedules(
       if (secondary) {
         const secondaryObj = secondary as any
         const combinedSpan = (primaryObj.span || 1) + (secondaryObj.span || 1)
+        const computedTimeRange = computeCombinedTimeRange(primaryObj.slot_id, combinedSpan)
+        const newEndTime = secondaryObj.end_time || parseSlotTimeRange(computedTimeRange).endTime
+        const finalSubjectName = cleanMergedSubjectName(
+          mergedData?.subject_name,
+          primaryObj.subject_name,
+          secondaryObj.subject_name
+        )
 
-        // Update primary schedule to merged state
+        // Update primary schedule to merged state with combined span and correct end_time
         const { error: updateError } = await (supabase
           .from('schedules') as any)
           .update({
             is_merged: true,
             span: combinedSpan,
-            subject_name: mergedData?.subject_name || `${primaryObj.subject_name} + ${secondaryObj.subject_name}`,
+            end_time: newEndTime,
+            subject_name: finalSubjectName,
             batch_name: mergedData?.batch_name || primaryObj.batch_name,
             teacher_id: mergedData?.teacher_id || primaryObj.teacher_id,
             metadata: {
+              ...(primaryObj.metadata || {}),
               merged_with: secondaryObj.id,
               original_parts: [primaryObj, secondaryObj],
             },
@@ -352,23 +462,25 @@ export async function mergeSchedules(
 
         if (updateError) return { error: updateError.message }
 
-        // Delete/archive secondary slot
+        // Delete secondary slot (preserved in metadata.original_parts)
         await supabase.from('schedules').delete().eq('id', nextScheduleId)
 
         await recordAuditEvent({
           action: 'UPDATE',
           entityType: 'schedule',
           entityId: scheduleId,
-          entityLabel: `Merged Slot: ${mergedData?.subject_name || primaryObj.subject_name}`,
+          entityLabel: `Merged Slot: ${finalSubjectName}`,
           before: {
             is_merged: false,
             span: primaryObj.span || 1,
+            end_time: primaryObj.end_time,
             subject_name: primaryObj.subject_name,
           },
           after: {
             is_merged: true,
             span: combinedSpan,
-            subject_name: mergedData?.subject_name || `${primaryObj.subject_name} + ${secondaryObj.subject_name}`,
+            end_time: newEndTime,
+            subject_name: finalSubjectName,
           },
           metadata: { operation: 'merge_schedules', nextScheduleId },
         })
@@ -376,11 +488,14 @@ export async function mergeSchedules(
     } else {
       // Extend single slot
       const newSpan = (primaryObj.span || 1) + 1
+      const computedTimeRange = computeCombinedTimeRange(primaryObj.slot_id, newSpan)
+      const newEndTime = parseSlotTimeRange(computedTimeRange).endTime
       await (supabase
         .from('schedules') as any)
         .update({
           is_merged: true,
           span: newSpan,
+          end_time: newEndTime,
         })
         .eq('id', scheduleId)
 
@@ -389,8 +504,8 @@ export async function mergeSchedules(
         entityType: 'schedule',
         entityId: scheduleId,
         entityLabel: `Extended Duration: ${primaryObj.subject_name}`,
-        before: { span: primaryObj.span || 1 },
-        after: { span: newSpan },
+        before: { span: primaryObj.span || 1, end_time: primaryObj.end_time },
+        after: { span: newSpan, end_time: newEndTime },
         metadata: { operation: 'extend_schedule_span' },
       })
     }
@@ -422,22 +537,64 @@ export async function unmergeSchedule(scheduleId: string) {
 
     if (!schedule) return { error: 'Schedule not found' }
 
+    const scheduleObj = schedule as any
+    const originalParts = scheduleObj.metadata?.original_parts || []
+    const primaryOriginal = originalParts[0]
+    const secondaryOriginal = originalParts[1]
+
+    const restoredEndTime =
+      primaryOriginal?.end_time || parseSlotTimeRange(computeCombinedTimeRange(scheduleObj.slot_id, 1)).endTime
+    const restoredSubjectName =
+      primaryOriginal?.subject_name || scheduleObj.subject_name.split(' & ')[0].split(' + ')[0].trim()
+    const restoredBatchName =
+      primaryOriginal?.batch_name || scheduleObj.batch_name.split(' & ')[0].trim()
+
+    // Restore primary schedule
     await (supabase
       .from('schedules') as any)
       .update({
         is_merged: false,
         span: 1,
+        end_time: restoredEndTime,
+        subject_name: restoredSubjectName,
+        batch_name: restoredBatchName,
+        metadata: {
+          ...(scheduleObj.metadata || {}),
+          merged_with: null,
+          original_parts: null,
+        },
       })
       .eq('id', scheduleId)
+
+    // Restore secondary schedule if it existed
+    if (secondaryOriginal) {
+      await supabase.from('schedules').insert({
+        id: secondaryOriginal.id,
+        lab_id: secondaryOriginal.lab_id,
+        teacher_id: secondaryOriginal.teacher_id,
+        subject_name: secondaryOriginal.subject_name,
+        batch_name: secondaryOriginal.batch_name,
+        start_time: secondaryOriginal.start_time,
+        end_time: secondaryOriginal.end_time,
+        slot_id: secondaryOriginal.slot_id,
+        day_key: secondaryOriginal.day_key,
+        span: secondaryOriginal.span || 1,
+        is_merged: false,
+        status: secondaryOriginal.status || 'scheduled',
+        metadata: secondaryOriginal.metadata || {},
+        class_subject_id: secondaryOriginal.class_subject_id || null,
+        academic_year_id: secondaryOriginal.academic_year_id || null,
+      })
+    }
 
     await recordAuditEvent({
       action: 'UPDATE',
       entityType: 'schedule',
       entityId: scheduleId,
-      entityLabel: `Split / Unmerged: ${(schedule as any).subject_name}`,
-      before: { is_merged: true, span: (schedule as any).span || 2 },
-      after: { is_merged: false, span: 1 },
-      metadata: { operation: 'unmerge_schedule' },
+      entityLabel: `Split / Unmerged: ${scheduleObj.subject_name}`,
+      before: { is_merged: true, span: scheduleObj.span || 2, end_time: scheduleObj.end_time },
+      after: { is_merged: false, span: 1, end_time: restoredEndTime },
+      metadata: { operation: 'unmerge_schedule', restoredSecondaryId: secondaryOriginal?.id },
     })
 
     revalidatePath('/schedules')
@@ -531,7 +688,18 @@ export async function resetSchedulesToMaster(): Promise<{ success: boolean; coun
       // Clear existing schedules table
       await client.query('DELETE FROM public.schedules;')
 
-      // Re-seed all items from MASTER_ROUTINE
+      // Fetch authoritative class_subjects to map canonical assignments
+      const csRes = await client.query(`
+        SELECT cs.id, cs.academic_year_id, cs.class_id, cs.subject_id, cs.teacher_id,
+               c.name as class_name, c.grade as class_grade,
+               s.code as subject_code, s.name as subject_name
+        FROM public.class_subjects cs
+        JOIN public.classes c ON c.id = cs.class_id
+        JOIN public.subjects s ON s.id = cs.subject_id;
+      `)
+      const csList = csRes.rows
+
+      // Re-seed all items from MASTER_ROUTINE with canonical class_subject_id
       for (const item of MASTER_ROUTINE) {
         const { startTime, endTime } = parseSlotTimeRange(item.timeSlot)
         const labId =
@@ -565,13 +733,55 @@ export async function resetSchedulesToMaster(): Promise<{ success: boolean; coun
           mergedParts: item.mergedParts,
         }
 
+        const matchedCs = csList.find((cs: any) => {
+          const cCode = cs.subject_code.toUpperCase()
+          const sSubject = item.subjectCode?.toUpperCase() || ''
+          const sBatch = (item.grade || '').toUpperCase()
+          let subjectMatch = false
+          if (item.id === 'mon-6' || sSubject.includes('WMAD/OS')) {
+            subjectMatch = (cCode === 'WMAD-11')
+          } else if (sSubject.includes(cCode) || cCode.includes(sSubject)) {
+            subjectMatch = true
+          } else if (cCode === 'WMAD-11' && sSubject.includes('WMAD')) {
+            subjectMatch = true
+          } else if (cCode === 'SCI-6' && sSubject.includes('COMP-6')) {
+            subjectMatch = true
+          } else if (cCode === 'ICT-7' && sSubject.includes('COMP-7')) {
+            subjectMatch = true
+          } else if (cCode === 'ICT-8' && sSubject.includes('COMP-8')) {
+            subjectMatch = true
+          } else if (cCode === 'COMP-11' && sSubject.includes('COMP-11')) {
+            subjectMatch = true
+          } else if (cCode === 'COMP-12' && (sSubject.includes('COMP-12') || sSubject.includes('JAVA-12'))) {
+            subjectMatch = true
+          } else if (cCode === 'WPD-9' && sSubject.includes('COMP-09')) {
+            subjectMatch = true
+          } else if (cCode === 'DBMS-10' && sSubject.includes('COMP-10')) {
+            subjectMatch = true
+          }
+          if (!subjectMatch) return false
+          const gradeMatch = sBatch.includes(String(cs.class_grade))
+          if (!gradeMatch) return false
+          if (cs.class_grade === 12) {
+            if (cs.class_id === '12mgt' && sSubject.includes('BUSINESS')) return true
+            if (cs.class_id === '12eng' && !sSubject.includes('BUSINESS')) return true
+            return false
+          }
+          return true
+        })
+
+        const classSubjectId = matchedCs?.id || null
+        const academicYearId = matchedCs?.academic_year_id || '2083'
+        const teacherId = matchedCs?.teacher_id || null
+
         await client.query(`
           INSERT INTO public.schedules (
-            id, lab_id, subject_name, batch_name, start_time, end_time, slot_id, day_key, span, is_merged, status, metadata
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12);
+            id, lab_id, teacher_id, subject_name, batch_name, start_time, end_time, slot_id, day_key, span, is_merged, status, metadata, class_subject_id, academic_year_id
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15);
         `, [
           item.id,
           labId,
+          teacherId,
           subjectName,
           batchName,
           startTime,
@@ -582,6 +792,8 @@ export async function resetSchedulesToMaster(): Promise<{ success: boolean; coun
           isMerged,
           status,
           JSON.stringify(metadata),
+          classSubjectId,
+          academicYearId,
         ])
       }
 
@@ -630,6 +842,8 @@ export async function updateSchedule(
     span?: number
     start_time?: string
     end_time?: string
+    class_subject_id?: string | null
+    academic_year_id?: string | null
     status?: 'confirmed' | 'requested' | 'skipped' | 'scheduled'
     metadata?: any
   }
@@ -664,6 +878,29 @@ export async function updateSchedule(
     if (data.status !== undefined) updatePayload.status = data.status
     if (data.metadata !== undefined) updatePayload.metadata = data.metadata
 
+    if (data.class_subject_id !== undefined) {
+      updatePayload.class_subject_id = data.class_subject_id
+      if (data.class_subject_id) {
+        const { data: cs } = await supabase
+          .from('class_subjects')
+          .select('id, academic_year_id, classes:class_id(name), subjects:subject_id(code, name)')
+          .eq('id', data.class_subject_id)
+          .maybeSingle()
+        if (cs) {
+          if (data.subject_name === undefined && (cs as any).subjects?.code) {
+            updatePayload.subject_name = `${(cs as any).subjects.code} - ${(cs as any).subjects.name}`
+          }
+          if (data.batch_name === undefined && (cs as any).classes?.name) {
+            updatePayload.batch_name = (cs as any).classes.name
+          }
+          if (data.academic_year_id === undefined && (cs as any).academic_year_id) {
+            updatePayload.academic_year_id = (cs as any).academic_year_id
+          }
+        }
+      }
+    }
+    if (data.academic_year_id !== undefined) updatePayload.academic_year_id = data.academic_year_id
+
     let { data: updatedSchedule, error } = await (supabase
       .from('schedules') as any)
       .update(updatePayload)
@@ -677,8 +914,8 @@ export async function updateSchedule(
         id: scheduleId,
         lab_id: data.lab_id || 'comp',
         teacher_id: data.teacher_id || null,
-        subject_name: data.subject_name || 'Practical Session',
-        batch_name: data.batch_name || 'Class 12',
+        subject_name: updatePayload.subject_name || data.subject_name || 'Practical Session',
+        batch_name: updatePayload.batch_name || data.batch_name || 'Class 12',
         day_key: data.day_key || 'sun',
         slot_id: data.slot_id || 't1',
         span: data.span || 1,
@@ -686,6 +923,8 @@ export async function updateSchedule(
         end_time: data.end_time || '11:00',
         status: data.status || 'scheduled',
         metadata: data.metadata || {},
+        class_subject_id: updatePayload.class_subject_id || null,
+        academic_year_id: updatePayload.academic_year_id || null,
       }
       const upsertRes = await (supabase
         .from('schedules') as any)

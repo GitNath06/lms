@@ -514,7 +514,7 @@ export default function DualCalendarPicker({
             <div className="sm:col-span-6">
               <Input
                 type="text"
-                placeholder="e.g. Annual Sports Week / Terminal Examination Recess"
+                placeholder="e.g. Sports Week or Term Exams"
                 value={holidayTitle}
                 onChange={(e) => setHolidayTitle(e.target.value)}
                 className="h-8 text-xs bg-white dark:bg-zinc-900 border-indigo-300 dark:border-indigo-700"

@@ -7,17 +7,18 @@ import { isSupabaseConfigured } from '@/lib/supabase/config'
 import pg from 'pg'
 
 import {
-  UserRole,
-  UserPermissions,
-  UserProfile,
+  type UserRole,
+  type UserPermissions,
+  type UserProfile,
   DEFAULT_ROLE_PERMISSIONS,
 } from '@/lib/permissions'
 import { sendAccountApprovedEmail } from '@/lib/mailer'
-import { getPgPool } from '@/lib/db'
+import { getPgPool, resolveDatabaseUrl } from '@/lib/db'
 import { recordAuditEvent } from '@/lib/audit'
+import { getServerUserScope } from '@/lib/context/server-user-scope'
 
 function getPgClient() {
-  const connectionString = process.env.DATABASE_URL
+  const connectionString = resolveDatabaseUrl(process.env.DATABASE_URL)
   if (!connectionString) {
     throw new Error('DATABASE_URL is not configured.')
   }
@@ -76,7 +77,22 @@ export async function signIn(formData: FormData) {
       )
       profile = res.rows[0]
     } catch (e) {
-      console.error('Error fetching profile during signIn:', e)
+      console.error('Error fetching profile during signIn via pg pool:', e)
+    }
+
+    if (!profile) {
+      try {
+        const { data: profileRow } = await supabase
+          .from('profiles')
+          .select('is_active, role, full_name, approval_status')
+          .eq('id', data.user.id)
+          .single()
+        if (profileRow) {
+          profile = profileRow
+        }
+      } catch (sdkErr) {
+        console.error('Error fetching profile during signIn via supabase sdk:', sdkErr)
+      }
     }
 
     if (profile) {
@@ -292,6 +308,14 @@ export async function signOut() {
 
 // 4. Get Current User Profile with Permissions
 export async function getCurrentUserProfile(): Promise<UserProfile | null> {
+  if (process.env.NODE_ENV === 'test' && process.env.TEST_USER_OVERRIDE) {
+    try {
+      return JSON.parse(process.env.TEST_USER_OVERRIDE)
+    } catch {
+      // ignore
+    }
+  }
+
   if (!isSupabaseConfigured()) {
     return {
       id: 'local-admin',
@@ -335,6 +359,8 @@ export async function getCurrentUserProfile(): Promise<UserProfile | null> {
         full_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'Teacher',
         role: metaRole,
         department: user.user_metadata?.department || 'Science Department',
+        photo_url: user.user_metadata?.avatar_url || user.user_metadata?.photo_url || null,
+        avatar_url: user.user_metadata?.avatar_url || user.user_metadata?.photo_url || null,
         is_active: true,
         permissions: DEFAULT_ROLE_PERMISSIONS[metaRole] || DEFAULT_ROLE_PERMISSIONS.teacher,
         created_at: user.created_at,
@@ -351,6 +377,8 @@ export async function getCurrentUserProfile(): Promise<UserProfile | null> {
         full_name: typedProfile.full_name,
         role: finalRole,
         department: typedProfile.department,
+        photo_url: typedProfile.photo_url || typedProfile.avatar_url || null,
+        avatar_url: typedProfile.avatar_url || typedProfile.photo_url || null,
         is_active: typedProfile.is_active ?? true,
         permissions: typedProfile.permissions || DEFAULT_ROLE_PERMISSIONS[finalRole],
         created_at: typedProfile.created_at,
@@ -366,6 +394,8 @@ export async function getCurrentUserProfile(): Promise<UserProfile | null> {
       full_name: 'Class Teacher',
       role: 'teacher',
       department: 'Science Department',
+      photo_url: null,
+      avatar_url: null,
       is_active: true,
       permissions: DEFAULT_ROLE_PERMISSIONS.teacher,
       created_at: new Date().toISOString(),
@@ -376,10 +406,15 @@ export async function getCurrentUserProfile(): Promise<UserProfile | null> {
 // 5. SUPER ADMIN: Get All Users
 export async function getAllUsers(): Promise<UserProfile[]> {
   try {
+    const scope = await getServerUserScope()
+    if (!scope.isPrivileged) {
+      return []
+    }
+
     const pool = getPgPool()
 
     const res = await pool.query(`
-      SELECT id, email, phone, full_name, role, department, is_active, approval_status, permissions, created_at
+      SELECT id, email, phone, full_name, role, department, photo_url, avatar_url, is_active, approval_status, permissions, created_at
       FROM public.profiles
       ORDER BY created_at DESC;
     `)
@@ -391,6 +426,8 @@ export async function getAllUsers(): Promise<UserProfile[]> {
       full_name: row.full_name,
       role: row.role === 'admin' ? 'super_admin' : row.role,
       department: row.department,
+      photo_url: row.photo_url || row.avatar_url || null,
+      avatar_url: row.avatar_url || row.photo_url || null,
       is_active: row.is_active ?? true,
       approval_status: row.approval_status || 'approved',
       permissions: row.permissions || DEFAULT_ROLE_PERMISSIONS[row.role as UserRole],
@@ -410,8 +447,17 @@ export async function createUserAccount(data: {
   password: string
   role: UserRole
   department?: string
+  photo_url?: string
   permissions?: UserPermissions
 }) {
+  const scope = await getServerUserScope()
+  if (scope.role !== 'super_admin') {
+    return {
+      success: false,
+      error: 'Access Denied: Only Super Administrators can create user accounts with assigned institutional roles.',
+    }
+  }
+
   const email = data.email.trim().toLowerCase()
   const phone = data.phone?.trim() || null
   const password = data.password
@@ -511,7 +557,7 @@ export async function createUserAccount(data: {
       [userId, email]
     )
 
-    // Insert profile with phone number
+    // Insert profile with phone number and optional photo
     await client.query(
       `
       INSERT INTO public.profiles (
@@ -521,12 +567,14 @@ export async function createUserAccount(data: {
         full_name,
         role,
         department,
+        photo_url,
+        avatar_url,
         is_active,
         permissions,
         created_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, true, $7, now());
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $7, true, $8, now());
       `,
-      [userId, email, phone, fullName, role, department, JSON.stringify(permissions)]
+      [userId, email, phone, fullName, role, department, data.photo_url || null, JSON.stringify(permissions)]
     )
 
     await client.end()
@@ -556,7 +604,7 @@ export async function createUserAccount(data: {
   }
 }
 
-// 7. SUPER ADMIN: Update User Credentials (Password, Email, Phone, Name, Role, Dept)
+// 7. SUPER ADMIN: Update User Credentials (Password, Email, Phone, Name, Role, Dept, Photo)
 export async function updateUserCredentials(
   userId: string,
   data: {
@@ -566,15 +614,25 @@ export async function updateUserCredentials(
     new_password?: string
     role?: UserRole
     department?: string
+    photo_url?: string | null
+    avatar_url?: string | null
   }
 ) {
+  const scope = await getServerUserScope()
+  if (scope.role !== 'super_admin') {
+    return {
+      success: false,
+      error: 'Access Denied: Only Super Administrators can modify credentials and user roles.',
+    }
+  }
+
   try {
     const client = getPgClient()
     await client.connect()
 
     // 🛡️ Pre-query profile state for audit diff
     const prevProfileRes = await client.query(
-      `SELECT id, full_name, email, phone, role, department FROM public.profiles WHERE id = $1::uuid`,
+      `SELECT id, full_name, email, phone, role, department, photo_url FROM public.profiles WHERE id = $1::uuid`,
       [userId]
     )
     const beforeProfile = prevProfileRes.rows[0] || null
@@ -651,6 +709,12 @@ export async function updateUserCredentials(
       updates.push(`department = $${paramIdx++}`)
       params.push(data.department.trim())
     }
+    if (data.photo_url !== undefined) {
+      updates.push(`photo_url = $${paramIdx++}`)
+      params.push(data.photo_url || null)
+      updates.push(`avatar_url = $${paramIdx++}`)
+      params.push(data.photo_url || null)
+    }
 
     if (updates.length > 0) {
       await client.query(
@@ -664,6 +728,8 @@ export async function updateUserCredentials(
     }
 
     await client.end()
+
+    userProfileCache.delete(userId)
 
     await recordAuditEvent({
       action: 'UPDATE',
@@ -688,8 +754,86 @@ export async function updateUserCredentials(
   }
 }
 
+// 7b. Self-Service: Update Current Logged-in User's Profile Photo
+export async function updateCurrentUserPhoto(photoUrl: string | null) {
+  const scope = await getServerUserScope()
+  if (!scope.userId) {
+    return { success: false, error: 'Unauthorized: No active user session found.' }
+  }
+
+  try {
+    const pool = getPgPool()
+    await pool.query(
+      `
+      UPDATE public.profiles
+      SET photo_url = $1,
+          avatar_url = $1
+      WHERE id = $2::uuid;
+      `,
+      [photoUrl || null, scope.userId]
+    )
+
+    userProfileCache.delete(scope.userId)
+
+    revalidatePath('/', 'layout')
+    revalidatePath('/admin')
+    return { success: true }
+  } catch (err: any) {
+    console.error('Error updating current user photo:', err)
+    return { success: false, error: err.message || 'Failed to update profile photo.' }
+  }
+}
+
+// 7c. Super Admin: Update Any Staff Member's Profile Photo
+export async function updateUserProfilePhoto(userId: string, photoUrl: string | null) {
+  const scope = await getServerUserScope()
+  if (scope.role !== 'super_admin' && scope.userId !== userId) {
+    return {
+      success: false,
+      error: 'Access Denied: Only Super Administrators can modify staff profile photos.',
+    }
+  }
+
+  try {
+    const pool = getPgPool()
+    await pool.query(
+      `
+      UPDATE public.profiles
+      SET photo_url = $1,
+          avatar_url = $1
+      WHERE id = $2::uuid;
+      `,
+      [photoUrl || null, userId]
+    )
+
+    userProfileCache.delete(userId)
+
+    await recordAuditEvent({
+      action: 'UPDATE',
+      entityType: 'user_role',
+      entityId: userId,
+      entityLabel: `Staff Profile Photo (${userId})`,
+      before: {},
+      after: { photo_url: photoUrl ? '[PHOTO_SET]' : '[PHOTO_CLEARED]' },
+      metadata: { operation: 'update_staff_photo' },
+    })
+
+    revalidatePath('/', 'layout')
+    revalidatePath('/admin')
+    return { success: true }
+  } catch (err: any) {
+    console.error('Error updating staff photo:', err)
+    return { success: false, error: err.message || 'Failed to update staff photo.' }
+  }
+}
+
 // 8. SUPER ADMIN: 1-Click Toggle Active / Deactivate
 export async function toggleUserActiveStatus(userId: string, is_active: boolean) {
+  const scope = await getServerUserScope()
+  if (scope.role !== 'super_admin') {
+    return { success: false, error: 'Access Denied: Only Super Administrators can toggle user status.' }
+  }
+
   try {
     const client = getPgClient()
     await client.connect()
@@ -732,6 +876,11 @@ export async function toggleUserActiveStatus(userId: string, is_active: boolean)
 
 // 9. SUPER ADMIN: Update Granular Permissions
 export async function updateUserPermissions(userId: string, permissions: UserPermissions) {
+  const scope = await getServerUserScope()
+  if (scope.role !== 'super_admin') {
+    return { success: false, error: 'Access Denied: Only Super Administrators can update user permissions.' }
+  }
+
   try {
     const client = getPgClient()
     await client.connect()
@@ -774,6 +923,11 @@ export async function updateUserPermissions(userId: string, permissions: UserPer
 
 // 10. SUPER ADMIN: Delete User Account
 export async function deleteUserAccount(userId: string) {
+  const scope = await getServerUserScope()
+  if (scope.role !== 'super_admin') {
+    return { success: false, error: 'Access Denied: Only Super Administrators can delete user accounts.' }
+  }
+
   try {
     const client = getPgClient()
     await client.connect()
@@ -846,6 +1000,11 @@ export async function deleteUserAccount(userId: string) {
 
 // 11. SUPER ADMIN: Approve User Account
 export async function approveUserAccount(userId: string) {
+  const scope = await getServerUserScope()
+  if (scope.role !== 'super_admin') {
+    return { success: false, error: 'Access Denied: Only Super Administrators can approve user accounts.' }
+  }
+
   try {
     const client = getPgClient()
     await client.connect()
@@ -891,6 +1050,11 @@ export async function approveUserAccount(userId: string) {
 
 // 12. SUPER ADMIN: Reject User Account
 export async function rejectUserAccount(userId: string) {
+  const scope = await getServerUserScope()
+  if (scope.role !== 'super_admin') {
+    return { success: false, error: 'Access Denied: Only Super Administrators can reject user accounts.' }
+  }
+
   try {
     const client = getPgClient()
     await client.connect()

@@ -261,7 +261,7 @@ export default function CreatePlanModal({
               <Input
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
-                placeholder="e.g. Thermal Care, Software Patch, Hardware"
+                placeholder="e.g. Hardware, Software"
                 className="h-9 text-xs"
               />
             </div>
@@ -275,7 +275,7 @@ export default function CreatePlanModal({
             <Input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. PC Heatsink & Dust Filter Cleaning"
+              placeholder="e.g. Heatsink & Dust Cleaning"
               className="h-9 text-xs font-medium"
               required
             />
@@ -396,7 +396,7 @@ export default function CreatePlanModal({
               <Input
                 value={newCheckItem}
                 onChange={(e) => setNewCheckItem(e.target.value)}
-                placeholder="Add new step (e.g. Test RAM stability)..."
+                placeholder="Add a checklist step..."
                 className="h-8 text-xs"
                 onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
                   if (e.key === 'Enter') {
@@ -425,7 +425,7 @@ export default function CreatePlanModal({
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="e.g. Ensure all thermal paste is cleaned using isopropyl alcohol before applying new compound."
+              placeholder="Instructions or precautions..."
               rows={2}
               className="w-full text-xs rounded-lg border border-zinc-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900/80 p-2.5 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-1 focus:ring-indigo-500 shadow-2xs leading-relaxed"
             />

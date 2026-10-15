@@ -19,6 +19,7 @@ import {
 } from '@/types/records'
 import { getPracticalRecords } from '@/app/actions/records'
 import { getActiveLabs, getTeachers } from '@/app/actions/logs'
+import { filtersToSearchParams, searchParamsToFilters } from '@/lib/report-spec/filter-codec'
 import PracticalSummaryStrip from '@/components/records/practical-summary-strip'
 import PracticalFilterBar from '@/components/records/practical-filter-bar'
 import PracticalRecordsTable from '@/components/records/practical-records-table'
@@ -39,20 +40,50 @@ export default function PracticalRecordsPage() {
     averageAttendancePct: 0,
   })
   const [totalCount, setTotalCount] = useState<number>(0)
+  const [totalPages, setTotalPages] = useState<number>(1)
   const [userRole, setUserRole] = useState<string>('teacher')
   const [userName, setUserName] = useState<string>('')
   const [userScope, setUserScope] = useState<any>(null)
   const [labs, setLabs] = useState<Array<{ id: string; name: string }>>([])
   const [teachers, setTeachers] = useState<Array<{ id: string; full_name: string }>>([])
+  const [academicYears, setAcademicYears] = useState<Array<{ id: string; name: string; isCurrent: boolean }>>([])
+  const [activeAcademicYearId, setActiveAcademicYearId] = useState<string | null>(null)
 
-  // Filters and Grouping State
-  const [filters, setFilters] = useState<PracticalRecordFilters>({
-    lab_id: 'all',
-    batch_group: 'all',
-    subject_name: 'all',
-    teacher_id: 'all',
-    status: 'all',
-    search: '',
+  // Filters and Grouping State (initialized with defaults or URL params if in browser)
+  const [filters, setFilters] = useState<PracticalRecordFilters>(() => {
+    if (typeof window !== 'undefined' && window.location.search) {
+      const parsed = searchParamsToFilters(new URLSearchParams(window.location.search))
+      return {
+        academic_year_id: parsed.academic_year_id || 'all',
+        lab_id: parsed.lab_id || 'all',
+        batch_group: parsed.batch_group || 'all',
+        subject_name: parsed.subject_name || 'all',
+        teacher_id: parsed.teacher_id || 'all',
+        status: parsed.status || 'all',
+        search: parsed.search || '',
+        page: parsed.page || 1,
+        pageSize: parsed.pageSize || 10,
+        sortKey: parsed.sortKey,
+        sortDirection: parsed.sortDirection,
+        date_from: parsed.date_from || '',
+        date_to: parsed.date_to || '',
+        date: parsed.date || '',
+        period_label: parsed.period_label || '',
+        remarks: parsed.remarks || '',
+        teacher_name: parsed.teacher_name || '',
+      }
+    }
+    return {
+      academic_year_id: 'all',
+      lab_id: 'all',
+      batch_group: 'all',
+      subject_name: 'all',
+      teacher_id: 'all',
+      status: 'all',
+      search: '',
+      page: 1,
+      pageSize: 10,
+    }
   })
   const [groupBy, setGroupBy] = useState<PracticalGroupingKey>('none')
 
@@ -83,9 +114,12 @@ export default function PracticalRecordsPage() {
           setSections(res.sections)
           setMetrics(res.metrics)
           setTotalCount(res.totalCount)
+          setTotalPages(res.totalPages || 1)
           setUserRole(res.userRole)
           if (res.userName) setUserName(res.userName)
           if (res.userScope) setUserScope(res.userScope)
+          if (res.academicYears) setAcademicYears(res.academicYears)
+          if (res.activeAcademicYearId) setActiveAcademicYearId(res.activeAcademicYearId)
         }
       } catch (err) {
         console.error('Error fetching practical records:', err)
@@ -97,10 +131,28 @@ export default function PracticalRecordsPage() {
 
   useEffect(() => {
     fetchRecords()
+
+    // Sync URL search params with current filters without reloading
+    if (typeof window !== 'undefined') {
+      const params = filtersToSearchParams({
+        ...filters,
+        groupBy: groupBy !== 'none' ? groupBy : undefined,
+      })
+      const newUrl = `${window.location.pathname}?${params.toString()}`
+      window.history.replaceState(null, '', newUrl)
+    }
   }, [filters, groupBy])
+
+  const handleFiltersChange = (newFilters: Partial<PracticalRecordFilters>) => {
+    setFilters((prev) => ({
+      ...prev,
+      ...newFilters,
+    }))
+  }
 
   const handleResetFilters = () => {
     setFilters({
+      academic_year_id: 'all',
       lab_id: 'all',
       batch_group: 'all',
       subject_name: 'all',
@@ -109,6 +161,12 @@ export default function PracticalRecordsPage() {
       search: '',
       date_from: '',
       date_to: '',
+      date: '',
+      period_label: '',
+      remarks: '',
+      teacher_name: '',
+      page: 1,
+      pageSize: 10,
     })
     setGroupBy('none')
   }
@@ -118,7 +176,7 @@ export default function PracticalRecordsPage() {
       {/* Unified Page Header */}
       <PageHeader
         title="Practical Records & Verification"
-        subtitle="Official institutional laboratory logs, multi-dimensional segmentation, subtotals & audit registry"
+        subtitle="Verified practical experiment logs, attendance, and syllabus tracking"
         icon={ClipboardList}
         iconColor="text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 border-emerald-200/60 dark:border-emerald-800/60"
         breadcrumbs={[{ label: 'Practical Records' }]}
@@ -138,9 +196,9 @@ export default function PracticalRecordsPage() {
               <Button
                 variant="outline"
                 size="sm"
-                className="h-9 px-3.5 rounded-xl border-zinc-200 dark:border-zinc-800 text-xs font-mono font-medium hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-600 dark:text-rose-400 gap-2 cursor-pointer"
+                className="h-9 px-3.5 rounded-xl border-zinc-200 dark:border-zinc-800 text-xs font-mono font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 gap-2 cursor-pointer"
               >
-                <AlertTriangle className="h-3.5 w-3.5" />
+                <AlertTriangle className="h-3.5 w-3.5 text-zinc-500 dark:text-zinc-400" />
                 <span>Incident Register</span>
               </Button>
             </Link>
@@ -174,6 +232,8 @@ export default function PracticalRecordsPage() {
         onReset={handleResetFilters}
         labs={labs}
         teachers={teachers}
+        academicYears={academicYears}
+        activeAcademicYearId={activeAcademicYearId}
         userRole={userRole}
         userName={userName}
         userScope={userScope}
@@ -185,6 +245,10 @@ export default function PracticalRecordsPage() {
         filters={filters}
         groupBy={groupBy}
         totalCount={totalCount}
+        page={filters.page || 1}
+        pageSize={filters.pageSize || 10}
+        totalPages={totalPages}
+        onFiltersChange={handleFiltersChange}
         userRole={userRole}
         userName={userName}
         userScope={userScope}

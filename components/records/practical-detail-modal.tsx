@@ -19,12 +19,16 @@ import {
   Check,
   Tag,
   GraduationCap,
+  Monitor,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react'
 import { PracticalRecordItem } from '@/types/records'
 import { updatePracticalLog, deletePracticalLog } from '@/app/actions/logs'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { formatClassCode, sanitizeSubjectTitle } from '@/lib/report-spec/practical-spec'
 
 interface PracticalDetailModalProps {
   record: PracticalRecordItem | null
@@ -53,6 +57,7 @@ export default function PracticalDetailModal({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [showSeatingChart, setShowSeatingChart] = useState(true)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
   // Edit form state
@@ -184,11 +189,15 @@ export default function PracticalDetailModal({
             </div>
 
             <h2 className="text-base sm:text-lg font-bold text-zinc-950 dark:text-white truncate">
-              {record.subject_name}
+              {sanitizeSubjectTitle(record.subject_name)}
             </h2>
 
             <p className="text-xs text-zinc-500 dark:text-zinc-400 font-mono">
-              {record.date} • {record.period_label} • {record.labs?.name || 'Laboratory Room'}
+              {(record.date as unknown) instanceof Date
+                ? (record.date as unknown as Date).toISOString().split('T')[0]
+                : typeof record.date === 'string'
+                ? (record.date.includes('T') ? record.date.split('T')[0] : record.date)
+                : String(record.date || '—')} • {record.period_label} • {record.labs?.name || 'Laboratory Room'}
             </p>
           </div>
 
@@ -261,9 +270,9 @@ export default function PracticalDetailModal({
               {/* Class & Faculty Meta Grid */}
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 <div className="p-3 rounded-xl border border-zinc-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900">
-                  <span className="text-[10px] font-mono uppercase text-zinc-400 block">Class / Batch</span>
+                  <span className="text-[10px] font-mono uppercase text-zinc-400 block">Class</span>
                   <strong className="text-xs font-mono font-bold text-zinc-900 dark:text-zinc-100">
-                    {record.batch_group}
+                    {formatClassCode(record.batch_group)}
                   </strong>
                 </div>
 
@@ -348,6 +357,88 @@ export default function PracticalDetailModal({
                 )}
               </div>
 
+              {/* Laboratory Seating Chart Snapshot (Phase 3) */}
+              {Array.isArray(record.seating_snapshot) && record.seating_snapshot.length > 0 && (
+                <div className="p-4 rounded-xl border border-zinc-200/80 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-mono font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <Monitor className="h-3.5 w-3.5 text-indigo-500" />
+                      Laboratory Seating Chart Snapshot
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowSeatingChart(!showSeatingChart)}
+                      className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 font-mono font-medium cursor-pointer"
+                    >
+                      {showSeatingChart ? 'Hide Stations' : `Show ${(record.seating_snapshot as any[]).length} Stations`}
+                      {showSeatingChart ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                    </button>
+                  </div>
+
+                  {showSeatingChart && (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-2 pt-1 max-h-[360px] overflow-y-auto pr-1">
+                      {(record.seating_snapshot as any[]).map((station: any, idx: number) => {
+                        const hasStudent = !!station.student_name
+                        const isPresent = station.is_present
+                        const isOverride = station.is_override
+
+                        return (
+                          <div
+                            key={station.workstation_id || idx}
+                            className={`p-2 rounded-lg border text-left flex flex-col justify-between min-h-[58px] transition-all ${
+                              !hasStudent
+                                ? 'border-zinc-200/60 dark:border-zinc-800 bg-white/50 dark:bg-zinc-900/40 opacity-60'
+                                : isOverride
+                                ? 'border-amber-500/30 bg-amber-500/5 dark:bg-amber-950/20'
+                                : isPresent
+                                ? 'border-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-950/20'
+                                : 'border-rose-500/30 bg-rose-50/50 dark:bg-rose-950/20'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="font-mono text-[10px] font-bold text-zinc-900 dark:text-white">
+                                {station.workstation_label}
+                              </span>
+                              {hasStudent && (
+                                <span
+                                  className={`text-[8px] font-mono px-1 rounded font-bold ${
+                                    isOverride
+                                      ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300'
+                                      : isPresent
+                                      ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300'
+                                      : 'bg-rose-500/20 text-rose-700 dark:text-rose-300'
+                                  }`}
+                                >
+                                  {isOverride ? 'Temp' : isPresent ? 'P' : 'A'}
+                                </span>
+                              )}
+                            </div>
+
+                            {hasStudent ? (
+                              <div className="mt-1">
+                                <div className="text-[10px] font-semibold text-zinc-800 dark:text-zinc-200 truncate" title={station.student_name}>
+                                  {station.student_name}
+                                </div>
+                                <div className="text-[9px] font-mono text-zinc-400 flex items-center justify-between gap-1">
+                                  <span>Roll {station.roll_number}</span>
+                                  {station.original_workstation_label && (
+                                    <span className="text-[8px] text-amber-500/90 font-mono italic truncate">
+                                      from {station.original_workstation_label}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="text-[9px] font-mono text-zinc-400 italic">Unoccupied</span>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Remarks */}
               {record.remarks && (
                 <div className="p-3.5 rounded-xl border border-zinc-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs">
@@ -405,7 +496,7 @@ export default function PracticalDetailModal({
               <div className="p-3 rounded-xl bg-indigo-50/50 dark:bg-indigo-950/30 border border-indigo-200/70 dark:border-indigo-800/60 text-xs text-indigo-900 dark:text-indigo-200 flex items-center gap-2">
                 <Edit3 className="h-4 w-4 shrink-0 text-indigo-600 dark:text-indigo-400" />
                 <span>
-                  Modifying verified record for <strong>{record.batch_group}</strong> • <strong>{record.date}</strong>
+                  Modifying verified record for <strong>{formatClassCode(record.batch_group)}</strong> • <strong>{(record.date as unknown) instanceof Date ? (record.date as unknown as Date).toISOString().split('T')[0] : String(record.date || '—')}</strong>
                 </span>
               </div>
 
@@ -420,7 +511,7 @@ export default function PracticalDetailModal({
                   value={practicalTitle}
                   onChange={(e) => setPracticalTitle(e.target.value)}
                   className="text-xs"
-                  placeholder="e.g. Implementation of Binary Search Trees"
+                  placeholder="e.g. Binary Search Trees"
                 />
               </div>
 
@@ -433,7 +524,7 @@ export default function PracticalDetailModal({
                   value={topicLearned}
                   onChange={(e) => setTopicLearned(e.target.value)}
                   className="text-xs"
-                  placeholder="e.g. Node insertion, traversal, complexity analysis"
+                  placeholder="e.g. Node insertion and traversal"
                 />
               </div>
 
@@ -464,7 +555,7 @@ export default function PracticalDetailModal({
                       value={skipReason}
                       onChange={(e) => setSkipReason(e.target.value)}
                       className="text-xs"
-                      placeholder="e.g. Theory class conducted in classroom"
+                      placeholder="e.g. Theory class held instead"
                     />
                   </div>
                 )}
@@ -547,7 +638,7 @@ export default function PracticalDetailModal({
                   rows={2}
                   value={remarks}
                   onChange={(e) => setRemarks(e.target.value)}
-                  placeholder="Additional observations, apparatus state..."
+                  placeholder="Observations or equipment notes..."
                   className="flex w-full rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-2 text-xs text-zinc-900 dark:text-zinc-100 font-mono focus:outline-none"
                 />
               </div>

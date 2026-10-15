@@ -159,7 +159,7 @@ export async function sendPasswordResetOtpEmail(to: string, fullName: string, ot
       <hr style="border: none; border-top: 1px solid #f1f5f9; margin: 24px 0;" />
 
       <p style="color: #94a3b8; font-size: 11px; text-align: center; margin: 0;">
-        Radha Raman Secondary School • Laboratory Administration
+        ${INSTITUTION_NAME} • Laboratory Administration
       </p>
     </div>
   `
@@ -200,7 +200,7 @@ export async function sendAccountApprovedEmail(to: string, fullName: string) {
       <hr style="border: none; border-top: 1px solid #f1f5f9; margin: 24px 0;" />
 
       <p style="color: #94a3b8; font-size: 11px; text-align: center; margin: 0;">
-        Radha Raman Secondary School • Laboratory Administration
+        ${INSTITUTION_NAME} • Laboratory Administration
       </p>
     </div>
   `
@@ -287,7 +287,7 @@ export async function sendTeacherDailyScheduleEmail(params: {
 
       <p style="color: #94a3b8; font-size: 11px; text-align: center; margin: 0;">
         Prompt attendance logging ensures synchronized institutional records.<br/>
-        Radha Raman Secondary School • Laboratory Administration
+        ${INSTITUTION_NAME} • Laboratory Administration
       </p>
     </div>
   `
@@ -364,7 +364,7 @@ export async function sendSkippedSessionAlertEmail(params: {
 
       <p style="color: #94a3b8; font-size: 11px; text-align: center; margin: 0;">
         If this session was conducted or rescheduled, you can modify the record from your portal.<br/>
-        Radha Raman Secondary School • Academic Operations
+        ${INSTITUTION_NAME} • Academic Operations
       </p>
     </div>
   `
@@ -468,7 +468,7 @@ export async function sendIncidentAlertEmail(params: {
 
       <p style="color: #94a3b8; font-size: 11px; text-align: center; margin: 0;">
         Institutional Damage & Hazard Logbook • Prompt inspection required.<br/>
-        Radha Raman Secondary School • Laboratory Administration
+        ${INSTITUTION_NAME} • Laboratory Administration
       </p>
     </div>
   `
@@ -547,7 +547,7 @@ export async function sendOverdueMaintenanceEmail(params: {
 
       <p style="color: #94a3b8; font-size: 11px; text-align: center; margin: 0;">
         Regular preventive servicing prevents lab downtime during examinations.<br/>
-        Radha Raman Secondary School • Laboratory Administration
+        ${INSTITUTION_NAME} • Laboratory Administration
       </p>
     </div>
   `
@@ -605,7 +605,7 @@ export async function sendUpcomingHolidayLabNoticeEmail(params: {
 
       <p style="color: #94a3b8; font-size: 11px; text-align: center; margin: 0;">
         Institutional Laboratory Safety & Compliance Standard.<br/>
-        Radha Raman Secondary School • Laboratory Administration
+        ${INSTITUTION_NAME} • Laboratory Administration
       </p>
     </div>
   `

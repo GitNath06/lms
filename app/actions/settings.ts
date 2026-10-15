@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { getPgPool } from '@/lib/db'
-import { getServerUserScope } from '@/lib/context/user-scope'
+import { getServerUserScope } from '@/lib/context/server-user-scope'
 
 // Server-side in-memory cache for fast read path (5 min TTL)
 const settingsCache = new Map<string, { value: any; timestamp: number }>()

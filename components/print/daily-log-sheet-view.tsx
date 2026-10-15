@@ -65,7 +65,9 @@ export default function DailyLogSheetView({
               id: l.id,
               period_label: l.timeSlot,
               batch_group: l.grade,
-              subject_name: `${l.subjectCode} - ${l.subjectTitle}`,
+              subject_name: l.subjectTitle?.toLowerCase().startsWith(l.subjectCode.toLowerCase())
+                ? l.subjectTitle
+                : `${l.subjectCode} - ${l.subjectTitle}`,
               practical_title: l.topicLearned,
               topic_learned: l.topicLearned,
               profiles: { full_name: l.teacher },
@@ -109,7 +111,7 @@ export default function DailyLogSheetView({
             Official Daily Practical Log Sheet
           </h2>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-            Audit-ready certified daily report for academic laboratory handovers & inspections.
+            Daily log sheet for lab sessions and handover inspection.
           </p>
         </div>
 

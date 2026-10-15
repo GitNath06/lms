@@ -319,10 +319,10 @@ export default function MaintenanceRoutinesManager({
           <div>
             <CardTitle className="text-sm font-bold text-zinc-950 dark:text-white flex items-center gap-2">
               <Wrench className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
-              Master Maintenance Routines & Routine Cadence
+              Maintenance Routines
             </CardTitle>
             <CardDescription className="text-xs text-zinc-500">
-              Configure scheduled preventive care routines, SOP checklists, and automated alert cadences
+              Preventive care routines, checklists, and cadences
             </CardDescription>
           </div>
 
@@ -356,7 +356,7 @@ export default function MaintenanceRoutinesManager({
             <Input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search routines, categories, or checklist steps..."
+              placeholder="Search routines or categories..."
               className="h-8.5 pl-8.5 text-xs bg-zinc-50/60 dark:bg-zinc-950"
             />
           </div>
@@ -390,7 +390,7 @@ export default function MaintenanceRoutinesManager({
         <CardContent className="p-0 overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
-              <tr className="border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/80 dark:bg-zinc-900/80 text-zinc-600 dark:text-zinc-400 font-bold uppercase text-[10.5px]">
+              <tr className="border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/80 dark:bg-zinc-900/80 text-zinc-600 dark:text-slate-300 font-bold uppercase tracking-wider text-[11.5px]">
                 <th className="py-3 px-4">Routine Title & Category</th>
                 <th className="py-3 px-4">Target Lab</th>
                 <th className="py-3 px-4">Cadence / Interval</th>
@@ -443,15 +443,15 @@ export default function MaintenanceRoutinesManager({
                               )}
                             </div>
                             <div>
-                              <div className="font-bold text-zinc-950 dark:text-white text-xs">
+                              <div className="admin-type-primary-label text-zinc-950 dark:text-white">
                                 {plan.title}
                               </div>
                               <div className="flex items-center gap-2 mt-1">
-                                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700">
+                                <span className="text-[11.5px] font-semibold px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-slate-300 border border-zinc-200 dark:border-zinc-700">
                                   {plan.category || 'General'}
                                 </span>
                                 <span
-                                  className={`text-[10px] font-bold px-1.5 py-0.2 rounded uppercase ${
+                                  className={`text-[11px] font-bold px-1.5 py-0.2 rounded uppercase ${
                                     plan.severity === 'critical'
                                       ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
                                       : plan.severity === 'high'
@@ -470,7 +470,7 @@ export default function MaintenanceRoutinesManager({
                           <span className="font-mono text-xs uppercase font-bold text-indigo-600 dark:text-indigo-400">
                             {plan.lab_id}
                           </span>
-                          <span className="block text-[11px] text-zinc-400">
+                          <span className="block admin-type-subtext mt-0.5">
                             {LAB_LABELS[plan.lab_id] || plan.lab_id}
                           </span>
                         </td>
@@ -601,10 +601,10 @@ export default function MaintenanceRoutinesManager({
         <CardHeader className="p-4 px-5">
           <CardTitle className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-amber-500" />
-            Recommended Standard Lab Routine Presets
+            Standard Routine Presets
           </CardTitle>
           <CardDescription className="text-xs text-zinc-500">
-            One-click installer for standardized academic lab preventive care plans
+            Quick-install standard lab maintenance plans
           </CardDescription>
         </CardHeader>
         <CardContent className="p-4 px-5 pt-0">

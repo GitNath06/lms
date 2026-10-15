@@ -74,7 +74,7 @@ export default function SchedulesPage() {
   return (
     <div className="flex flex-col h-[calc(100vh-84px)] -m-4 md:-m-6 p-3 md:p-4 space-y-2.5 animate-in fade-in duration-300 select-none overflow-hidden">
       {/* Sleek Command Toolbar: Lab Filter, Teacher Filter, Week Nav, Actions (Rigid Single Row) */}
-      <div className="flex items-center justify-between gap-2 bg-white/95 dark:bg-zinc-900/95 p-2 px-3 rounded-xl border border-zinc-200/90 dark:border-zinc-800 shadow-xs backdrop-blur-md shrink-0 print:hidden overflow-x-auto no-scrollbar">
+      <div className="flex items-center justify-between gap-2 bg-white/95 dark:bg-zinc-900/95 p-2 px-3 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-[0_1px_3px_0_rgba(0,0,0,0.06),0_1px_2px_-1px_rgba(0,0,0,0.06)] backdrop-blur-md shrink-0 print:hidden overflow-x-auto no-scrollbar">
         {/* Left Section: Title + Lab Switcher + Teacher Filter */}
         <div className="flex items-center gap-2 shrink-0">
           <div className="flex items-center gap-1.5">

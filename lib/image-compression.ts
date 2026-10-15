@@ -139,3 +139,15 @@ export function revokePreviewUrl(url?: string | null) {
     } catch {}
   }
 }
+
+/**
+ * Converts a Blob or File to a base64 Data URL string for persistent storage.
+ */
+export async function fileToBase64(blob: Blob | File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = (err) => reject(err)
+    reader.readAsDataURL(blob)
+  })
+}

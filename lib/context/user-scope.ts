@@ -1,11 +1,10 @@
-import { UserProfile, UserRole } from '@/lib/permissions'
-import { getCurrentUserProfile } from '@/app/actions/auth'
+import type { UserProfile, UserRole } from '../permissions'
 import {
   getTeacherAssignments,
-  TeacherAssignment,
+  type TeacherAssignment,
   INSTITUTIONAL_TEACHERS,
-} from '@/lib/context/institutional-relationships'
-import { LAB_ROOMS, DEFAULT_CLASSES, DEFAULT_SUBJECTS } from '@/lib/master-data'
+} from './institutional-relationships'
+import { LAB_ROOMS, DEFAULT_CLASSES, DEFAULT_SUBJECTS } from '../master-data'
 
 export interface UserScopeContext {
   userId: string
@@ -90,16 +89,10 @@ export function resolveUserScope(profile: UserProfile | null): UserScopeContext 
   }
 
   // Regular teacher scope: strictly scoped to assigned curriculum
-  const assignedClasses = teacherAssign?.assignedClasses || DEFAULT_CLASSES.map((c) => c.name)
-  const assignedSubjects = teacherAssign?.assignedSubjects || DEFAULT_SUBJECTS.map((s) => ({
-    code: s.code,
-    title: s.title,
-    grade: s.grade,
-    labId: s.labId,
-    labName: s.lab,
-    defaultTopic: s.defaultTopic,
-  }))
-  const assignedLabIds = teacherAssign?.assignedLabIds || LAB_ROOMS.map((l) => l.id)
+  // CRITICAL FIX: Unmatched / unassigned teachers receive empty scope, NEVER institutional broad defaults
+  const assignedClasses = teacherAssign?.assignedClasses || []
+  const assignedSubjects = teacherAssign?.assignedSubjects || []
+  const assignedLabIds = teacherAssign?.assignedLabIds || []
 
   return {
     userId: profile.id,
@@ -117,10 +110,4 @@ export function resolveUserScope(profile: UserProfile | null): UserScopeContext 
   }
 }
 
-/**
- * Server-side helper to get the authenticated user's scope context
- */
-export async function getServerUserScope(): Promise<UserScopeContext> {
-  const profile = await getCurrentUserProfile()
-  return resolveUserScope(profile)
-}
+

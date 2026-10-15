@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html >
+<head>
+<meta charset="utf-8">
+<style>
+    @page {
+      size: A4 landscape;
+      margin: 6mm 8mm;
+    }
+    html, body {
+      height: auto !important;
+      min-height: 100% !important;
+      overflow: visible !important;
+      background: #ffffff !important;
+      color: #000000 !important;
+      color-scheme: light !important;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+    }
+    .dark, .dark * {
+      color-scheme: light !important;
+    }
+    thead {
+      display: table-header-group !important;
+    }
+    tr {
+      break-inside: avoid !important;
+      page-break-inside: avoid !important;
+    }
+    .signature-block, .break-inside-avoid {
+      break-inside: avoid !important;
+      page-break-inside: avoid !important;
+    }
+    .header-box { border-bottom: 2px solid #18181b; padding-bottom: 6px; margin-bottom: 6px; }
+    .sig-box { display: grid; grid-template-columns: 1fr 1fr; margin-top: 12px; padding-top: 6px; text-align: center; break-inside: avoid; }
+    .sig-line { border-top: 2px solid #18181b; width: 180px; margin: 0 auto; padding-top: 3px; font-weight: bold; font-size: 9px; }
+    
+    /* DENSE REGISTER PRINT RULES */
+    table { width: 100%; border-collapse: collapse; font-size: 8.5pt; }
+    th {
+      padding: 2.5px 5px !important;
+      border: 1px solid #d1d5db;
+      background: #f3f4f6;
+      text-transform: uppercase;
+      font-family: monospace;
+      font-size: 8pt;
+      font-weight: bold;
+      height: 20px;
+    }
+    td {
+      padding: 2.5px 5px !important;
+      border: 1px solid #d1d5db;
+      line-height: 1.15 !important;
+      vertical-align: top;
+      font-size: 8pt;
+    }
+  </style>
+</head>
+<body class="print-sheet print-light-surface">
+  <div class="header-box">
+    <div style="font-size: 8.5px; font-weight: bold; text-transform: uppercase; color: #52525b;">INSTITUTIONAL EQUIPMENT REGISTRY</div>
+    <div style="font-size: 13px; font-weight: 900; text-transform: uppercase;">OFFICIAL LABORATORY EQUIPMENT DAMAGE & SAFETY INCIDENT REGISTER</div>
+    <div style="font-size: 8.5px; color: #52525b;">SHREE RATNA RAJYA LAXMI SECONDARY SCHOOL (35 INCIDENTS)</div>
+  </div>
+  <table class="print-dense-table">
+    <thead>
+      <tr>
+        <th style="width: 80px;">Date & Case</th>
+        <th style="width: 85px;">Facility</th>
+        <th>Equipment & Circumstances</th>
+        <th style="width: 65px; text-align: center;">Severity</th>
+        <th style="width: 100px;">Subject Teacher</th>
+        <th style="width: 75px; text-align: center;">Status</th>
+        <th style="width: 150px;">Resolution / Audit</th>
+      </tr>
+    </thead>
+    <tbody>
+      
+        <tr class="break-inside-avoid">
+          <td style="font-family: monospace; font-size: 7.5pt;"><strong>2026-03-01</strong><br><span style="color: #6b7280; font-size: 7pt;">#100</span></td>
+          <td style="font-size: 8pt;">Computer Engineering Lab 01</td>
+          <td><strong style="font-size: 8.5pt;">Digital Multimeter (Sanwa CD800a) (x1)</strong><br><span style="font-size: 7.5pt; color: #374151;">Blown 500mA ceramic fuse during high voltage probe test</span><br><span style="font-size: 7pt; color: #6b7280;">Roll 11010, 11011</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">minor</td>
+          <td style="font-size: 8pt;">Er. Anish Karki<br><span style="color: #6b7280; font-size: 7pt;">Grade 11 Sci A</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">investigating</td>
+          <td style="font-size: 7.5pt;">Under inspection<br><span style="color: #6b7280; font-size: 7pt;"></span></td>
+        </tr>
+      
+        <tr class="break-inside-avoid">
+          <td style="font-family: monospace; font-size: 7.5pt;"><strong>2026-03-02</strong><br><span style="color: #6b7280; font-size: 7pt;">#101</span></td>
+          <td style="font-size: 8pt;">Physics Laboratory</td>
+          <td><strong style="font-size: 8.5pt;">Borosil 250mL Conical Flask (x2)</strong><br><span style="font-size: 7.5pt; color: #374151;">Hairline stress fracture on neck during heat bath</span><br><span style="font-size: 7pt; color: #6b7280;">Roll 11011, 11012</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">minor</td>
+          <td style="font-size: 8pt;">P. Adhikari<br><span style="color: #6b7280; font-size: 7pt;">Grade 12 Sci B</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">resolved</td>
+          <td style="font-size: 7.5pt;">Replaced with spare unit from institutional inventory pool.<br><span style="color: #6b7280; font-size: 7pt;">By: Er. Lab In-Charge</span></td>
+        </tr>
+      
+        <tr class="break-inside-avoid">
+          <td style="font-family: monospace; font-size: 7.5pt;"><strong>2026-03-03</strong><br><span style="color: #6b7280; font-size: 7pt;">#102</span></td>
+          <td style="font-size: 8pt;">Chemistry Laboratory</td>
+          <td><strong style="font-size: 8.5pt;">Monocular Compound Microscope (x1)</strong><br><span style="font-size: 7.5pt; color: #374151;">Fine focus rack-and-pinion slipping on 40x objective</span><br><span style="font-size: 7pt; color: #6b7280;">Roll 11012, 11013</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">moderate</td>
+          <td style="font-size: 8pt;">Dr. S. Thapa<br><span style="color: #6b7280; font-size: 7pt;">Grade 11 Sci A</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">resolved</td>
+          <td style="font-size: 7.5pt;">Replaced with spare unit from institutional inventory pool.<br><span style="color: #6b7280; font-size: 7pt;">By: Er. Lab In-Charge</span></td>
+        </tr>
+      
+        <tr class="break-inside-avoid">
+          <td style="font-family: monospace; font-size: 7.5pt;"><strong>2026-03-04</strong><br><span style="color: #6b7280; font-size: 7pt;">#103</span></td>
+          <td style="font-size: 8pt;">Biology Laboratory</td>
+          <td><strong style="font-size: 8.5pt;">PC Workstation #14 (Lab 01) (x1)</strong><br><span style="font-size: 7.5pt; color: #374151;">SMPS capacitor failure with audible pop on power surge</span><br><span style="font-size: 7pt; color: #6b7280;">Roll 11013, 11014</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">major_critical</td>
+          <td style="font-size: 8pt;">Prof. B. Sharma<br><span style="color: #6b7280; font-size: 7pt;">Grade 12 Sci B</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">investigating</td>
+          <td style="font-size: 7.5pt;">Under inspection<br><span style="color: #6b7280; font-size: 7pt;"></span></td>
+        </tr>
+      
+        <tr class="break-inside-avoid">
+          <td style="font-family: monospace; font-size: 7.5pt;"><strong>2026-03-05</strong><br><span style="color: #6b7280; font-size: 7pt;">#104</span></td>
+          <td style="font-size: 8pt;">Computer Engineering Lab 01</td>
+          <td><strong style="font-size: 8.5pt;">Spectrophotometer Glass Cuvette (x1)</strong><br><span style="font-size: 7.5pt; color: #374151;">Dropped on stone sink ledge during sample washing</span><br><span style="font-size: 7pt; color: #6b7280;">Roll 11014, 11015</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">minor</td>
+          <td style="font-size: 8pt;">Er. Anish Karki<br><span style="color: #6b7280; font-size: 7pt;">Grade 11 Sci A</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">resolved</td>
+          <td style="font-size: 7.5pt;">Replaced with spare unit from institutional inventory pool.<br><span style="color: #6b7280; font-size: 7pt;">By: Er. Lab In-Charge</span></td>
+        </tr>
+      
+        <tr class="break-inside-avoid">
+          <td style="font-family: monospace; font-size: 7.5pt;"><strong>2026-03-06</strong><br><span style="color: #6b7280; font-size: 7pt;">#105</span></td>
+          <td style="font-size: 8pt;">Physics Laboratory</td>
+          <td><strong style="font-size: 8.5pt;">Digital Multimeter (Sanwa CD800a) (x1)</strong><br><span style="font-size: 7.5pt; color: #374151;">Blown 500mA ceramic fuse during high voltage probe test</span><br><span style="font-size: 7pt; color: #6b7280;">Roll 11015, 11016</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">minor</td>
+          <td style="font-size: 8pt;">P. Adhikari<br><span style="color: #6b7280; font-size: 7pt;">Grade 12 Sci B</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">resolved</td>
+          <td style="font-size: 7.5pt;">Replaced with spare unit from institutional inventory pool.<br><span style="color: #6b7280; font-size: 7pt;">By: Er. Lab In-Charge</span></td>
+        </tr>
+      
+        <tr class="break-inside-avoid">
+          <td style="font-family: monospace; font-size: 7.5pt;"><strong>2026-03-07</strong><br><span style="color: #6b7280; font-size: 7pt;">#106</span></td>
+          <td style="font-size: 8pt;">Chemistry Laboratory</td>
+          <td><strong style="font-size: 8.5pt;">Borosil 250mL Conical Flask (x2)</strong><br><span style="font-size: 7.5pt; color: #374151;">Hairline stress fracture on neck during heat bath</span><br><span style="font-size: 7pt; color: #6b7280;">Roll 11016, 11017</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">minor</td>
+          <td style="font-size: 8pt;">Dr. S. Thapa<br><span style="color: #6b7280; font-size: 7pt;">Grade 11 Sci A</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">investigating</td>
+          <td style="font-size: 7.5pt;">Under inspection<br><span style="color: #6b7280; font-size: 7pt;"></span></td>
+        </tr>
+      
+        <tr class="break-inside-avoid">
+          <td style="font-family: monospace; font-size: 7.5pt;"><strong>2026-03-08</strong><br><span style="color: #6b7280; font-size: 7pt;">#107</span></td>
+          <td style="font-size: 8pt;">Biology Laboratory</td>
+          <td><strong style="font-size: 8.5pt;">Monocular Compound Microscope (x1)</strong><br><span style="font-size: 7.5pt; color: #374151;">Fine focus rack-and-pinion slipping on 40x objective</span><br><span style="font-size: 7pt; color: #6b7280;">Roll 11017, 11018</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">moderate</td>
+          <td style="font-size: 8pt;">Prof. B. Sharma<br><span style="color: #6b7280; font-size: 7pt;">Grade 12 Sci B</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">resolved</td>
+          <td style="font-size: 7.5pt;">Replaced with spare unit from institutional inventory pool.<br><span style="color: #6b7280; font-size: 7pt;">By: Er. Lab In-Charge</span></td>
+        </tr>
+      
+        <tr class="break-inside-avoid">
+          <td style="font-family: monospace; font-size: 7.5pt;"><strong>2026-03-09</strong><br><span style="color: #6b7280; font-size: 7pt;">#108</span></td>
+          <td style="font-size: 8pt;">Computer Engineering Lab 01</td>
+          <td><strong style="font-size: 8.5pt;">PC Workstation #14 (Lab 01) (x1)</strong><br><span style="font-size: 7.5pt; color: #374151;">SMPS capacitor failure with audible pop on power surge</span><br><span style="font-size: 7pt; color: #6b7280;">Roll 11018, 11019</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">major_critical</td>
+          <td style="font-size: 8pt;">Er. Anish Karki<br><span style="color: #6b7280; font-size: 7pt;">Grade 11 Sci A</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">resolved</td>
+          <td style="font-size: 7.5pt;">Replaced with spare unit from institutional inventory pool.<br><span style="color: #6b7280; font-size: 7pt;">By: Er. Lab In-Charge</span></td>
+        </tr>
+      
+        <tr class="break-inside-avoid">
+          <td style="font-family: monospace; font-size: 7.5pt;"><strong>2026-03-10</strong><br><span style="color: #6b7280; font-size: 7pt;">#109</span></td>
+          <td style="font-size: 8pt;">Physics Laboratory</td>
+          <td><strong style="font-size: 8.5pt;">Spectrophotometer Glass Cuvette (x1)</strong><br><span style="font-size: 7.5pt; color: #374151;">Dropped on stone sink ledge during sample washing</span><br><span style="font-size: 7pt; color: #6b7280;">Roll 11019, 11020</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">minor</td>
+          <td style="font-size: 8pt;">P. Adhikari<br><span style="color: #6b7280; font-size: 7pt;">Grade 12 Sci B</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">investigating</td>
+          <td style="font-size: 7.5pt;">Under inspection<br><span style="color: #6b7280; font-size: 7pt;"></span></td>
+        </tr>
+      
+        <tr class="break-inside-avoid">
+          <td style="font-family: monospace; font-size: 7.5pt;"><strong>2026-03-11</strong><br><span style="color: #6b7280; font-size: 7pt;">#110</span></td>
+          <td style="font-size: 8pt;">Chemistry Laboratory</td>
+          <td><strong style="font-size: 8.5pt;">Digital Multimeter (Sanwa CD800a) (x1)</strong><br><span style="font-size: 7.5pt; color: #374151;">Blown 500mA ceramic fuse during high voltage probe test</span><br><span style="font-size: 7pt; color: #6b7280;">Roll 11020, 11021</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">minor</td>
+          <td style="font-size: 8pt;">Dr. S. Thapa<br><span style="color: #6b7280; font-size: 7pt;">Grade 11 Sci A</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">resolved</td>
+          <td style="font-size: 7.5pt;">Replaced with spare unit from institutional inventory pool.<br><span style="color: #6b7280; font-size: 7pt;">By: Er. Lab In-Charge</span></td>
+        </tr>
+      
+        <tr class="break-inside-avoid">
+          <td style="font-family: monospace; font-size: 7.5pt;"><strong>2026-03-12</strong><br><span style="color: #6b7280; font-size: 7pt;">#111</span></td>
+          <td style="font-size: 8pt;">Biology Laboratory</td>
+          <td><strong style="font-size: 8.5pt;">Borosil 250mL Conical Flask (x2)</strong><br><span style="font-size: 7.5pt; color: #374151;">Hairline stress fracture on neck during heat bath</span><br><span style="font-size: 7pt; color: #6b7280;">Roll 11021, 11022</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">minor</td>
+          <td style="font-size: 8pt;">Prof. B. Sharma<br><span style="color: #6b7280; font-size: 7pt;">Grade 12 Sci B</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">resolved</td>
+          <td style="font-size: 7.5pt;">Replaced with spare unit from institutional inventory pool.<br><span style="color: #6b7280; font-size: 7pt;">By: Er. Lab In-Charge</span></td>
+        </tr>
+      
+        <tr class="break-inside-avoid">
+          <td style="font-family: monospace; font-size: 7.5pt;"><strong>2026-03-13</strong><br><span style="color: #6b7280; font-size: 7pt;">#112</span></td>
+          <td style="font-size: 8pt;">Computer Engineering Lab 01</td>
+          <td><strong style="font-size: 8.5pt;">Monocular Compound Microscope (x1)</strong><br><span style="font-size: 7.5pt; color: #374151;">Fine focus rack-and-pinion slipping on 40x objective</span><br><span style="font-size: 7pt; color: #6b7280;">Roll 11022, 11023</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">moderate</td>
+          <td style="font-size: 8pt;">Er. Anish Karki<br><span style="color: #6b7280; font-size: 7pt;">Grade 11 Sci A</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">investigating</td>
+          <td style="font-size: 7.5pt;">Under inspection<br><span style="color: #6b7280; font-size: 7pt;"></span></td>
+        </tr>
+      
+        <tr class="break-inside-avoid">
+          <td style="font-family: monospace; font-size: 7.5pt;"><strong>2026-03-14</strong><br><span style="color: #6b7280; font-size: 7pt;">#113</span></td>
+          <td style="font-size: 8pt;">Physics Laboratory</td>
+          <td><strong style="font-size: 8.5pt;">PC Workstation #14 (Lab 01) (x1)</strong><br><span style="font-size: 7.5pt; color: #374151;">SMPS capacitor failure with audible pop on power surge</span><br><span style="font-size: 7pt; color: #6b7280;">Roll 11023, 11024</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">major_critical</td>
+          <td style="font-size: 8pt;">P. Adhikari<br><span style="color: #6b7280; font-size: 7pt;">Grade 12 Sci B</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">resolved</td>
+          <td style="font-size: 7.5pt;">Replaced with spare unit from institutional inventory pool.<br><span style="color: #6b7280; font-size: 7pt;">By: Er. Lab In-Charge</span></td>
+        </tr>
+      
+        <tr class="break-inside-avoid">
+          <td style="font-family: monospace; font-size: 7.5pt;"><strong>2026-03-15</strong><br><span style="color: #6b7280; font-size: 7pt;">#114</span></td>
+          <td style="font-size: 8pt;">Chemistry Laboratory</td>
+          <td><strong style="font-size: 8.5pt;">Spectrophotometer Glass Cuvette (x1)</strong><br><span style="font-size: 7.5pt; color: #374151;">Dropped on stone sink ledge during sample washing</span><br><span style="font-size: 7pt; color: #6b7280;">Roll 11024, 11025</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">minor</td>
+          <td style="font-size: 8pt;">Dr. S. Thapa<br><span style="color: #6b7280; font-size: 7pt;">Grade 11 Sci A</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">resolved</td>
+          <td style="font-size: 7.5pt;">Replaced with spare unit from institutional inventory pool.<br><span style="color: #6b7280; font-size: 7pt;">By: Er. Lab In-Charge</span></td>
+        </tr>
+      
+        <tr class="break-inside-avoid">
+          <td style="font-family: monospace; font-size: 7.5pt;"><strong>2026-03-16</strong><br><span style="color: #6b7280; font-size: 7pt;">#115</span></td>
+          <td style="font-size: 8pt;">Biology Laboratory</td>
+          <td><strong style="font-size: 8.5pt;">Digital Multimeter (Sanwa CD800a) (x1)</strong><br><span style="font-size: 7.5pt; color: #374151;">Blown 500mA ceramic fuse during high voltage probe test</span><br><span style="font-size: 7pt; color: #6b7280;">Roll 11025, 11026</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">minor</td>
+          <td style="font-size: 8pt;">Prof. B. Sharma<br><span style="color: #6b7280; font-size: 7pt;">Grade 12 Sci B</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">investigating</td>
+          <td style="font-size: 7.5pt;">Under inspection<br><span style="color: #6b7280; font-size: 7pt;"></span></td>
+        </tr>
+      
+        <tr class="break-inside-avoid">
+          <td style="font-family: monospace; font-size: 7.5pt;"><strong>2026-03-17</strong><br><span style="color: #6b7280; font-size: 7pt;">#116</span></td>
+          <td style="font-size: 8pt;">Computer Engineering Lab 01</td>
+          <td><strong style="font-size: 8.5pt;">Borosil 250mL Conical Flask (x2)</strong><br><span style="font-size: 7.5pt; color: #374151;">Hairline stress fracture on neck during heat bath</span><br><span style="font-size: 7pt; color: #6b7280;">Roll 11026, 11027</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">minor</td>
+          <td style="font-size: 8pt;">Er. Anish Karki<br><span style="color: #6b7280; font-size: 7pt;">Grade 11 Sci A</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">resolved</td>
+          <td style="font-size: 7.5pt;">Replaced with spare unit from institutional inventory pool.<br><span style="color: #6b7280; font-size: 7pt;">By: Er. Lab In-Charge</span></td>
+        </tr>
+      
+        <tr class="break-inside-avoid">
+          <td style="font-family: monospace; font-size: 7.5pt;"><strong>2026-03-18</strong><br><span style="color: #6b7280; font-size: 7pt;">#117</span></td>
+          <td style="font-size: 8pt;">Physics Laboratory</td>
+          <td><strong style="font-size: 8.5pt;">Monocular Compound Microscope (x1)</strong><br><span style="font-size: 7.5pt; color: #374151;">Fine focus rack-and-pinion slipping on 40x objective</span><br><span style="font-size: 7pt; color: #6b7280;">Roll 11027, 11028</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">moderate</td>
+          <td style="font-size: 8pt;">P. Adhikari<br><span style="color: #6b7280; font-size: 7pt;">Grade 12 Sci B</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">resolved</td>
+          <td style="font-size: 7.5pt;">Replaced with spare unit from institutional inventory pool.<br><span style="color: #6b7280; font-size: 7pt;">By: Er. Lab In-Charge</span></td>
+        </tr>
+      
+        <tr class="break-inside-avoid">
+          <td style="font-family: monospace; font-size: 7.5pt;"><strong>2026-03-19</strong><br><span style="color: #6b7280; font-size: 7pt;">#118</span></td>
+          <td style="font-size: 8pt;">Chemistry Laboratory</td>
+          <td><strong style="font-size: 8.5pt;">PC Workstation #14 (Lab 01) (x1)</strong><br><span style="font-size: 7.5pt; color: #374151;">SMPS capacitor failure with audible pop on power surge</span><br><span style="font-size: 7pt; color: #6b7280;">Roll 11028, 11029</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">major_critical</td>
+          <td style="font-size: 8pt;">Dr. S. Thapa<br><span style="color: #6b7280; font-size: 7pt;">Grade 11 Sci A</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">investigating</td>
+          <td style="font-size: 7.5pt;">Under inspection<br><span style="color: #6b7280; font-size: 7pt;"></span></td>
+        </tr>
+      
+        <tr class="break-inside-avoid">
+          <td style="font-family: monospace; font-size: 7.5pt;"><strong>2026-03-20</strong><br><span style="color: #6b7280; font-size: 7pt;">#119</span></td>
+          <td style="font-size: 8pt;">Biology Laboratory</td>
+          <td><strong style="font-size: 8.5pt;">Spectrophotometer Glass Cuvette (x1)</strong><br><span style="font-size: 7.5pt; color: #374151;">Dropped on stone sink ledge during sample washing</span><br><span style="font-size: 7pt; color: #6b7280;">Roll 11029, 11030</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">minor</td>
+          <td style="font-size: 8pt;">Prof. B. Sharma<br><span style="color: #6b7280; font-size: 7pt;">Grade 12 Sci B</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">resolved</td>
+          <td style="font-size: 7.5pt;">Replaced with spare unit from institutional inventory pool.<br><span style="color: #6b7280; font-size: 7pt;">By: Er. Lab In-Charge</span></td>
+        </tr>
+      
+        <tr class="break-inside-avoid">
+          <td style="font-family: monospace; font-size: 7.5pt;"><strong>2026-03-21</strong><br><span style="color: #6b7280; font-size: 7pt;">#120</span></td>
+          <td style="font-size: 8pt;">Computer Engineering Lab 01</td>
+          <td><strong style="font-size: 8.5pt;">Digital Multimeter (Sanwa CD800a) (x1)</strong><br><span style="font-size: 7.5pt; color: #374151;">Blown 500mA ceramic fuse during high voltage probe test</span><br><span style="font-size: 7pt; color: #6b7280;">Roll 11010, 11011</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">minor</td>
+          <td style="font-size: 8pt;">Er. Anish Karki<br><span style="color: #6b7280; font-size: 7pt;">Grade 11 Sci A</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">resolved</td>
+          <td style="font-size: 7.5pt;">Replaced with spare unit from institutional inventory pool.<br><span style="color: #6b7280; font-size: 7pt;">By: Er. Lab In-Charge</span></td>
+        </tr>
+      
+        <tr class="break-inside-avoid">
+          <td style="font-family: monospace; font-size: 7.5pt;"><strong>2026-03-22</strong><br><span style="color: #6b7280; font-size: 7pt;">#121</span></td>
+          <td style="font-size: 8pt;">Physics Laboratory</td>
+          <td><strong style="font-size: 8.5pt;">Borosil 250mL Conical Flask (x2)</strong><br><span style="font-size: 7.5pt; color: #374151;">Hairline stress fracture on neck during heat bath</span><br><span style="font-size: 7pt; color: #6b7280;">Roll 11011, 11012</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">minor</td>
+          <td style="font-size: 8pt;">P. Adhikari<br><span style="color: #6b7280; font-size: 7pt;">Grade 12 Sci B</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">investigating</td>
+          <td style="font-size: 7.5pt;">Under inspection<br><span style="color: #6b7280; font-size: 7pt;"></span></td>
+        </tr>
+      
+        <tr class="break-inside-avoid">
+          <td style="font-family: monospace; font-size: 7.5pt;"><strong>2026-03-23</strong><br><span style="color: #6b7280; font-size: 7pt;">#122</span></td>
+          <td style="font-size: 8pt;">Chemistry Laboratory</td>
+          <td><strong style="font-size: 8.5pt;">Monocular Compound Microscope (x1)</strong><br><span style="font-size: 7.5pt; color: #374151;">Fine focus rack-and-pinion slipping on 40x objective</span><br><span style="font-size: 7pt; color: #6b7280;">Roll 11012, 11013</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">moderate</td>
+          <td style="font-size: 8pt;">Dr. S. Thapa<br><span style="color: #6b7280; font-size: 7pt;">Grade 11 Sci A</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">resolved</td>
+          <td style="font-size: 7.5pt;">Replaced with spare unit from institutional inventory pool.<br><span style="color: #6b7280; font-size: 7pt;">By: Er. Lab In-Charge</span></td>
+        </tr>
+      
+        <tr class="break-inside-avoid">
+          <td style="font-family: monospace; font-size: 7.5pt;"><strong>2026-03-24</strong><br><span style="color: #6b7280; font-size: 7pt;">#123</span></td>
+          <td style="font-size: 8pt;">Biology Laboratory</td>
+          <td><strong style="font-size: 8.5pt;">PC Workstation #14 (Lab 01) (x1)</strong><br><span style="font-size: 7.5pt; color: #374151;">SMPS capacitor failure with audible pop on power surge</span><br><span style="font-size: 7pt; color: #6b7280;">Roll 11013, 11014</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">major_critical</td>
+          <td style="font-size: 8pt;">Prof. B. Sharma<br><span style="color: #6b7280; font-size: 7pt;">Grade 12 Sci B</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">resolved</td>
+          <td style="font-size: 7.5pt;">Replaced with spare unit from institutional inventory pool.<br><span style="color: #6b7280; font-size: 7pt;">By: Er. Lab In-Charge</span></td>
+        </tr>
+      
+        <tr class="break-inside-avoid">
+          <td style="font-family: monospace; font-size: 7.5pt;"><strong>2026-03-25</strong><br><span style="color: #6b7280; font-size: 7pt;">#124</span></td>
+          <td style="font-size: 8pt;">Computer Engineering Lab 01</td>
+          <td><strong style="font-size: 8.5pt;">Spectrophotometer Glass Cuvette (x1)</strong><br><span style="font-size: 7.5pt; color: #374151;">Dropped on stone sink ledge during sample washing</span><br><span style="font-size: 7pt; color: #6b7280;">Roll 11014, 11015</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">minor</td>
+          <td style="font-size: 8pt;">Er. Anish Karki<br><span style="color: #6b7280; font-size: 7pt;">Grade 11 Sci A</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">investigating</td>
+          <td style="font-size: 7.5pt;">Under inspection<br><span style="color: #6b7280; font-size: 7pt;"></span></td>
+        </tr>
+      
+        <tr class="break-inside-avoid">
+          <td style="font-family: monospace; font-size: 7.5pt;"><strong>2026-03-26</strong><br><span style="color: #6b7280; font-size: 7pt;">#125</span></td>
+          <td style="font-size: 8pt;">Physics Laboratory</td>
+          <td><strong style="font-size: 8.5pt;">Digital Multimeter (Sanwa CD800a) (x1)</strong><br><span style="font-size: 7.5pt; color: #374151;">Blown 500mA ceramic fuse during high voltage probe test</span><br><span style="font-size: 7pt; color: #6b7280;">Roll 11015, 11016</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">minor</td>
+          <td style="font-size: 8pt;">P. Adhikari<br><span style="color: #6b7280; font-size: 7pt;">Grade 12 Sci B</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">resolved</td>
+          <td style="font-size: 7.5pt;">Replaced with spare unit from institutional inventory pool.<br><span style="color: #6b7280; font-size: 7pt;">By: Er. Lab In-Charge</span></td>
+        </tr>
+      
+        <tr class="break-inside-avoid">
+          <td style="font-family: monospace; font-size: 7.5pt;"><strong>2026-03-27</strong><br><span style="color: #6b7280; font-size: 7pt;">#126</span></td>
+          <td style="font-size: 8pt;">Chemistry Laboratory</td>
+          <td><strong style="font-size: 8.5pt;">Borosil 250mL Conical Flask (x2)</strong><br><span style="font-size: 7.5pt; color: #374151;">Hairline stress fracture on neck during heat bath</span><br><span style="font-size: 7pt; color: #6b7280;">Roll 11016, 11017</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">minor</td>
+          <td style="font-size: 8pt;">Dr. S. Thapa<br><span style="color: #6b7280; font-size: 7pt;">Grade 11 Sci A</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">resolved</td>
+          <td style="font-size: 7.5pt;">Replaced with spare unit from institutional inventory pool.<br><span style="color: #6b7280; font-size: 7pt;">By: Er. Lab In-Charge</span></td>
+        </tr>
+      
+        <tr class="break-inside-avoid">
+          <td style="font-family: monospace; font-size: 7.5pt;"><strong>2026-03-28</strong><br><span style="color: #6b7280; font-size: 7pt;">#127</span></td>
+          <td style="font-size: 8pt;">Biology Laboratory</td>
+          <td><strong style="font-size: 8.5pt;">Monocular Compound Microscope (x1)</strong><br><span style="font-size: 7.5pt; color: #374151;">Fine focus rack-and-pinion slipping on 40x objective</span><br><span style="font-size: 7pt; color: #6b7280;">Roll 11017, 11018</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">moderate</td>
+          <td style="font-size: 8pt;">Prof. B. Sharma<br><span style="color: #6b7280; font-size: 7pt;">Grade 12 Sci B</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">investigating</td>
+          <td style="font-size: 7.5pt;">Under inspection<br><span style="color: #6b7280; font-size: 7pt;"></span></td>
+        </tr>
+      
+        <tr class="break-inside-avoid">
+          <td style="font-family: monospace; font-size: 7.5pt;"><strong>2026-03-01</strong><br><span style="color: #6b7280; font-size: 7pt;">#128</span></td>
+          <td style="font-size: 8pt;">Computer Engineering Lab 01</td>
+          <td><strong style="font-size: 8.5pt;">PC Workstation #14 (Lab 01) (x1)</strong><br><span style="font-size: 7.5pt; color: #374151;">SMPS capacitor failure with audible pop on power surge</span><br><span style="font-size: 7pt; color: #6b7280;">Roll 11018, 11019</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">major_critical</td>
+          <td style="font-size: 8pt;">Er. Anish Karki<br><span style="color: #6b7280; font-size: 7pt;">Grade 11 Sci A</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">resolved</td>
+          <td style="font-size: 7.5pt;">Replaced with spare unit from institutional inventory pool.<br><span style="color: #6b7280; font-size: 7pt;">By: Er. Lab In-Charge</span></td>
+        </tr>
+      
+        <tr class="break-inside-avoid">
+          <td style="font-family: monospace; font-size: 7.5pt;"><strong>2026-03-02</strong><br><span style="color: #6b7280; font-size: 7pt;">#129</span></td>
+          <td style="font-size: 8pt;">Physics Laboratory</td>
+          <td><strong style="font-size: 8.5pt;">Spectrophotometer Glass Cuvette (x1)</strong><br><span style="font-size: 7.5pt; color: #374151;">Dropped on stone sink ledge during sample washing</span><br><span style="font-size: 7pt; color: #6b7280;">Roll 11019, 11020</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">minor</td>
+          <td style="font-size: 8pt;">P. Adhikari<br><span style="color: #6b7280; font-size: 7pt;">Grade 12 Sci B</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">resolved</td>
+          <td style="font-size: 7.5pt;">Replaced with spare unit from institutional inventory pool.<br><span style="color: #6b7280; font-size: 7pt;">By: Er. Lab In-Charge</span></td>
+        </tr>
+      
+        <tr class="break-inside-avoid">
+          <td style="font-family: monospace; font-size: 7.5pt;"><strong>2026-03-03</strong><br><span style="color: #6b7280; font-size: 7pt;">#130</span></td>
+          <td style="font-size: 8pt;">Chemistry Laboratory</td>
+          <td><strong style="font-size: 8.5pt;">Digital Multimeter (Sanwa CD800a) (x1)</strong><br><span style="font-size: 7.5pt; color: #374151;">Blown 500mA ceramic fuse during high voltage probe test</span><br><span style="font-size: 7pt; color: #6b7280;">Roll 11020, 11021</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">minor</td>
+          <td style="font-size: 8pt;">Dr. S. Thapa<br><span style="color: #6b7280; font-size: 7pt;">Grade 11 Sci A</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">investigating</td>
+          <td style="font-size: 7.5pt;">Under inspection<br><span style="color: #6b7280; font-size: 7pt;"></span></td>
+        </tr>
+      
+        <tr class="break-inside-avoid">
+          <td style="font-family: monospace; font-size: 7.5pt;"><strong>2026-03-04</strong><br><span style="color: #6b7280; font-size: 7pt;">#131</span></td>
+          <td style="font-size: 8pt;">Biology Laboratory</td>
+          <td><strong style="font-size: 8.5pt;">Borosil 250mL Conical Flask (x2)</strong><br><span style="font-size: 7.5pt; color: #374151;">Hairline stress fracture on neck during heat bath</span><br><span style="font-size: 7pt; color: #6b7280;">Roll 11021, 11022</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">minor</td>
+          <td style="font-size: 8pt;">Prof. B. Sharma<br><span style="color: #6b7280; font-size: 7pt;">Grade 12 Sci B</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">resolved</td>
+          <td style="font-size: 7.5pt;">Replaced with spare unit from institutional inventory pool.<br><span style="color: #6b7280; font-size: 7pt;">By: Er. Lab In-Charge</span></td>
+        </tr>
+      
+        <tr class="break-inside-avoid">
+          <td style="font-family: monospace; font-size: 7.5pt;"><strong>2026-03-05</strong><br><span style="color: #6b7280; font-size: 7pt;">#132</span></td>
+          <td style="font-size: 8pt;">Computer Engineering Lab 01</td>
+          <td><strong style="font-size: 8.5pt;">Monocular Compound Microscope (x1)</strong><br><span style="font-size: 7.5pt; color: #374151;">Fine focus rack-and-pinion slipping on 40x objective</span><br><span style="font-size: 7pt; color: #6b7280;">Roll 11022, 11023</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">moderate</td>
+          <td style="font-size: 8pt;">Er. Anish Karki<br><span style="color: #6b7280; font-size: 7pt;">Grade 11 Sci A</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">resolved</td>
+          <td style="font-size: 7.5pt;">Replaced with spare unit from institutional inventory pool.<br><span style="color: #6b7280; font-size: 7pt;">By: Er. Lab In-Charge</span></td>
+        </tr>
+      
+        <tr class="break-inside-avoid">
+          <td style="font-family: monospace; font-size: 7.5pt;"><strong>2026-03-06</strong><br><span style="color: #6b7280; font-size: 7pt;">#133</span></td>
+          <td style="font-size: 8pt;">Physics Laboratory</td>
+          <td><strong style="font-size: 8.5pt;">PC Workstation #14 (Lab 01) (x1)</strong><br><span style="font-size: 7.5pt; color: #374151;">SMPS capacitor failure with audible pop on power surge</span><br><span style="font-size: 7pt; color: #6b7280;">Roll 11023, 11024</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">major_critical</td>
+          <td style="font-size: 8pt;">P. Adhikari<br><span style="color: #6b7280; font-size: 7pt;">Grade 12 Sci B</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">investigating</td>
+          <td style="font-size: 7.5pt;">Under inspection<br><span style="color: #6b7280; font-size: 7pt;"></span></td>
+        </tr>
+      
+        <tr class="break-inside-avoid">
+          <td style="font-family: monospace; font-size: 7.5pt;"><strong>2026-03-07</strong><br><span style="color: #6b7280; font-size: 7pt;">#134</span></td>
+          <td style="font-size: 8pt;">Chemistry Laboratory</td>
+          <td><strong style="font-size: 8.5pt;">Spectrophotometer Glass Cuvette (x1)</strong><br><span style="font-size: 7.5pt; color: #374151;">Dropped on stone sink ledge during sample washing</span><br><span style="font-size: 7pt; color: #6b7280;">Roll 11024, 11025</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">minor</td>
+          <td style="font-size: 8pt;">Dr. S. Thapa<br><span style="color: #6b7280; font-size: 7pt;">Grade 11 Sci A</span></td>
+          <td style="text-align: center; text-transform: uppercase; font-family: monospace; font-size: 7.5pt; font-weight: bold;">resolved</td>
+          <td style="font-size: 7.5pt;">Replaced with spare unit from institutional inventory pool.<br><span style="color: #6b7280; font-size: 7pt;">By: Er. Lab In-Charge</span></td>
+        </tr>
+      
+    </tbody>
+  </table>
+  <div class="sig-box signature-block">
+    <div><div class="sig-line">REPORTING TEACHER</div></div>
+    <div><div class="sig-line">LAB IN-CHARGE / HOD</div></div>
+  </div>
+</body>
+</html>

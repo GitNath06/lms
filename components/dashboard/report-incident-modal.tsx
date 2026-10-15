@@ -55,7 +55,7 @@ export default function ReportIncidentModal({
 
   const [labId, setLabId] = useState<string>(defaultLabId)
   const [periodSlot, setPeriodSlot] = useState<string>('Period 2 (11:00 - 11:45)')
-  const [batchName, setBatchName] = useState<string>(availableClasses[0]?.name || 'Class 12C')
+  const [batchName, setBatchName] = useState<string>(availableClasses[0]?.name || '12 Eng')
   const [teacherName, setTeacherName] = useState<string>(
     isTeacher && scope?.fullName ? scope.fullName : faculty[0]?.name || 'Dr. Prakash Adhikari'
   )
@@ -87,6 +87,8 @@ export default function ReportIncidentModal({
         incidentTitle.trim() ||
         `${incidentType.replace('_', ' ').toUpperCase()} in ${labId.toUpperCase()} Lab (${periodSlot})`
 
+      const primaryPhotoUrl = photos.length > 0 ? (photos[0].dataUrl || photos[0].previewUrl) : undefined
+
       await logIncident({
         lab_id: labId,
         date: getNepalDateStr(),
@@ -96,6 +98,7 @@ export default function ReportIncidentModal({
         batch_name: batchName,
         title: displayTitle,
         circumstances: circumstances.trim() || undefined,
+        photo_url: primaryPhotoUrl,
         incident_type: incidentType as any,
         severity: severity,
         equipment_name: equipmentName.trim() || 'Lab Equipment / Workstation',
@@ -123,9 +126,9 @@ export default function ReportIncidentModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150 select-none">
       <div className="relative w-full max-w-2xl sm:max-w-3xl bg-white dark:bg-zinc-900 rounded-2xl sm:rounded-3xl shadow-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden flex flex-col max-h-[calc(100dvh-2rem)] sm:max-h-[88vh] my-auto">
         {/* Header */}
-        <div className="p-4 px-6 border-b border-zinc-100 dark:border-zinc-800 bg-rose-50/60 dark:bg-rose-950/30 flex items-center justify-between shrink-0">
+        <div className="p-4 px-6 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/50 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-rose-500 text-white shadow-xs shrink-0">
+            <div className="p-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200/60 dark:border-indigo-800/60 shadow-xs shrink-0">
               <AlertTriangle className="h-5 w-5" />
             </div>
             <div>
@@ -133,7 +136,7 @@ export default function ReportIncidentModal({
                 Report Laboratory Incident & Equipment Damage
               </h3>
               <p className="text-xs text-zinc-500 dark:text-zinc-400 font-sans mt-0.5">
-                Official incident register entry for Physics, Chemistry, Biology & Computer Labs
+                Log equipment damage or malfunction
               </p>
             </div>
           </div>
@@ -226,7 +229,7 @@ export default function ReportIncidentModal({
                 </label>
                 <Input
                   type="text"
-                  placeholder="e.g. PC-04 Monitor, Digital Multimeter, Burette 50ml"
+                  placeholder="e.g. PC-04, Multimeter, 50ml Burette"
                   value={equipmentName}
                   onChange={(e) => setEquipmentName(e.target.value)}
                   className="bg-white dark:bg-zinc-950 text-sm font-sans"
@@ -240,7 +243,7 @@ export default function ReportIncidentModal({
                 <Input
                   type="text"
                   required
-                  placeholder="e.g. Screen blackout or glass crack during experiment"
+                  placeholder="e.g. Cracked beaker or screen flicker"
                   value={incidentTitle}
                   onChange={(e) => setIncidentTitle(e.target.value)}
                   className="bg-white dark:bg-zinc-950 text-sm font-sans"
@@ -258,7 +261,7 @@ export default function ReportIncidentModal({
                 rows={3}
                 value={circumstances}
                 onChange={(e) => setCircumstances(e.target.value)}
-                placeholder="Describe exactly what happened: which equipment or station was affected, cause of damage, safety steps taken, workshop or store replacement needed..."
+                placeholder="Describe what happened and any action taken..."
                 className="flex w-full rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 px-3.5 py-2.5 text-sm text-zinc-900 dark:text-zinc-100 font-sans leading-relaxed placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 transition-colors"
               />
             </div>
@@ -270,11 +273,11 @@ export default function ReportIncidentModal({
               disabled={isSubmitting}
             />
 
-            {/* Class Batch, Faculty & Involved Student Rolls */}
+            {/* Class, Faculty & Involved Student Rolls */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 font-sans">
-                  Class / Batch <span className="text-rose-500 font-bold">*</span>
+                  Class <span className="text-rose-500 font-bold">*</span>
                 </label>
                 <Select
                   value={batchName}
@@ -326,7 +329,7 @@ export default function ReportIncidentModal({
                 </label>
                 <Input
                   type="text"
-                  placeholder="e.g. Roll 14, 28"
+                  placeholder="e.g. 14, 28"
                   value={studentRolls}
                   onChange={(e) => setStudentRolls(e.target.value)}
                   className="bg-white dark:bg-zinc-950 text-sm font-sans"
@@ -352,7 +355,7 @@ export default function ReportIncidentModal({
               type="submit"
               size="sm"
               disabled={isSubmitting}
-              className="h-10 px-5 rounded-xl text-sm font-bold font-sans bg-rose-600 hover:bg-rose-700 text-white gap-2 shadow-xs"
+              className="h-10 px-5 rounded-xl text-sm font-bold font-sans bg-indigo-600 hover:bg-indigo-500 text-white gap-2 shadow-xs cursor-pointer"
             >
               {isSubmitting ? (
                 'Filing Report...'

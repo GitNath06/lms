@@ -2,7 +2,19 @@
 
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
-import { getServerUserScope } from '@/lib/context/user-scope'
+import { getServerUserScope } from '@/lib/context/server-user-scope'
+import {
+  MaintenancePlanRow,
+  MaintenancePlanUpdate,
+  MaintenanceReminderRow,
+  MaintenanceLogRow,
+} from '@/types/database'
+import {
+  MaintenanceRecordItem,
+  MaintenanceSummaryMetrics,
+} from '@/types/records'
+import { generateMaintenanceRecordsCsv } from '@/lib/exports/csv'
+import { generateMaintenanceRecordsXlsxBuffer } from '@/lib/exports/xlsx'
 
 export interface MaintenancePlanRecord {
   id: string
@@ -17,6 +29,8 @@ export interface MaintenancePlanRecord {
   checklist: string[]
   is_active: boolean
   description?: string | null
+  affected_machines?: string[] | null
+  fleet_progress?: Record<string, unknown> | null
   created_at: string
   // Dynamic fields
   last_serviced_date?: string | null
@@ -102,18 +116,37 @@ const LAB_DISPLAY_NAMES: Record<string, string> = {
   elec: 'Electronics Laboratory',
 }
 
+interface ReminderJoinedRow extends MaintenanceReminderRow {
+  plan?: MaintenancePlanRow | null
+}
+
+interface LogJoinedRow extends MaintenanceLogRow {
+  performer?: { full_name: string | null } | null
+  plan?: {
+    id?: string
+    title: string | null
+    category?: string
+    interval_days?: number
+    target_role?: string
+    checklist?: string[] | unknown
+  } | null
+}
+
+interface PlanJoinedRow extends MaintenancePlanRow {
+  assigned_profile?: { full_name: string | null } | null
+}
+
 /**
  * Validates whether the current authenticated user has administrative permission
- * for Lab Maintenance (super_admin, lab_incharge, coordinator, or granted permission).
+ * for Lab Maintenance (super_admin, lab_incharge, hod, or privileged scope).
  */
 async function getAuthorizedProfile() {
   const scope = await getServerUserScope()
   const isPrivileged =
+    scope.isPrivileged ||
     scope.role === 'super_admin' ||
     scope.role === 'lab_incharge' ||
     scope.role === 'hod' ||
-    (scope.role as string) === 'coordinator' ||
-    (scope as any).permissions?.can_manage_maintenance === true ||
     process.env.NODE_ENV === 'development'
   return { scope, isPrivileged }
 }
@@ -140,7 +173,7 @@ export async function getMaintenanceOverview(labFilter: string = 'all'): Promise
     }
   }
 
-  const supabase = (await createClient()) as any
+  const supabase = await createClient()
 
   // 1. Fetch Plans
   let plansQuery = supabase
@@ -204,7 +237,8 @@ export async function getMaintenanceOverview(labFilter: string = 'all'): Promise
   today.setHours(0, 0, 0, 0)
 
   // 4. Process Reminders with Dynamic Overdue & Delay Calculations
-  const processedReminders: MaintenanceReminderRecord[] = (remindersData || []).map((r: any) => {
+  const typedReminders = (remindersData as unknown as ReminderJoinedRow[]) || []
+  const processedReminders: MaintenanceReminderRecord[] = typedReminders.map((r) => {
     const dueDate = new Date(r.due_date)
     dueDate.setHours(0, 0, 0, 0)
 
@@ -248,7 +282,7 @@ export async function getMaintenanceOverview(labFilter: string = 'all'): Promise
             interval_days: r.plan.interval_days,
             severity: r.plan.severity,
             target_role: r.plan.target_role,
-            checklist: Array.isArray(r.plan.checklist) ? r.plan.checklist : [],
+            checklist: Array.isArray(r.plan.checklist) ? (r.plan.checklist as string[]) : [],
             is_active: r.plan.is_active,
             description: r.plan.description,
             created_at: r.plan.created_at,
@@ -259,8 +293,9 @@ export async function getMaintenanceOverview(labFilter: string = 'all'): Promise
 
   // 5. Process Completed Logs
   let totalExpense = 0
-  const processedLogs: MaintenanceLogRecord[] = (logsData || []).map((l: any) => {
-    const cost = parseFloat(l.cost_incurred) || 0
+  const typedLogs = (logsData as unknown as LogJoinedRow[]) || []
+  const processedLogs: MaintenanceLogRecord[] = typedLogs.map((l) => {
+    const cost = typeof l.cost_incurred === 'number' ? l.cost_incurred : parseFloat(String(l.cost_incurred)) || 0
     totalExpense += cost
     return {
       id: l.id,
@@ -270,7 +305,7 @@ export async function getMaintenanceOverview(labFilter: string = 'all'): Promise
       lab_name: LAB_DISPLAY_NAMES[l.lab_id] || l.lab_id.toUpperCase(),
       asset_identifier: l.asset_identifier,
       work_performed: l.work_performed,
-      checklist_completed: Array.isArray(l.checklist_completed) ? l.checklist_completed : [],
+      checklist_completed: Array.isArray(l.checklist_completed) ? (l.checklist_completed as string[]) : [],
       parts_replaced: l.parts_replaced,
       cost_incurred: cost,
       service_date: l.service_date,
@@ -284,7 +319,8 @@ export async function getMaintenanceOverview(labFilter: string = 'all'): Promise
   })
 
   // 6. Process Plans with health & active reminder info
-  const processedPlans: MaintenancePlanRecord[] = (plansData || []).map((p: any) => {
+  const typedPlans = (plansData as unknown as PlanJoinedRow[]) || []
+  const processedPlans: MaintenancePlanRecord[] = typedPlans.map((p) => {
     const activeReminder = processedReminders.find((r) => r.plan_id === p.id)
     const lastLog = processedLogs.find((l) => l.plan_id === p.id)
 
@@ -298,9 +334,11 @@ export async function getMaintenanceOverview(labFilter: string = 'all'): Promise
       target_role: p.target_role,
       assigned_user_id: p.assigned_user_id,
       assigned_user_name: p.assigned_profile?.full_name || null,
-      checklist: Array.isArray(p.checklist) ? p.checklist : [],
+      checklist: Array.isArray(p.checklist) ? (p.checklist as string[]) : [],
       is_active: p.is_active,
       description: p.description,
+      affected_machines: p.affected_machines || null,
+      fleet_progress: (p.fleet_progress as Record<string, unknown>) || null,
       created_at: p.created_at,
       last_serviced_date: lastLog?.service_date || null,
       last_serviced_by: lastLog?.performed_by_name || null,
@@ -384,7 +422,7 @@ export async function logMaintenanceService(payload: {
     throw new Error('Unauthorized: Only administrators, coordinators, and lab in-charges may log servicing.')
   }
 
-  const supabase = (await createClient()) as any
+  const supabase = await createClient()
 
   const serviceDate = payload.service_date || new Date().toISOString().split('T')[0]
   const cost = typeof payload.cost_incurred === 'number' ? payload.cost_incurred : 0
@@ -436,7 +474,7 @@ export async function snoozeMaintenanceReminder(payload: {
     return { success: false, error: 'A mandatory snooze justification reason must be provided.' }
   }
 
-  const supabase = (await createClient()) as any
+  const supabase = await createClient()
 
   let snoozeUntilStr: string
   if (payload.custom_snooze_until) {
@@ -494,6 +532,7 @@ export async function saveMaintenancePlan(payload: {
   assigned_user_id?: string | null
   checklist?: string[]
   description?: string | null
+  affected_machines?: string[]
   is_active?: boolean
 }) {
   const { isPrivileged } = await getAuthorizedProfile()
@@ -501,23 +540,28 @@ export async function saveMaintenancePlan(payload: {
     throw new Error('Unauthorized: Only administrators and lab in-charges can configure maintenance plans.')
   }
 
-  const supabase = (await createClient()) as any
+  const supabase = await createClient()
 
   if (payload.id) {
+    const updateData: MaintenancePlanUpdate = {
+      lab_id: payload.lab_id,
+      title: payload.title.trim(),
+      category: payload.category.trim(),
+      interval_days: payload.interval_days,
+      severity: payload.severity,
+      target_role: payload.target_role || 'lab_incharge',
+      assigned_user_id: payload.assigned_user_id || null,
+      checklist: payload.checklist || [],
+      description: payload.description?.trim() || null,
+      is_active: payload.is_active !== undefined ? payload.is_active : true,
+    }
+    if (payload.affected_machines !== undefined) {
+      updateData.affected_machines = payload.affected_machines
+    }
+
     const { data, error } = await supabase
       .from('maintenance_plans')
-      .update({
-        lab_id: payload.lab_id,
-        title: payload.title.trim(),
-        category: payload.category.trim(),
-        interval_days: payload.interval_days,
-        severity: payload.severity,
-        target_role: payload.target_role || 'lab_incharge',
-        assigned_user_id: payload.assigned_user_id || null,
-        checklist: payload.checklist || [],
-        description: payload.description?.trim() || null,
-        is_active: payload.is_active !== undefined ? payload.is_active : true,
-      })
+      .update(updateData)
       .eq('id', payload.id)
       .select()
       .single()
@@ -539,6 +583,7 @@ export async function saveMaintenancePlan(payload: {
         assigned_user_id: payload.assigned_user_id || null,
         checklist: payload.checklist || [],
         description: payload.description?.trim() || null,
+        affected_machines: payload.affected_machines || [],
         is_active: payload.is_active !== undefined ? payload.is_active : true,
       })
       .select()
@@ -560,7 +605,7 @@ export async function deleteMaintenancePlan(planId: string) {
     throw new Error('Unauthorized: Only administrators and lab in-charges can delete maintenance plans.')
   }
 
-  const supabase = (await createClient()) as any
+  const supabase = await createClient()
 
   // Delete reminders linked to this plan first to avoid foreign key errors
   await supabase
@@ -591,7 +636,7 @@ export async function toggleMaintenancePlanStatus(planId: string, isActive: bool
     throw new Error('Unauthorized: Only administrators and lab in-charges can modify maintenance plans.')
   }
 
-  const supabase = (await createClient()) as any
+  const supabase = await createClient()
 
   const { error } = await supabase
     .from('maintenance_plans')
@@ -616,7 +661,7 @@ export async function getMaintenanceHealthSummary(): Promise<{
   overdue_reminders: number
 }> {
   try {
-    const supabase = (await createClient()) as any
+    const supabase = await createClient()
     const todayStr = new Date().toISOString().split('T')[0]
 
     const { data, error } = await supabase
@@ -646,3 +691,153 @@ export async function getMaintenanceHealthSummary(): Promise<{
   }
 }
 
+/**
+ * Bulk-export completed maintenance logs and plan specifications.
+ * Enforces production role checks: restricted to privileged roles (super_admin, lab_incharge, hod).
+ * Uses strictly the Supabase SSR client (`createClient()`).
+ */
+export async function exportMaintenanceRecordsAction(
+  labId: string = 'all',
+  format: 'xlsx' | 'csv' = 'xlsx'
+): Promise<{
+  success: boolean
+  base64?: string
+  filename?: string
+  contentType?: string
+  error?: string
+}> {
+  try {
+    const { isPrivileged } = await getAuthorizedProfile()
+    if (!isPrivileged) {
+      return {
+        success: false,
+        error: 'Access Denied: Exporting bulk maintenance records is restricted to privileged roles (Super Admin, Lab In-Charge, and HOD).',
+      }
+    }
+
+    const supabase = await createClient()
+
+    let logsQuery = supabase
+      .from('maintenance_logs')
+      .select(`
+        *,
+        performer:profiles!maintenance_logs_performed_by_id_fkey(full_name),
+        plan:maintenance_plans(
+          id,
+          title,
+          category,
+          interval_days,
+          target_role,
+          checklist
+        )
+      `)
+      .order('service_date', { ascending: false })
+
+    if (labId !== 'all') {
+      logsQuery = logsQuery.eq('lab_id', labId)
+    }
+
+    const { data: rawLogs, error: logsErr } = await logsQuery
+    if (logsErr) {
+      throw new Error(`Failed to query maintenance records: ${logsErr.message}`)
+    }
+
+    // Active overdue reminder count for summary banner
+    const todayStr = new Date().toISOString().split('T')[0]
+    let remQuery = supabase
+      .from('maintenance_reminders')
+      .select('id, due_date, status, snoozed_until')
+      .neq('status', 'completed')
+
+    if (labId !== 'all') {
+      remQuery = remQuery.eq('lab_id', labId)
+    }
+    const { data: remData } = await remQuery
+    let overdueCount = 0
+    if (remData) {
+      for (const r of remData) {
+        const effDate = r.status === 'snoozed' && r.snoozed_until ? r.snoozed_until : r.due_date
+        if (effDate && effDate < todayStr) overdueCount++
+      }
+    }
+
+    const typedLogs = (rawLogs as unknown as LogJoinedRow[]) || []
+
+    const formattedRecords: MaintenanceRecordItem[] = typedLogs.map((log) => {
+      const planChecklist: string[] = Array.isArray(log.plan?.checklist)
+        ? (log.plan.checklist as string[])
+        : []
+      const logChecklist: string[] = Array.isArray(log.checklist_completed)
+        ? (log.checklist_completed as string[])
+        : []
+      const totalSteps = planChecklist.length > 0 ? planChecklist.length : logChecklist.length
+      const compPct = totalSteps > 0 ? Math.round((logChecklist.length / totalSteps) * 100) : 100
+
+      return {
+        ...log,
+        lab_name: LAB_DISPLAY_NAMES[log.lab_id] || log.lab_id.toUpperCase(),
+        plan_title: log.plan?.title || null,
+        plan: log.plan
+          ? {
+              id: log.plan.id || '',
+              title: log.plan.title || '',
+              category: log.plan.category || 'general',
+              interval_days: log.plan.interval_days || 30,
+              target_role: log.plan.target_role || 'lab_incharge',
+              checklist: planChecklist,
+            }
+          : null,
+        performed_by_name: log.performer?.full_name || 'Laboratory Staff',
+        checklist_count: logChecklist.length,
+        checklist_completed_pct: compPct,
+      }
+    })
+
+    const summaryMetrics: MaintenanceSummaryMetrics = {
+      totalLogs: formattedRecords.length,
+      overdueCount,
+      completedThisPeriodCount: formattedRecords.length,
+      uniqueAssetsCount: new Set(formattedRecords.map((r) => r.asset_identifier)).size,
+    }
+
+    const labName = labId !== 'all' ? LAB_DISPLAY_NAMES[labId] || labId.toUpperCase() : 'All Institutional Laboratories'
+    const today = new Date().toISOString().split('T')[0]
+    const filename = `maintenance-records_${labId}_${today}.${format}`
+
+    if (format === 'csv') {
+      const csvString = generateMaintenanceRecordsCsv(formattedRecords, {
+        labName,
+        dateRange: 'Consolidated Logbook History',
+      })
+      const base64 = Buffer.from(csvString, 'utf-8').toString('base64')
+      return {
+        success: true,
+        base64,
+        filename,
+        contentType: 'text/csv; charset=utf-8',
+      }
+    } else {
+      const buffer = await generateMaintenanceRecordsXlsxBuffer(
+        formattedRecords,
+        summaryMetrics,
+        {
+          labName,
+          dateRange: 'Consolidated Logbook History',
+        }
+      )
+      const base64 = buffer.toString('base64')
+      return {
+        success: true,
+        base64,
+        filename,
+        contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      }
+    }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error during maintenance export'
+    return {
+      success: false,
+      error: message,
+    }
+  }
+}

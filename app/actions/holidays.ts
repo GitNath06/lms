@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { isSupabaseConfigured } from '@/lib/supabase/config'
-import { DEFAULT_HOLIDAYS, HolidayItem } from '@/lib/master-data'
+import { DEFAULT_HOLIDAYS, type HolidayItem } from '@/lib/master-data'
 
 let cachedHolidays: { data: HolidayItem[]; timestamp: number } | null = null
 

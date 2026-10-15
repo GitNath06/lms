@@ -1,0 +1,262 @@
+[
+  {
+    "schemaname": "public",
+    "tablename": "class_subjects",
+    "policyname": "Allow manage class_subjects",
+    "permissive": "PERMISSIVE",
+    "roles": "{authenticated}",
+    "cmd": "ALL",
+    "qual": "is_privileged()",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "class_subjects",
+    "policyname": "Allow read class_subjects",
+    "permissive": "PERMISSIVE",
+    "roles": "{authenticated}",
+    "cmd": "SELECT",
+    "qual": "true",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "classes",
+    "policyname": "Allow manage classes",
+    "permissive": "PERMISSIVE",
+    "roles": "{authenticated}",
+    "cmd": "ALL",
+    "qual": "is_privileged()",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "classes",
+    "policyname": "Allow read classes",
+    "permissive": "PERMISSIVE",
+    "roles": "{authenticated}",
+    "cmd": "SELECT",
+    "qual": "true",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "lab_incidents",
+    "policyname": "delete lab incidents",
+    "permissive": "PERMISSIVE",
+    "roles": "{authenticated}",
+    "cmd": "DELETE",
+    "qual": "is_privileged()",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "lab_incidents",
+    "policyname": "insert lab incidents",
+    "permissive": "PERMISSIVE",
+    "roles": "{authenticated}",
+    "cmd": "INSERT",
+    "qual": null,
+    "with_check": "((reported_by_id = auth.uid()) OR is_privileged())"
+  },
+  {
+    "schemaname": "public",
+    "tablename": "lab_incidents",
+    "policyname": "read lab incidents",
+    "permissive": "PERMISSIVE",
+    "roles": "{authenticated}",
+    "cmd": "SELECT",
+    "qual": "(is_privileged() OR (reported_by_id = auth.uid()))",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "lab_incidents",
+    "policyname": "update lab incidents",
+    "permissive": "PERMISSIVE",
+    "roles": "{authenticated}",
+    "cmd": "UPDATE",
+    "qual": "is_privileged()",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "log_attendance",
+    "policyname": "Allow manage log_attendance",
+    "permissive": "PERMISSIVE",
+    "roles": "{authenticated}",
+    "cmd": "ALL",
+    "qual": "true",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "log_attendance",
+    "policyname": "Allow read log_attendance",
+    "permissive": "PERMISSIVE",
+    "roles": "{authenticated}",
+    "cmd": "SELECT",
+    "qual": "true",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "practical_logs",
+    "policyname": "delete practical logs",
+    "permissive": "PERMISSIVE",
+    "roles": "{authenticated}",
+    "cmd": "DELETE",
+    "qual": "is_privileged()",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "practical_logs",
+    "policyname": "insert practical logs",
+    "permissive": "PERMISSIVE",
+    "roles": "{authenticated}",
+    "cmd": "INSERT",
+    "qual": null,
+    "with_check": "(is_privileged() OR (teacher_id = auth.uid()) OR (logged_by = auth.uid()))"
+  },
+  {
+    "schemaname": "public",
+    "tablename": "practical_logs",
+    "policyname": "read practical logs",
+    "permissive": "PERMISSIVE",
+    "roles": "{authenticated}",
+    "cmd": "SELECT",
+    "qual": "(is_privileged() OR (teacher_id = auth.uid()) OR (logged_by = auth.uid()))",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "practical_logs",
+    "policyname": "update practical logs",
+    "permissive": "PERMISSIVE",
+    "roles": "{authenticated}",
+    "cmd": "UPDATE",
+    "qual": "(is_privileged() OR (teacher_id = auth.uid()) OR (logged_by = auth.uid()))",
+    "with_check": "(is_privileged() OR (teacher_id = auth.uid()) OR (logged_by = auth.uid()))"
+  },
+  {
+    "schemaname": "public",
+    "tablename": "schedules",
+    "policyname": "Allow manage schedules",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "ALL",
+    "qual": "true",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "schedules",
+    "policyname": "Allow read schedules",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "SELECT",
+    "qual": "true",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "session_seat_overrides",
+    "policyname": "manage_session_seat_overrides_privileged",
+    "permissive": "PERMISSIVE",
+    "roles": "{authenticated}",
+    "cmd": "ALL",
+    "qual": "is_privileged()",
+    "with_check": "is_privileged()"
+  },
+  {
+    "schemaname": "public",
+    "tablename": "session_seat_overrides",
+    "policyname": "read_session_seat_overrides_scoped",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "SELECT",
+    "qual": "true",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "student_enrollments",
+    "policyname": "manage_student_enrollments_privileged",
+    "permissive": "PERMISSIVE",
+    "roles": "{authenticated}",
+    "cmd": "ALL",
+    "qual": "is_privileged()",
+    "with_check": "is_privileged()"
+  },
+  {
+    "schemaname": "public",
+    "tablename": "student_enrollments",
+    "policyname": "read_student_enrollments_scoped",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "SELECT",
+    "qual": "true",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "students",
+    "policyname": "manage_students_privileged",
+    "permissive": "PERMISSIVE",
+    "roles": "{authenticated}",
+    "cmd": "ALL",
+    "qual": "is_privileged()",
+    "with_check": "is_privileged()"
+  },
+  {
+    "schemaname": "public",
+    "tablename": "students",
+    "policyname": "read_students_scoped",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "SELECT",
+    "qual": "true",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "subjects",
+    "policyname": "Allow manage subjects",
+    "permissive": "PERMISSIVE",
+    "roles": "{authenticated}",
+    "cmd": "ALL",
+    "qual": "is_privileged()",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "subjects",
+    "policyname": "Allow read subjects",
+    "permissive": "PERMISSIVE",
+    "roles": "{authenticated}",
+    "cmd": "SELECT",
+    "qual": "true",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "workstation_seat_plans",
+    "policyname": "manage_workstation_seat_plans_privileged",
+    "permissive": "PERMISSIVE",
+    "roles": "{authenticated}",
+    "cmd": "ALL",
+    "qual": "is_privileged()",
+    "with_check": "is_privileged()"
+  },
+  {
+    "schemaname": "public",
+    "tablename": "workstation_seat_plans",
+    "policyname": "read_workstation_seat_plans_scoped",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "SELECT",
+    "qual": "true",
+    "with_check": null
+  }
+]

@@ -17,7 +17,7 @@ import {
   resetSchedulesToMaster as resetSchedulesToMasterAction,
   updateScheduleStatus,
 } from '@/app/actions/schedules'
-import { parseSlotTimeRange } from '@/lib/utils'
+import { parseSlotTimeRange, sortSessionsChronologically } from '@/lib/utils'
 import { broadcastSync, subscribeToSync } from '@/lib/sync-bus'
 
 const STORAGE_KEY = 'lab_master_routine_2083_v6'
@@ -32,7 +32,14 @@ export function deduplicateRoutines(items: MasterRoutineItem[]): MasterRoutineIt
     seen.add(item.id)
     result.push(item)
   }
-  return result
+  return sortSessionsChronologically(result)
+}
+
+function formatRoutineSubject(code?: string, title?: string): string {
+  if (!code && !title) return 'Practical Session'
+  if (!code) return title!
+  if (!title) return code
+  return title.toLowerCase().startsWith(code.toLowerCase()) ? title : `${code} - ${title}`
 }
 
 // Schedule Outbox Helpers
@@ -102,7 +109,7 @@ export function useRoutineState() {
       for (const item of pending) {
         const res = await createSchedule({
           lab_id: item.labKey === 'comp' ? 'comp' : item.labKey === 'phys' ? 'phys' : item.labKey === 'chem' ? 'chem' : item.labKey === 'bio' ? 'bio' : 'elec',
-          subject_name: `${item.subjectCode} - ${item.subjectTitle}`,
+          subject_name: formatRoutineSubject(item.subjectCode, item.subjectTitle),
           batch_name: item.grade,
           day_key: item.dayKey,
           slot_id: item.slotId,
@@ -186,7 +193,10 @@ export function useRoutineState() {
               id: s.id,
               day: DAY_NAME_MAP[s.day_key] || 'Sunday',
               dayKey: s.day_key || 'sun',
-              timeSlot: `${s.start_time} - ${s.end_time}`,
+              timeSlot:
+                (s.span && s.span > 1 && s.slot_id)
+                  ? computeCombinedTimeRange(s.slot_id, s.span)
+                  : `${s.start_time} - ${s.end_time}`,
               slotId: s.slot_id || 't2',
               span: s.span || 1,
               subjectCode: s.subject_name.split(' ')[0] || 'PRAC',
@@ -325,7 +335,7 @@ export function useRoutineState() {
       try {
         const res = await createSchedule({
           lab_id: session.labKey === 'comp' ? 'comp' : session.labKey === 'phys' ? 'phys' : session.labKey === 'chem' ? 'chem' : session.labKey === 'bio' ? 'bio' : 'elec',
-          subject_name: `${session.subjectCode} - ${session.subjectTitle}`,
+          subject_name: formatRoutineSubject(session.subjectCode, session.subjectTitle),
           batch_name: session.grade,
           day_key: session.dayKey,
           slot_id: session.slotId,
@@ -390,7 +400,7 @@ export function useRoutineState() {
 
         const res = await updateScheduleAction(sessionId, {
           lab_id: labId,
-          subject_name: `${updated.subjectCode} - ${updated.subjectTitle}`,
+          subject_name: formatRoutineSubject(updated.subjectCode, updated.subjectTitle),
           batch_name: updated.grade,
           day_key: updated.dayKey,
           slot_id: updated.slotId,
@@ -457,8 +467,12 @@ export function useRoutineState() {
       if (next) {
         const combinedSpan = (current.span || 1) + (next.span || 1)
         const combinedTimeSlot = computeCombinedTimeRange(current.slotId, combinedSpan)
-        const combinedCode = mergedCode || `${current.subjectCode} + ${next.subjectCode}`
-        const combinedTitle = mergedTitle || `${current.subjectTitle} & ${next.subjectTitle}`
+        const isSameCode = Boolean(current.subjectCode === next.subjectCode)
+        const isSameTitle = Boolean(current.subjectTitle === next.subjectTitle)
+        const combinedCode =
+          mergedCode || (isSameCode ? current.subjectCode : `${current.subjectCode} + ${next.subjectCode}`)
+        const combinedTitle =
+          mergedTitle || (isSameTitle ? current.subjectTitle : `${current.subjectTitle} & ${next.subjectTitle}`)
         const combinedGrade = mergedGrade || (current.grade === next.grade ? current.grade : `${current.grade} & ${next.grade}`)
         const combinedTeacher = mergedTeacher || (current.teacher === next.teacher ? current.teacher : `${current.teacher} & ${next.teacher}`)
         const combinedStudents = (current.defaultStudents || 36) + (next.defaultStudents || 36)
@@ -657,7 +671,7 @@ export function useRoutineState() {
       try {
         const res = await createSchedule({
           lab_id: session.labKey === 'comp' ? 'comp' : session.labKey === 'phys' ? 'phys' : session.labKey === 'chem' ? 'chem' : session.labKey === 'bio' ? 'bio' : 'elec',
-          subject_name: `${session.subjectCode} - ${session.subjectTitle}`,
+          subject_name: formatRoutineSubject(session.subjectCode, session.subjectTitle),
           batch_name: session.grade,
           day_key: session.dayKey,
           slot_id: session.slotId,

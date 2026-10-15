@@ -13,6 +13,14 @@ for (const line of env.split('\n')) {
   }
 }
 
+if (dbUrl.includes('db.') && dbUrl.includes('.supabase.co')) {
+  const match = dbUrl.match(/postgresql:\/\/([^:]+):(.+)@db\.([a-z0-9]+)\.supabase\.co(?::\d+)?\/(.+)$/)
+  if (match) {
+    const [, , pass, ref, db] = match
+    dbUrl = `postgresql://postgres.${ref}:${encodeURIComponent(pass)}@aws-0-ap-southeast-1.pooler.supabase.com:5432/${db}`
+  }
+}
+
 describe('Institutional Audit Trail Engine & Security Suite', () => {
   test('Secret and credential redaction scrubs sensitive fields', () => {
     const beforeState = {

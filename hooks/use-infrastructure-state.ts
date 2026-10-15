@@ -42,6 +42,7 @@ export interface LabFacilityItem {
   capacity: number
   type: string
   status: string
+  is_active?: boolean
 }
 
 export interface ClassEnrollmentItem {
@@ -58,6 +59,7 @@ export interface FacultyMemberItem {
   dept: string
   role: string
   email: string
+  photo_url?: string | null
   assignedSubjectCodes?: string[]
 }
 
@@ -378,6 +380,7 @@ export function useInfrastructureState() {
                 capacity: l.capacity || 40,
                 type: l.type || 'computer_lab',
                 status: l.status || (l.is_active ? 'Operational' : 'Inactive'),
+                is_active: l.is_active !== undefined ? l.is_active : l.status === 'Operational',
               }))
               try {
                 localStorage.setItem(STORAGE_KEYS.LABS, JSON.stringify(mappedLabs))
@@ -408,6 +411,7 @@ export function useInfrastructureState() {
                 dept: p.department || 'Academic Department',
                 role: p.role === 'admin' ? 'Lab In-Charge' : 'Senior Faculty',
                 email: p.email || '',
+                photo_url: p.photo_url || p.avatar_url || null,
                 assignedSubjectCodes: [],
               }))
               try {
@@ -572,6 +576,7 @@ export function useInfrastructureState() {
                   capacity: l.capacity || 40,
                   type: l.type || 'computer_lab',
                   status: l.status || (l.is_active ? 'Operational' : 'Inactive'),
+                  is_active: l.is_active !== undefined ? l.is_active : l.status === 'Operational',
                 }))
                 try {
                   localStorage.setItem(STORAGE_KEYS.LABS, JSON.stringify(mapped))

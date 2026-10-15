@@ -91,3 +91,62 @@ export function parseSlotTimeRange(labelOrSlot: string): ParsedTimeRange {
 export function isValidUuid(id?: string | null): boolean {
   return typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)
 }
+
+/**
+ * Parses any time string into 24-hour minutes from midnight using academic timetable semantics.
+ */
+export function parseTimeToMinutes(timeStr: string): number {
+  if (!timeStr) return 0
+  const parsed = parseSlotTimeRange(timeStr)
+  return parsed.startMin
+}
+
+/**
+ * Universal Chronological Session Sorter
+ * Correctly orders academic timetable slots by slot sequence and 24-hour start time,
+ * eliminating 12-hour string sorting bugs where afternoon slots (e.g. 01:45 PM) appear before morning slots (10:10 AM).
+ */
+export function sortSessionsChronologically<T>(items: T[]): T[] {
+  const slotOrder: Record<string, number> = {
+    t1: 1, // Pre-Period (09:15 - 10:00)
+    t2: 2, // Period 1 (10:10 - 11:00)
+    t3: 3, // Period 2 (11:00 - 11:45)
+    t4: 4, // Period 3 (11:45 - 12:30)
+    t5: 5, // Period 4 (12:30 - 01:15)
+    t6: 6, // Break / Tiffin (01:15 - 01:45)
+    t7: 7, // Period 5 (01:45 - 02:30)
+    t8: 8, // Period 6 (02:30 - 03:15)
+    t9: 9, // Period 7 (03:15 - 04:05)
+    t10: 10, // Period 8 (04:05 - 04:50)
+  }
+
+  return [...items].sort((a: any, b: any) => {
+    const slotA = a.slot_id || a.slotId || ''
+    const slotB = b.slot_id || b.slotId || ''
+    const orderA = slotOrder[slotA] || 0
+    const orderB = slotOrder[slotB] || 0
+
+    if (orderA && orderB && orderA !== orderB) {
+      return orderA - orderB
+    }
+
+    const timeA = parseTimeToMinutes(a.start_time || a.startTime || a.timeSlot || '')
+    const timeB = parseTimeToMinutes(b.start_time || b.startTime || b.timeSlot || '')
+
+    if (timeA !== timeB) {
+      return timeA - timeB
+    }
+
+    // Tie-breaker: lab name / code (stable natural ordering)
+    const labA = a.lab || a.lab_id || ''
+    const labB = b.lab || b.lab_id || ''
+    if (labA !== labB) {
+      return labA.localeCompare(labB)
+    }
+
+    const subA = a.subject_name || a.subjectCode || ''
+    const subB = b.subject_name || b.subjectCode || ''
+    return subA.localeCompare(subB)
+  })
+}
+

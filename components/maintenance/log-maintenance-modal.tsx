@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { NepaliDatePicker } from '@/components/ui/nepali-date-picker'
 import {
   MaintenancePlanRecord,
   MaintenanceReminderRecord,
@@ -383,7 +384,7 @@ export default function LogMaintenanceModal({
               <Input
                 value={assetIdentifier}
                 onChange={(e) => setAssetIdentifier(e.target.value)}
-                placeholder="e.g. Workstations PC 01–28, Server Rack, Master PC, Projector"
+                placeholder="e.g. PC 01–28, Server Rack"
                 className="h-9 text-xs"
                 required
               />
@@ -436,7 +437,7 @@ export default function LogMaintenanceModal({
             <textarea
               value={workPerformed}
               onChange={(e) => setWorkPerformed(e.target.value)}
-              placeholder="e.g. Applied thermal paste across all 30 PCs, blew out heatsink dust, updated BIOS firmware to v2.14, tested memory stability."
+              placeholder="Describe maintenance tasks performed..."
               rows={3}
               className="w-full p-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-xs text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-1 focus:ring-indigo-500 shadow-2xs leading-relaxed"
               required
@@ -453,7 +454,7 @@ export default function LogMaintenanceModal({
               <Input
                 value={partsReplaced}
                 onChange={(e) => setPartsReplaced(e.target.value)}
-                placeholder="e.g. Arctic MX-4 paste, 2x CMOS batteries"
+                placeholder="e.g. Thermal paste, CMOS battery"
                 className="h-9 text-xs"
               />
             </div>
@@ -463,12 +464,10 @@ export default function LogMaintenanceModal({
                 <Calendar className="h-3.5 w-3.5 text-zinc-400" />
                 Service Date
               </label>
-              <Input
-                type="date"
+              <NepaliDatePicker
                 value={serviceDate}
-                onChange={(e) => setServiceDate(e.target.value)}
-                className="h-9 text-xs"
-                required
+                onChange={(d) => setServiceDate(d)}
+                placeholder="मर्मत मिति / Service Date"
               />
             </div>
           </div>
@@ -481,7 +480,7 @@ export default function LogMaintenanceModal({
             <Input
               value={remarks}
               onChange={(e) => setRemarks(e.target.value)}
-              placeholder="e.g. PC-12 CPU fan bearing makes faint hum; check next month."
+              placeholder="e.g. Check fan noise on PC-12 next cycle"
               className="h-9 text-xs"
             />
           </div>

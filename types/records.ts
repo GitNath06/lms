@@ -1,8 +1,10 @@
-import { Database } from './database'
+import type { Database, MaintenanceLogRow, MaintenancePlanRow, MaintenanceReminderRow } from './database'
 
 export type PracticalLogRow = Database['public']['Tables']['practical_logs']['Row']
 export type LabIncidentRow = Database['public']['Tables']['lab_incidents']['Row']
 export type LabNotificationRow = Database['public']['Tables']['lab_notifications']['Row']
+export type { MaintenanceLogRow, MaintenancePlanRow, MaintenanceReminderRow }
+export type { SeatingSnapshotEntry, SeatingSnapshot } from '@/lib/types/seat-plans'
 
 export interface PracticalRecordItem extends PracticalLogRow {
   labs?: {
@@ -18,20 +20,40 @@ export interface PracticalRecordItem extends PracticalLogRow {
   } | null
   attendance_pct: number
   absent_rolls?: (number | string)[] | null
+  subject_code?: string | null
+  subject_title?: string | null
+  academic_year_id?: string | null
+  academic_year_name?: string | null
 }
 
 export type PracticalGroupingKey = 'none' | 'batch_group' | 'subject_name' | 'teacher' | 'period_label'
 
 export interface PracticalRecordFilters {
+  academic_year_id?: string
   batch_group?: string
   subject_name?: string
   teacher_id?: string
+  teacher_name?: string
   period_label?: string
+  remarks?: string
   lab_id?: string
   date_from?: string
   date_to?: string
-  status?: 'all' | 'conducted' | 'skipped'
+  date?: string
+  status?: string
   search?: string
+  page?: number
+  pageSize?: number
+  sortKey?: string
+  sortDirection?: 'asc' | 'desc'
+  selected_ids?: string[]
+}
+
+export interface ExportScopeDecision {
+  mode: 'SELECTED_EXPLICIT' | 'ALL_MATCHING_EXPLICIT' | 'FILTERED_DEFAULT'
+  selectedIds?: string[]
+  filterSummary: string
+  traceabilityNote: string
 }
 
 export interface PracticalGroupSubtotal {
@@ -84,16 +106,25 @@ export interface IncidentRecordItem extends LabIncidentRow {
 }
 
 export interface IncidentRecordFilters {
+  academic_year_id?: string
   lab_id?: string
-  severity?: 'all' | 'minor' | 'moderate' | 'major_critical'
+  severity?: string
   incident_type?: string
-  status?: 'all' | 'reported' | 'escalated_to_hod' | 'under_repair' | 'replaced' | 'resolved'
+  status?: string
   date_from?: string
   date_to?: string
+  date?: string
   subject_name?: string
   teacher_name?: string
   batch_name?: string
+  equipment_name?: string
+  title?: string
   search?: string
+  page?: number
+  pageSize?: number
+  sortKey?: string
+  sortDirection?: 'asc' | 'desc'
+  selected_ids?: string[]
 }
 
 export interface IncidentSummaryMetrics {
@@ -111,3 +142,33 @@ export interface IncidentSummaryMetrics {
 }
 
 export type ExportFormat = 'xlsx' | 'csv' | 'pdf'
+
+export interface MaintenanceRecordItem extends MaintenanceLogRow {
+  lab_name?: string
+  plan_title?: string | null
+  plan?: {
+    id: string
+    title: string
+    category: string
+    interval_days: number
+    target_role: string
+    checklist: string[]
+  } | null
+  performed_by_name?: string
+  checklist_count: number
+  checklist_completed_pct: number
+}
+
+export interface MaintenanceSummaryMetrics {
+  totalLogs: number
+  overdueCount: number
+  completedThisPeriodCount: number
+  uniqueAssetsCount?: number
+}
+
+export interface MaintenanceRecordFilters {
+  lab_id?: string
+  date_from?: string
+  date_to?: string
+  search?: string
+}

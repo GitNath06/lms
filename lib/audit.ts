@@ -1,5 +1,5 @@
 import { getPgPool } from './db'
-import { getServerUserScope } from './context/user-scope'
+import { getServerUserScope } from './context/server-user-scope'
 import type { LogAuditEventParams, AuditStructuredDiff } from '../types/audit'
 import {
   computeStructuredDiff,

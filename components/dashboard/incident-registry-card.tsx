@@ -29,11 +29,11 @@ export default function IncidentRegistryCard() {
 
   return (
     <>
-      <Card className="glass-card border border-zinc-200/80 dark:border-white/[0.08] shadow-2xs overflow-hidden relative">
+      <Card className="glass-card overflow-hidden relative">
         {/* Milled Top Specular Sheen */}
         <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-white/15 to-transparent pointer-events-none" />
 
-        <CardHeader className="p-3 sm:p-3.5 pb-2 border-b border-zinc-100 dark:border-white/[0.06] flex flex-row items-center justify-between">
+        <CardHeader className="p-3 sm:p-3.5 pb-2 border-b border-zinc-200/60 dark:border-white/[0.06] flex flex-row items-center justify-between">
           <div>
             <CardTitle className="text-xs sm:text-[13px] font-bold font-sans text-zinc-900 dark:text-zinc-100 uppercase tracking-wider flex items-center gap-2">
               <span className={`h-2 w-2 rounded-full ${activeIncidents.length > 0 ? 'bg-rose-500' : 'bg-slate-400 dark:bg-slate-500'}`} />
@@ -72,7 +72,7 @@ export default function IncidentRegistryCard() {
               </p>
             </div>
           ) : (
-            <div className="divide-y divide-zinc-100 dark:divide-white/[0.06] -my-1">
+            <div className="divide-y divide-zinc-200/60 dark:divide-white/[0.06] -my-1">
               {activeIncidents.map((inc) => {
                 const isCritical = inc.severity === 'major_critical'
                 const isEscalated = inc.status === 'escalated_to_hod'

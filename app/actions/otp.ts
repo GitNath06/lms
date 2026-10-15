@@ -1,20 +1,117 @@
 'use server'
 
-import { after } from 'next/server'
 import pg from 'pg'
 import { sendVerificationOtpEmail, sendPasswordResetOtpEmail } from '@/lib/mailer'
-import { DEFAULT_ROLE_PERMISSIONS, UserRole } from '@/lib/permissions'
+import { DEFAULT_ROLE_PERMISSIONS, type UserRole } from '@/lib/permissions'
 import { dispatchNewUserRegistrationAlert } from '@/app/actions/notifications'
+import { resolveDatabaseUrl } from '@/lib/db'
+
+/**
+ * Executes a background task after response completion if Next.js runtime is present,
+ * or immediately in test / standalone CLI contexts.
+ */
+async function runAfterResponse(task: () => Promise<void> | void) {
+  try {
+    const nextServer = await import('next/server')
+    if (typeof nextServer.after === 'function') {
+      nextServer.after(task)
+      return
+    }
+  } catch {
+    // Standalone Node / test runner fallback
+  }
+  task()
+}
 
 function getPgClient() {
+  const connectionString = resolveDatabaseUrl(process.env.DATABASE_URL)
+  if (!connectionString) {
+    throw new Error('DATABASE_URL is not configured.')
+  }
   return new pg.Client({
-    connectionString: process.env.DATABASE_URL,
+    connectionString,
     ssl: { rejectUnauthorized: false },
   })
 }
 
 function generateNumericOtp(): string {
   return Math.floor(100000 + Math.random() * 900000).toString()
+}
+
+/**
+ * Safely extracts the client IP from request headers in Next.js Server Actions.
+ * Handles x-forwarded-for (Vercel, Cloudflare, AWS ALB), x-real-ip, and cf-connecting-ip.
+ * Gracefully defaults to '127.0.0.1' if called outside an active HTTP request cycle (e.g. tests/CLI).
+ */
+async function getClientIp(): Promise<string> {
+  try {
+    const { headers } = await import('next/headers')
+    const headerList = await headers()
+    const vercelForwardedFor = headerList.get('x-vercel-forwarded-for')
+    if (vercelForwardedFor) return vercelForwardedFor.split(',')[0].trim()
+    const forwardedFor = headerList.get('x-forwarded-for')
+    if (forwardedFor) {
+      const firstIp = forwardedFor.split(',')[0].trim()
+      if (firstIp) return firstIp
+    }
+    const realIp = headerList.get('x-real-ip')
+    if (realIp) return realIp.trim()
+    const cfConnectingIp = headerList.get('cf-connecting-ip')
+    if (cfConnectingIp) return cfConnectingIp.trim()
+    const clientIpHeader = headerList.get('x-client-ip')
+    if (clientIpHeader) return clientIpHeader.trim()
+  } catch {
+    // Non-HTTP invocation (tests, CLI, background workers)
+  }
+  return '127.0.0.1'
+}
+
+/**
+ * PostgreSQL-native sliding-window rate limiter using public.rate_limit_events.
+ * Operates on the trusted server pool with RLS enabled and zero client grants.
+ */
+async function checkRateLimit(
+  client: pg.Client,
+  ip: string,
+  action: 'generate_signup_otp' | 'generate_reset_otp' | 'verify_signup_otp' | 'verify_reset_otp',
+  maxAllowed: number,
+  windowMinutes: number = 10
+): Promise<{ allowed: boolean; count: number }> {
+  const key = `${ip}:${action}`
+
+  // 1. Opportunistic inline cleanup of events older than 1 hour to keep table bounded
+  try {
+    await client.query(`DELETE FROM public.rate_limit_events WHERE created_at < now() - interval '1 hour'`)
+  } catch {
+    // Non-fatal if concurrent cleanup
+  }
+
+  // 2. Count existing events in the sliding window
+  const countRes = await client.query(
+    `
+    SELECT count(*)::int as event_count
+    FROM public.rate_limit_events
+    WHERE key = $1 AND created_at > now() - ($2 || ' minutes')::interval
+    `,
+    [key, windowMinutes]
+  )
+
+  const eventCount = countRes.rows[0]?.event_count ?? 0
+
+  if (eventCount >= maxAllowed) {
+    return { allowed: false, count: eventCount }
+  }
+
+  // 3. Record this event
+  await client.query(
+    `
+    INSERT INTO public.rate_limit_events (key, action, created_at)
+    VALUES ($1, $2, now())
+    `,
+    [key, action]
+  )
+
+  return { allowed: true, count: eventCount + 1 }
 }
 
 /**
@@ -37,6 +134,35 @@ export async function generateAndSendSignupOtp(emailRaw: string, fullNameRaw: st
   const client = getPgClient()
   try {
     await client.connect()
+
+    // 1. IP Rate Limiting Check: max 10 generation attempts per IP per 10 minutes
+    const clientIp = await getClientIp()
+    const rateCheck = await checkRateLimit(client, clientIp, 'generate_signup_otp', 10, 10)
+    if (!rateCheck.allowed) {
+      await client.end()
+      return { error: 'Rate limit exceeded: Too many verification requests from this IP address. Please wait 10 minutes.' }
+    }
+
+    // 2. Cooldown check: 60-second cooldown on generation for this email + purpose
+    const recentRes = await client.query(
+      `
+      SELECT created_at
+      FROM public.email_otps
+      WHERE email = $1 AND purpose = 'signup'
+      ORDER BY created_at DESC
+      LIMIT 1;
+      `,
+      [email]
+    )
+
+    if (recentRes.rows.length > 0) {
+      const lastCreated = new Date(recentRes.rows[0].created_at).getTime()
+      const elapsedSeconds = (Date.now() - lastCreated) / 1000
+      if (elapsedSeconds < 60) {
+        await client.end()
+        return { error: 'Please wait before requesting another code.' }
+      }
+    }
 
     // Check if account already exists
     const existing = await client.query(`SELECT id FROM auth.users WHERE email = $1`, [email])
@@ -109,45 +235,73 @@ export async function verifySignupAndCreateAccount(formData: FormData, otpCodeRa
   try {
     await client.connect()
 
-    // Verify OTP
-    const otpRes = await client.query(
+    // 1. IP Rate Limiting Check: max 20 verify attempts per IP per 10 minutes
+    const clientIp = await getClientIp()
+    const rateCheck = await checkRateLimit(client, clientIp, 'verify_signup_otp', 20, 10)
+    if (!rateCheck.allowed) {
+      await client.end()
+      return { error: 'Rate limit exceeded: Too many verification attempts from this IP address. Please wait 10 minutes.' }
+    }
+
+    // 2. Atomic attempt increment & eligibility check (closes concurrency race window)
+    const updateRes = await client.query(
       `
-      SELECT id, otp_code, attempts, expires_at
-      FROM public.email_otps
-      WHERE email = $1 AND purpose = 'signup' AND is_verified = FALSE
-      ORDER BY created_at DESC
-      LIMIT 1;
+      UPDATE public.email_otps
+      SET attempts = attempts + 1
+      WHERE id = (
+        SELECT id FROM public.email_otps
+        WHERE email = $1 AND purpose = 'signup' AND is_verified = FALSE
+        ORDER BY created_at DESC
+        LIMIT 1
+      )
+      AND attempts < 5
+      AND is_verified = FALSE
+      AND expires_at > now()
+      RETURNING id, otp_code, attempts;
       `,
       [email]
     )
 
-    if (otpRes.rows.length === 0) {
+    // 3. Zero rows returned: differentiate record not found vs attempts exhausted vs expired
+    if (updateRes.rows.length === 0) {
+      const inspectRes = await client.query(
+        `
+        SELECT id, attempts, expires_at, is_verified
+        FROM public.email_otps
+        WHERE email = $1 AND purpose = 'signup'
+        ORDER BY created_at DESC
+        LIMIT 1;
+        `,
+        [email]
+      )
+
       await client.end()
+
+      if (inspectRes.rows.length === 0 || inspectRes.rows[0].is_verified) {
+        return { error: 'No active verification code found. Please request a new code.' }
+      }
+
+      const rec = inspectRes.rows[0]
+      if (rec.attempts >= 5) {
+        return { error: 'Too many incorrect attempts. Please request a new verification code.' }
+      }
+
+      if (new Date(rec.expires_at) <= new Date()) {
+        return { error: 'Verification code has expired. Please request a fresh code.' }
+      }
+
       return { error: 'No active verification code found. Please request a new code.' }
     }
 
-    const record = otpRes.rows[0]
+    const record = updateRes.rows[0]
 
-    // Check expiration
-    if (new Date(record.expires_at) < new Date()) {
-      await client.end()
-      return { error: 'Verification code has expired. Please request a fresh code.' }
-    }
-
-    // Check attempts (max 5)
-    if (record.attempts >= 5) {
-      await client.end()
-      return { error: 'Too many incorrect attempts. Please request a new verification code.' }
-    }
-
-    // Check match
+    // 4. Compare verification code
     if (record.otp_code !== otpCode) {
-      await client.query(`UPDATE public.email_otps SET attempts = attempts + 1 WHERE id = $1`, [record.id])
       await client.end()
       return { error: 'Invalid verification code. Please check your email and enter the 6-digit code.' }
     }
 
-    // Mark OTP as verified
+    // 5. Mark OTP as verified
     await client.query(`UPDATE public.email_otps SET is_verified = TRUE WHERE id = $1`, [record.id])
 
     // Double check email uniqueness
@@ -293,7 +447,7 @@ export async function verifySignupAndCreateAccount(formData: FormData, otpCodeRa
     await client.end()
 
     // Non-blocking background notification to Super Admins & Lab In-Charges
-    after(async () => {
+    runAfterResponse(async () => {
       await dispatchNewUserRegistrationAlert({
         fullName,
         email,
@@ -332,6 +486,35 @@ export async function generateAndSendPasswordResetOtp(emailRaw: string) {
   const client = getPgClient()
   try {
     await client.connect()
+
+    // 1. IP Rate Limiting Check: max 10 generation attempts per IP per 10 minutes
+    const clientIp = await getClientIp()
+    const rateCheck = await checkRateLimit(client, clientIp, 'generate_reset_otp', 10, 10)
+    if (!rateCheck.allowed) {
+      await client.end()
+      return { error: 'Rate limit exceeded: Too many reset requests from this IP address. Please wait 10 minutes.' }
+    }
+
+    // 2. Cooldown check: 60-second cooldown on generation for this email + purpose
+    const recentRes = await client.query(
+      `
+      SELECT created_at
+      FROM public.email_otps
+      WHERE email = $1 AND purpose = 'reset_password'
+      ORDER BY created_at DESC
+      LIMIT 1;
+      `,
+      [email]
+    )
+
+    if (recentRes.rows.length > 0) {
+      const lastCreated = new Date(recentRes.rows[0].created_at).getTime()
+      const elapsedSeconds = (Date.now() - lastCreated) / 1000
+      if (elapsedSeconds < 60) {
+        await client.end()
+        return { error: 'Please wait before requesting another code.' }
+      }
+    }
 
     // Verify account exists
     const userRes = await client.query(
@@ -410,41 +593,73 @@ export async function verifyAndResetPassword(emailRaw: string, otpCodeRaw: strin
   try {
     await client.connect()
 
-    const otpRes = await client.query(
+    // 1. IP Rate Limiting Check: max 20 verify attempts per IP per 10 minutes
+    const clientIp = await getClientIp()
+    const rateCheck = await checkRateLimit(client, clientIp, 'verify_reset_otp', 20, 10)
+    if (!rateCheck.allowed) {
+      await client.end()
+      return { error: 'Rate limit exceeded: Too many password recovery attempts from this IP address. Please wait 10 minutes.' }
+    }
+
+    // 2. Atomic attempt increment & eligibility check (closes concurrency race window)
+    const updateRes = await client.query(
       `
-      SELECT id, otp_code, attempts, expires_at
-      FROM public.email_otps
-      WHERE email = $1 AND purpose = 'reset_password' AND is_verified = FALSE
-      ORDER BY created_at DESC
-      LIMIT 1;
+      UPDATE public.email_otps
+      SET attempts = attempts + 1
+      WHERE id = (
+        SELECT id FROM public.email_otps
+        WHERE email = $1 AND purpose = 'reset_password' AND is_verified = FALSE
+        ORDER BY created_at DESC
+        LIMIT 1
+      )
+      AND attempts < 5
+      AND is_verified = FALSE
+      AND expires_at > now()
+      RETURNING id, otp_code, attempts;
       `,
       [email]
     )
 
-    if (otpRes.rows.length === 0) {
+    // 3. Zero rows returned: differentiate record not found vs attempts exhausted vs expired
+    if (updateRes.rows.length === 0) {
+      const inspectRes = await client.query(
+        `
+        SELECT id, attempts, expires_at, is_verified
+        FROM public.email_otps
+        WHERE email = $1 AND purpose = 'reset_password'
+        ORDER BY created_at DESC
+        LIMIT 1;
+        `,
+        [email]
+      )
+
       await client.end()
+
+      if (inspectRes.rows.length === 0 || inspectRes.rows[0].is_verified) {
+        return { error: 'No active password recovery request found. Please request a new code.' }
+      }
+
+      const rec = inspectRes.rows[0]
+      if (rec.attempts >= 5) {
+        return { error: 'Too many incorrect attempts. Please request a new code.' }
+      }
+
+      if (new Date(rec.expires_at) <= new Date()) {
+        return { error: 'Recovery code has expired. Please request a new one.' }
+      }
+
       return { error: 'No active password recovery request found. Please request a new code.' }
     }
 
-    const record = otpRes.rows[0]
+    const record = updateRes.rows[0]
 
-    if (new Date(record.expires_at) < new Date()) {
-      await client.end()
-      return { error: 'Recovery code has expired. Please request a new one.' }
-    }
-
-    if (record.attempts >= 5) {
-      await client.end()
-      return { error: 'Too many incorrect attempts. Please request a new code.' }
-    }
-
+    // 4. Compare verification code
     if (record.otp_code !== otpCode) {
-      await client.query(`UPDATE public.email_otps SET attempts = attempts + 1 WHERE id = $1`, [record.id])
       await client.end()
       return { error: 'Invalid verification code.' }
     }
 
-    // Mark OTP as verified
+    // 5. Mark OTP as verified
     await client.query(`UPDATE public.email_otps SET is_verified = TRUE WHERE id = $1`, [record.id])
 
     // Update password in auth.users

@@ -140,7 +140,16 @@ export default function NotificationBell({
   // 🎯 Logically filter notifications based on the user's role and identity
   const userNotifications = useMemo(() => {
     const role = currentUserRole || 'teacher'
+    const seen = new Set<string>()
     return notifications.filter((notif) => {
+      if (!notif?.id || seen.has(notif.id)) return false
+
+      // Deduplicate by incident_id + target_role so optimistic and server copies don't duplicate
+      const dedupKey = notif.incident_id ? `${notif.incident_id}:${notif.target_role}` : notif.id
+      if (seen.has(dedupKey)) return false
+      seen.add(notif.id)
+      seen.add(dedupKey)
+
       if (role === 'super_admin') return true
 
       if (role === 'hod') {

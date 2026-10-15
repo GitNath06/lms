@@ -54,11 +54,11 @@ export default function SyllabusProgress() {
   const currentView = hasQuotas ? activeTab : 'recent'
 
   return (
-    <Card className="glass-card border border-zinc-200/80 dark:border-white/[0.08] shadow-2xs relative overflow-hidden">
+    <Card className="glass-card relative overflow-hidden">
       {/* Milled Top Specular Sheen */}
       <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-white/15 to-transparent pointer-events-none" />
 
-      <CardHeader className="p-4 pb-3 border-b border-zinc-100 dark:border-white/[0.06] flex flex-row items-center justify-between">
+      <CardHeader className="p-4 pb-3 border-b border-zinc-200/60 dark:border-white/[0.06] flex flex-row items-center justify-between">
         <div>
           <CardTitle className="text-xs sm:text-[13px] font-bold font-sans text-zinc-900 dark:text-zinc-100 uppercase tracking-wider flex items-center gap-2">
             <span className="h-2 w-2 rounded-full bg-indigo-500" />
@@ -93,7 +93,7 @@ export default function SyllabusProgress() {
               {syllabusTracks.map((track, i) => (
                 <div
                   key={i}
-                  className="p-2.5 rounded-xl border border-zinc-200/60 dark:border-white/[0.06] bg-zinc-50/40 dark:bg-surface-2/40 hover:-translate-y-0.5 transition-all duration-150 ease-out motion-reduce:hover:translate-y-0 hover:shadow-2xs space-y-1.5"
+                  className="p-2.5 rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-zinc-50/80 dark:bg-surface-2/60 hover:-translate-y-0.5 transition-all duration-150 ease-out motion-reduce:hover:translate-y-0 shadow-2xs space-y-1.5"
                 >
                   <div className="flex items-center justify-between text-xs">
                     <div className="flex items-center gap-1.5 truncate">
@@ -143,7 +143,7 @@ export default function SyllabusProgress() {
                 return (
                   <div
                     key={log.id}
-                    className="p-2.5 rounded-xl border border-zinc-200/60 dark:border-white/[0.06] bg-zinc-50/40 dark:bg-surface-2/40 space-y-1 text-xs font-sans"
+                    className="p-2.5 rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-zinc-50/80 dark:bg-surface-2/60 shadow-2xs space-y-1 text-xs font-sans"
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-1.5 truncate">

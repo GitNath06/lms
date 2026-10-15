@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { MasterRoutineItem } from '@/lib/master-data'
+import { useInfrastructureState } from '@/hooks/use-infrastructure-state'
 
 interface LiveSessionCockpitProps {
   ongoingSessions: MasterRoutineItem[]
@@ -45,6 +46,7 @@ export default function LiveSessionCockpit({
   todayHolidayName,
 }: LiveSessionCockpitProps) {
   const [mounted, setMounted] = useState(false)
+  const { faculty } = useInfrastructureState()
   const [selectedLabIndex, setSelectedLabIndex] = useState(0)
 
   // Guardrail 1: Hydration guard
@@ -55,7 +57,7 @@ export default function LiveSessionCockpit({
   // SKELETON / STATIC FALLBACK DURING SSR HYDRATION
   if (!mounted) {
     return (
-      <div className="glass-card rounded-2xl p-3.5 sm:p-4 border border-zinc-200/80 dark:border-zinc-800 animate-pulse min-h-[100px] flex items-center justify-between">
+      <div className="glass-card rounded-2xl p-3.5 sm:p-4 animate-pulse min-h-[100px] flex items-center justify-between">
         <div className="space-y-2">
           <div className="h-4 w-40 bg-zinc-200 dark:bg-zinc-800 rounded-md" />
           <div className="h-5 w-64 bg-zinc-200 dark:bg-zinc-800 rounded-md" />
@@ -89,8 +91,16 @@ export default function LiveSessionCockpit({
   // STATE A: ACTIVE PRACTICAL SESSION RUNNING
   // ==========================================
   if (activeSession) {
+    const activeTeacher = activeSession.teacher
+      ? faculty.find(
+          (f) =>
+            f.name.toLowerCase().includes(activeSession.teacher.toLowerCase()) ||
+            activeSession.teacher.toLowerCase().includes(f.name.toLowerCase())
+        )
+      : null
+
     return (
-      <div className="glass-card relative overflow-hidden rounded-2xl border border-emerald-500/35 dark:border-emerald-500/40 p-3.5 sm:p-4 shadow-xs bg-white dark:bg-surface-1 transition-all duration-200">
+      <div className="glass-card relative overflow-hidden rounded-2xl border border-emerald-500/35 dark:border-emerald-500/40 p-3.5 sm:p-4 shadow-[0_1px_3px_0_rgba(0,0,0,0.06),0_1px_2px_-1px_rgba(0,0,0,0.06)] bg-white dark:bg-surface-1 transition-all duration-200">
         {/* Milled Top Specular Sheen */}
         <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-emerald-400/30 to-transparent pointer-events-none" />
 
@@ -151,9 +161,18 @@ export default function LiveSessionCockpit({
             </h3>
 
             {/* Class Grade, Faculty, Strength Details */}
-            <p className="text-xs text-zinc-600 dark:text-slate-400 font-sans">
-              <span className="font-semibold text-zinc-900 dark:text-zinc-200">{activeSession.grade}</span> • Faculty Supervisor:{' '}
-              <strong className="text-zinc-900 dark:text-zinc-100 font-semibold">{activeSession.teacher}</strong> • Strength:{' '}
+            <p className="text-xs text-zinc-600 dark:text-slate-400 font-sans flex items-center gap-1.5 flex-wrap">
+              <span className="font-semibold text-zinc-900 dark:text-zinc-200">{activeSession.grade}</span> •{' '}
+              <span className="inline-flex items-center gap-1.5">
+                {activeTeacher?.photo_url && (
+                  <img
+                    src={activeTeacher.photo_url}
+                    alt={activeSession.teacher}
+                    className="h-4.5 w-4.5 rounded-full object-cover border border-zinc-200 dark:border-zinc-700 inline-block"
+                  />
+                )}
+                Faculty Supervisor: <strong className="text-zinc-900 dark:text-zinc-100 font-semibold">{activeSession.teacher}</strong>
+              </span> • Strength:{' '}
               <span className="font-mono font-bold text-zinc-800 dark:text-zinc-200">{activeSession.defaultStudents} Students</span>
             </p>
           </div>
@@ -183,13 +202,13 @@ export default function LiveSessionCockpit({
   }
 
   // ==========================================================
-  // STATE B: OFF-HOURS / RECESS / NEXT UP (NO ACTIVE SESSION)
+  // STATE B: OFF-HOURS / BREAK / NEXT UP (NO ACTIVE SESSION)
   // ==========================================================
   const nextSession = upcomingSessions.length > 0 ? upcomingSessions[0] : null
   const allCompleted = upcomingSessions.length === 0 && effectiveSessionsCount > 0
 
   return (
-    <div className="glass-card relative overflow-hidden rounded-2xl border border-zinc-200/90 dark:border-border-card p-3.5 sm:p-4 shadow-xs transition-all duration-300">
+    <div className="glass-card relative overflow-hidden rounded-2xl p-3.5 sm:p-4 transition-all duration-300">
       {/* Milled Top Specular Sheen */}
       <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-white/15 to-transparent pointer-events-none" />
 
@@ -209,10 +228,10 @@ export default function LiveSessionCockpit({
             <div className="flex items-center gap-2">
               <span className="text-[11px] font-semibold font-sans uppercase tracking-wider text-zinc-500 dark:text-slate-400">
                 {todayHolidayName
-                  ? 'Institutional Recess Active'
+                  ? 'Official Holiday Active'
                   : allCompleted
                   ? 'Daily Timetable Concluded'
-                  : 'Recess / Between Periods'}
+                  : 'Break / Between Periods'}
               </span>
 
               {allCompleted && (
@@ -247,21 +266,21 @@ export default function LiveSessionCockpit({
             ) : allCompleted ? (
               <div>
                 <h3 className="text-sm sm:text-base font-bold font-heading text-zinc-950 dark:text-white">
-                  All Scheduled Practical Sessions for Today Have Concluded
+                  All sessions concluded for today
                 </h3>
                 <p className="text-xs text-zinc-500 dark:text-slate-400 font-sans">
                   {passedUnloggedSessions.length > 0
                     ? `${passedUnloggedSessions.length} past session log${passedUnloggedSessions.length > 1 ? 's' : ''} awaiting completion.`
-                    : 'All session attendance logs and syllabus topics successfully verified.'}
+                    : 'All session logs verified.'}
                 </p>
               </div>
             ) : (
               <div>
                 <h3 className="text-sm sm:text-base font-bold font-heading text-zinc-950 dark:text-white">
-                  No Practical Sessions Scheduled For Today
+                  No sessions scheduled today
                 </h3>
                 <p className="text-xs text-zinc-500 dark:text-slate-400 font-sans">
-                  Use the timetable scheduler to configure recurring weekly routine practical slots.
+                  Check timetable or schedule new slots.
                 </p>
               </div>
             )}

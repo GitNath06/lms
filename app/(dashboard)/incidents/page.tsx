@@ -76,7 +76,11 @@ export default function IncidentsPage() {
 
     // Filtered dataset
     const filteredIncidents = useMemo(() => {
+        const seen = new Set<string>()
         return incidents.filter((inc) => {
+            if (!inc?.id || seen.has(inc.id)) return false
+            seen.add(inc.id)
+
             // Scope Filter (My Incidents vs All)
             if (scopeFilter === 'my_incidents' && userProfile) {
                 const myName = (userProfile.full_name || '').toLowerCase()
@@ -241,7 +245,7 @@ export default function IncidentsPage() {
 
             {/* 4 KPI Summary Cards */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5 font-mono">
-                <Card className="border-zinc-200/80 dark:border-zinc-800 p-4 shadow-2xs">
+                <Card className="p-4">
                     <span className="text-[10px] text-zinc-400 uppercase font-bold">Total Cases</span>
                     <div className="text-2xl font-black text-zinc-950 dark:text-white mt-1">
                         {totalCount}
@@ -249,7 +253,7 @@ export default function IncidentsPage() {
                     <span className="text-[11px] text-zinc-500">Physics, Chem & Comp Labs</span>
                 </Card>
 
-                <Card className="border-zinc-200/80 dark:border-zinc-800 p-4 shadow-2xs">
+                <Card className="p-4">
                     <span className="text-[10px] text-zinc-400 uppercase font-bold">Under Repair</span>
                     <div className="text-2xl font-black text-sky-600 dark:text-sky-400 mt-1">
                         {underRepairCount}
@@ -257,7 +261,7 @@ export default function IncidentsPage() {
                     <span className="text-[11px] text-zinc-500">Workshop / servicing</span>
                 </Card>
 
-                <Card className="border-zinc-200/80 dark:border-zinc-800 p-4 shadow-2xs">
+                <Card className="p-4">
                     <span className="text-[10px] text-zinc-400 uppercase font-bold">Replaced</span>
                     <div className="text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-1">
                         {replacedCount}
@@ -265,19 +269,19 @@ export default function IncidentsPage() {
                     <span className="text-[11px] text-zinc-500">Buffer store replacements</span>
                 </Card>
 
-                <Card className="border-zinc-200/80 dark:border-zinc-800 p-4 shadow-2xs">
+                <Card className="p-4">
                     <span className="text-[10px] text-zinc-400 uppercase font-bold">HOD Escalations</span>
-                    <div className="text-2xl font-black text-rose-600 dark:text-rose-400 mt-1">
+                    <div className={`text-2xl font-black mt-1 ${pendingHODCount > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-zinc-950 dark:text-white'}`}>
                         {pendingHODCount}
                     </div>
-                    <span className="text-[11px] text-rose-600 dark:text-rose-400 font-bold">
-                        Requires Head Directive
+                    <span className={`text-[11px] font-medium ${pendingHODCount > 0 ? 'text-rose-600 dark:text-rose-400 font-bold' : 'text-zinc-500'}`}>
+                        {pendingHODCount > 0 ? 'Requires Head Directive' : 'No pending escalations'}
                     </span>
                 </Card>
             </div>
 
             {/* Comprehensive Filter Toolbar */}
-            <div className="p-4 rounded-2xl border border-zinc-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900/70 shadow-2xs space-y-3 font-mono text-xs">
+            <div className="p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/70 shadow-[0_1px_3px_0_rgba(0,0,0,0.06),0_1px_2px_-1px_rgba(0,0,0,0.06)] space-y-3 font-mono text-xs">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div className="flex items-center gap-3">
                         <div className="flex items-center gap-2 text-zinc-900 dark:text-zinc-100 font-bold uppercase text-[11px]">
@@ -393,8 +397,8 @@ export default function IncidentsPage() {
             </div>
 
             {/* Main Incident Audit Records Table */}
-            <Card className="border-zinc-200/80 dark:border-zinc-800 shadow-2xs overflow-hidden">
-                <CardHeader className="p-4 px-5 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40 flex flex-row items-center justify-between">
+            <Card className="overflow-hidden">
+                <CardHeader className="p-4 px-5 border-b border-zinc-200/60 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40 flex flex-row items-center justify-between">
                     <div>
                         <CardTitle className="text-sm font-mono font-bold text-zinc-950 dark:text-white uppercase tracking-wider">
                             Damage & Incident Audit Register

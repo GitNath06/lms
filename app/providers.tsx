@@ -5,15 +5,21 @@ import { ThemeProvider as NextThemesProvider } from 'next-themes'
 
 // Suppress known false-positive React 19 script tag warning from next-themes in development
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
-  const origError = console.error
-  console.error = (...args: unknown[]) => {
-    if (
-      typeof args[0] === 'string' &&
-      args[0].includes('Encountered a script tag while rendering React component')
-    ) {
-      return
+  const origError = typeof console !== 'undefined' ? console.error : undefined
+  if (typeof origError === 'function') {
+    console.error = (...args: unknown[]) => {
+      if (
+        typeof args[0] === 'string' &&
+        args[0].includes('Encountered a script tag while rendering React component')
+      ) {
+        return
+      }
+      try {
+        origError.apply(console, args)
+      } catch {
+        // Fallback safely
+      }
     }
-    origError.apply(console, args)
   }
 }
 

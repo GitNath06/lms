@@ -14,7 +14,7 @@ export default function PracticalSummaryStrip({ metrics, isLoading = false }: Pr
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 font-sans">
       {/* 1. Total Sessions */}
-      <Card className="border border-zinc-200/80 dark:border-zinc-800 bg-white/70 dark:bg-zinc-900/60 backdrop-blur-sm shadow-xs hover:shadow-md transition-shadow">
+      <Card className="hover:shadow-md hover:border-zinc-300 dark:hover:border-zinc-700 transition-all">
         <CardContent className="p-4 flex items-center justify-between">
           <div className="space-y-1">
             <p className="text-[11px] font-mono uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
@@ -40,7 +40,7 @@ export default function PracticalSummaryStrip({ metrics, isLoading = false }: Pr
       </Card>
 
       {/* 2. Average Attendance Rate */}
-      <Card className="border border-zinc-200/80 dark:border-zinc-800 bg-white/70 dark:bg-zinc-900/60 backdrop-blur-sm shadow-xs hover:shadow-md transition-shadow">
+      <Card className="hover:shadow-md hover:border-zinc-300 dark:hover:border-zinc-700 transition-all">
         <CardContent className="p-4 flex items-center justify-between">
           <div className="space-y-1">
             <p className="text-[11px] font-mono uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
@@ -64,7 +64,7 @@ export default function PracticalSummaryStrip({ metrics, isLoading = false }: Pr
       </Card>
 
       {/* 3. Skipped / Rescheduled Sessions */}
-      <Card className="border border-zinc-200/80 dark:border-zinc-800 bg-white/70 dark:bg-zinc-900/60 backdrop-blur-sm shadow-xs hover:shadow-md transition-shadow">
+      <Card className="hover:shadow-md hover:border-zinc-300 dark:hover:border-zinc-700 transition-all">
         <CardContent className="p-4 flex items-center justify-between">
           <div className="space-y-1">
             <p className="text-[11px] font-mono uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
@@ -92,7 +92,7 @@ export default function PracticalSummaryStrip({ metrics, isLoading = false }: Pr
       </Card>
 
       {/* 4. Total Student Footfall */}
-      <Card className="border border-zinc-200/80 dark:border-zinc-800 bg-white/70 dark:bg-zinc-900/60 backdrop-blur-sm shadow-xs hover:shadow-md transition-shadow">
+      <Card className="hover:shadow-md hover:border-zinc-300 dark:hover:border-zinc-700 transition-all">
         <CardContent className="p-4 flex items-center justify-between">
           <div className="space-y-1">
             <p className="text-[11px] font-mono uppercase tracking-wider text-zinc-500 dark:text-zinc-400">

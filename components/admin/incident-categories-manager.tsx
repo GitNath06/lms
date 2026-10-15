@@ -260,7 +260,7 @@ export function IncidentCategoriesManager({
             Incident & Safety Classifications
           </CardTitle>
           <CardDescription className="text-xs text-zinc-500 mt-0.5">
-            Institutional classifications for equipment breakage, laboratory hazards, and emergency SOP thresholds
+            Categories, severity levels, and SLAs for incident reporting
           </CardDescription>
         </div>
 
@@ -550,7 +550,7 @@ export function IncidentCategoriesManager({
                 <textarea
                   required
                   rows={3}
-                  placeholder="Describe the incident scenario and first-response instructions for teachers / lab assistants..."
+                  placeholder="Describe scenario and first-response steps..."
                   value={formDescription}
                   onChange={(e) => setFormDescription(e.target.value)}
                   className="w-full rounded-md border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-2 text-xs font-sans focus:outline-none focus:ring-1 focus:ring-indigo-500"

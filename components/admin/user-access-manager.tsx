@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Shield,
@@ -30,6 +30,8 @@ import {
   User,
   Check,
   XCircle,
+  Camera,
+  Loader2,
 } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -51,8 +53,10 @@ import {
   deleteUserAccount,
   approveUserAccount,
   rejectUserAccount,
+  updateUserProfilePhoto,
 } from '@/app/actions/auth'
 import { broadcastSync } from '@/lib/sync-bus'
+import { compressAvatar } from '@/lib/student-photos/compressor'
 
 interface UserAccessManagerProps {
   isEditModeUnlocked: boolean
@@ -85,6 +89,7 @@ export default function UserAccessManager({
   const [newPhone, setNewPhone] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [newRole, setNewRole] = useState<UserRole>('teacher')
+  const [newPhotoUrl, setNewPhotoUrl] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   // Edit Credentials Form State
@@ -93,6 +98,14 @@ export default function UserAccessManager({
   const [editPhone, setEditPhone] = useState('')
   const [editPassword, setEditPassword] = useState('')
   const [editRole, setEditRole] = useState<UserRole>('teacher')
+  const [editPhotoUrl, setEditPhotoUrl] = useState<string | null>(null)
+
+  // Staff Photo Management State
+  const [targetPhotoUser, setTargetPhotoUser] = useState<UserProfile | null>(null)
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false)
+  const staffPhotoInputRef = useRef<HTMLInputElement>(null)
+  const newStaffPhotoInputRef = useRef<HTMLInputElement>(null)
+  const editStaffPhotoInputRef = useRef<HTMLInputElement>(null)
 
   // Permissions Form State
   const [activePerms, setActivePerms] = useState<UserPermissions>({})
@@ -146,6 +159,71 @@ export default function UserAccessManager({
   }, [users, roleFilter, statusFilter, searchQuery])
 
   // Handlers
+  const handleUploadStaffPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !targetPhotoUser) return
+
+    setIsUploadingPhoto(true)
+    try {
+      const compressed = await compressAvatar(file, 256, 0.75)
+      const res = await updateUserProfilePhoto(targetPhotoUser.id, compressed.dataUrl)
+      if (res.success) {
+        triggerToast(`Profile photo updated for ${targetPhotoUser.full_name}!`)
+        setUsers((prev) =>
+          prev.map((u) =>
+            u.id === targetPhotoUser.id
+              ? { ...u, photo_url: compressed.dataUrl, avatar_url: compressed.dataUrl }
+              : u
+          )
+        )
+        if (selectedDrawerUser?.id === targetPhotoUser.id) {
+          setSelectedDrawerUser((prev) =>
+            prev
+              ? { ...prev, photo_url: compressed.dataUrl, avatar_url: compressed.dataUrl }
+              : null
+          )
+        }
+        broadcastSync('users', { action: 'photo_updated' })
+      } else {
+        triggerToast(`❌ ${res.error || 'Failed to update profile photo'}`)
+      }
+    } catch (err: any) {
+      triggerToast(`❌ ${err?.message || 'Error compressing image'}`)
+    } finally {
+      setIsUploadingPhoto(false)
+      setTargetPhotoUser(null)
+      if (staffPhotoInputRef.current) staffPhotoInputRef.current.value = ''
+    }
+  }
+
+  const handleRemoveStaffPhoto = async (user: UserProfile) => {
+    if (!requireEditMode()) return
+    setIsUploadingPhoto(true)
+    try {
+      const res = await updateUserProfilePhoto(user.id, null)
+      if (res.success) {
+        triggerToast(`Profile photo removed for ${user.full_name}`)
+        setUsers((prev) =>
+          prev.map((u) =>
+            u.id === user.id
+              ? { ...u, photo_url: null, avatar_url: null }
+              : u
+          )
+        )
+        if (selectedDrawerUser?.id === user.id) {
+          setSelectedDrawerUser((prev) =>
+            prev ? { ...prev, photo_url: null, avatar_url: null } : null
+          )
+        }
+        broadcastSync('users', { action: 'photo_removed' })
+      } else {
+        triggerToast(`❌ ${res.error || 'Failed to remove photo'}`)
+      }
+    } finally {
+      setIsUploadingPhoto(false)
+    }
+  }
+
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!requireEditMode()) return
@@ -159,6 +237,7 @@ export default function UserAccessManager({
         phone: newPhone.trim() || undefined,
         password: newPassword,
         role: newRole,
+        photo_url: newPhotoUrl || undefined,
       })
 
       if (res.success) {
@@ -168,6 +247,7 @@ export default function UserAccessManager({
         setNewEmail('')
         setNewPhone('')
         setNewPassword('')
+        setNewPhotoUrl(null)
         broadcastSync('users', { action: 'created' })
         loadUsers()
       } else {
@@ -190,6 +270,7 @@ export default function UserAccessManager({
         phone: editPhone.trim() || undefined,
         new_password: editPassword.trim() || undefined,
         role: editRole,
+        photo_url: editPhotoUrl,
       })
 
       if (res.success) {
@@ -204,6 +285,8 @@ export default function UserAccessManager({
                   email: editEmail.trim(),
                   phone: editPhone.trim() || null,
                   role: editRole,
+                  photo_url: editPhotoUrl,
+                  avatar_url: editPhotoUrl,
                 }
               : null
           )
@@ -336,7 +419,7 @@ export default function UserAccessManager({
             <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
             <Input
               type="text"
-              placeholder="Search by name, email, phone, or role..."
+              placeholder="Search users..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-9 h-9 text-xs bg-zinc-50 dark:bg-zinc-950 font-sans"
@@ -414,8 +497,8 @@ export default function UserAccessManager({
               <Users className="h-4 w-4 text-indigo-500" />
               Teacher & Staff Directory
             </CardTitle>
-            <CardDescription className="text-xs text-zinc-500 font-sans mt-0.5">
-              Showing {filteredUsers.length} of {users.length} registered institutional accounts (Click row to inspect full profile)
+            <CardDescription className="text-xs text-subtext font-sans mt-0.5">
+              Showing {filteredUsers.length} of {users.length} accounts
             </CardDescription>
           </div>
           <button
@@ -440,7 +523,7 @@ export default function UserAccessManager({
           ) : (
             <table className="w-full text-left text-xs font-sans border-collapse">
               <thead>
-                <tr className="border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/80 dark:bg-zinc-900/80 text-zinc-600 dark:text-zinc-400 font-bold uppercase text-[10.5px]">
+                <tr className="border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/80 dark:bg-zinc-900/80 text-zinc-600 dark:text-slate-300 font-bold uppercase tracking-wider text-[11.5px]">
                   <th className="py-3 px-4">Staff Member & Email</th>
                   <th className="py-3 px-4">Contact Phone</th>
                   <th className="py-3 px-4">Institutional Role</th>
@@ -470,14 +553,36 @@ export default function UserAccessManager({
                       {/* Name & Email */}
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-3">
-                          <div className="h-8.5 w-8.5 rounded-xl flex items-center justify-center text-xs font-bold shrink-0 bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200/80 dark:border-zinc-700/80">
-                            {initials}
+                          <div
+                            onClick={(e) => {
+                              if (!isEditModeUnlocked) return
+                              e.stopPropagation()
+                              setTargetPhotoUser(u)
+                              staffPhotoInputRef.current?.click()
+                            }}
+                            title={isEditModeUnlocked ? 'Click to change profile picture' : undefined}
+                            className="relative h-8.5 w-8.5 rounded-xl overflow-hidden flex items-center justify-center text-xs font-bold shrink-0 bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200/80 dark:border-zinc-700/80 group/avatar cursor-pointer"
+                          >
+                            {u.photo_url || u.avatar_url ? (
+                              <img
+                                src={u.photo_url || u.avatar_url!}
+                                alt={u.full_name}
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              initials
+                            )}
+                            {isEditModeUnlocked && (
+                              <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/avatar:opacity-100 transition-opacity flex items-center justify-center text-white">
+                                <Camera className="h-3.5 w-3.5" />
+                              </div>
+                            )}
                           </div>
                           <div>
-                            <div className="font-bold text-zinc-950 dark:text-white text-xs group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                            <div className="admin-type-primary-label text-zinc-950 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
                               {u.full_name}
                             </div>
-                            <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                            <span className="admin-type-subtext block mt-0.5">
                               {u.email || 'No email registered'}
                             </span>
                           </div>
@@ -492,7 +597,7 @@ export default function UserAccessManager({
                             {u.phone}
                           </span>
                         ) : (
-                          <span className="text-zinc-400 dark:text-zinc-500 font-mono text-xs">—</span>
+                          <span className="text-zinc-400 dark:text-slate-400 font-mono text-xs">—</span>
                         )}
                       </td>
 
@@ -591,6 +696,7 @@ export default function UserAccessManager({
                                   setEditEmail(u.email || '')
                                   setEditPhone(u.phone || '')
                                   setEditRole(u.role)
+                                  setEditPhotoUrl(u.photo_url || u.avatar_url || null)
                                   setEditPassword('')
                                 }}
                                 className="h-7 w-7 p-0 text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
@@ -674,9 +780,48 @@ export default function UserAccessManager({
             <div className="flex-1 overflow-y-auto p-6 space-y-6 font-sans">
               {/* Profile Card */}
               <div className="p-4 rounded-2xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200/80 dark:border-zinc-800 text-center space-y-2.5">
-                <div className="h-16 w-16 rounded-2xl bg-gradient-to-tr from-indigo-500 to-purple-600 text-white font-bold text-xl flex items-center justify-center mx-auto shadow-md">
-                  {selectedDrawerUser.full_name.slice(0, 2).toUpperCase()}
+                <div className="relative group/drawer-avatar mx-auto w-16 h-16">
+                  <div className="h-16 w-16 rounded-2xl overflow-hidden bg-gradient-to-tr from-indigo-500 to-purple-600 text-white font-bold text-xl flex items-center justify-center shadow-md border-2 border-white/20 dark:border-zinc-700">
+                    {selectedDrawerUser.photo_url || selectedDrawerUser.avatar_url ? (
+                      <img
+                        src={selectedDrawerUser.photo_url || selectedDrawerUser.avatar_url!}
+                        alt={selectedDrawerUser.full_name}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      selectedDrawerUser.full_name.slice(0, 2).toUpperCase()
+                    )}
+                  </div>
+                  {isEditModeUnlocked && (
+                    <button
+                      type="button"
+                      disabled={isUploadingPhoto}
+                      onClick={() => {
+                        setTargetPhotoUser(selectedDrawerUser)
+                        staffPhotoInputRef.current?.click()
+                      }}
+                      title="Upload or Change Profile Photo"
+                      className="absolute -bottom-1 -right-1 p-1.5 rounded-full bg-indigo-600 text-white shadow-md hover:bg-indigo-700 transition-transform hover:scale-110 cursor-pointer"
+                    >
+                      {isUploadingPhoto && targetPhotoUser?.id === selectedDrawerUser.id ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Camera className="h-3 w-3" />
+                      )}
+                    </button>
+                  )}
                 </div>
+
+                {isEditModeUnlocked && (selectedDrawerUser.photo_url || selectedDrawerUser.avatar_url) && (
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveStaffPhoto(selectedDrawerUser)}
+                    className="text-[10px] text-zinc-400 hover:text-rose-500 transition-colors font-mono cursor-pointer block mx-auto"
+                  >
+                    Remove Photo
+                  </button>
+                )}
+
                 <div>
                   <h4 className="text-base font-bold text-zinc-950 dark:text-white">
                     {selectedDrawerUser.full_name}
@@ -803,6 +948,7 @@ export default function UserAccessManager({
                   setEditPhone(selectedDrawerUser.phone || '')
                   setEditPassword('')
                   setEditRole(selectedDrawerUser.role)
+                  setEditPhotoUrl(selectedDrawerUser.photo_url || selectedDrawerUser.avatar_url || null)
                 }}
                 className="text-xs font-semibold"
               >
@@ -846,6 +992,45 @@ export default function UserAccessManager({
             </div>
 
             <form onSubmit={handleCreateUser} className="space-y-3 text-xs">
+              {/* Optional Photo Attachment */}
+              <div className="flex items-center gap-3 p-2.5 rounded-xl bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200/80 dark:border-zinc-800">
+                <div className="h-12 w-12 rounded-xl overflow-hidden bg-zinc-200 dark:bg-zinc-700 flex items-center justify-center text-zinc-500 shrink-0 border border-zinc-300 dark:border-zinc-600">
+                  {newPhotoUrl ? (
+                    <img src={newPhotoUrl} alt="Preview" className="h-full w-full object-cover" />
+                  ) : (
+                    <User className="h-6 w-6 text-zinc-400" />
+                  )}
+                </div>
+                <div className="flex-1 space-y-1">
+                  <span className="text-[11px] font-bold text-zinc-800 dark:text-zinc-200 block">
+                    Profile Picture (Optional)
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => newStaffPhotoInputRef.current?.click()}
+                      className="h-7 text-[11px] font-medium"
+                    >
+                      <Camera className="h-3 w-3 mr-1" />
+                      {newPhotoUrl ? 'Change Photo' : 'Upload Photo'}
+                    </Button>
+                    {newPhotoUrl && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setNewPhotoUrl(null)}
+                        className="h-7 text-[11px] text-rose-500 hover:text-rose-600"
+                      >
+                        Remove
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               <div className="space-y-1">
                 <label className="font-bold text-zinc-700 dark:text-zinc-300">
                   Full Name & Honorific *
@@ -963,6 +1148,47 @@ export default function UserAccessManager({
             </div>
 
             <form onSubmit={handleUpdateCredentials} className="space-y-3 text-xs">
+              {/* Profile Photo Edit */}
+              <div className="flex items-center gap-3 p-2.5 rounded-xl bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200/80 dark:border-zinc-800">
+                <div className="h-12 w-12 rounded-xl overflow-hidden bg-zinc-200 dark:bg-zinc-700 flex items-center justify-center text-zinc-500 shrink-0 border border-zinc-300 dark:border-zinc-600">
+                  {editPhotoUrl ? (
+                    <img src={editPhotoUrl} alt="Preview" className="h-full w-full object-cover" />
+                  ) : (
+                    <span className="text-xs font-bold text-zinc-600 dark:text-zinc-300">
+                      {editingUser.full_name.slice(0, 2).toUpperCase()}
+                    </span>
+                  )}
+                </div>
+                <div className="flex-1 space-y-1">
+                  <span className="text-[11px] font-bold text-zinc-800 dark:text-zinc-200 block">
+                    Profile Picture
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => editStaffPhotoInputRef.current?.click()}
+                      className="h-7 text-[11px] font-medium"
+                    >
+                      <Camera className="h-3 w-3 mr-1" />
+                      {editPhotoUrl ? 'Change Photo' : 'Upload Photo'}
+                    </Button>
+                    {editPhotoUrl && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setEditPhotoUrl(null)}
+                        className="h-7 text-[11px] text-rose-500 hover:text-rose-600"
+                      >
+                        Remove
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               <div className="space-y-1">
                 <label className="font-bold text-zinc-700 dark:text-zinc-300">
                   Full Name
@@ -1077,7 +1303,7 @@ export default function UserAccessManager({
             </div>
 
             <div className="space-y-3 text-xs">
-              <p className="text-xs text-zinc-500">
+              <p className="text-xs text-subtext">
                 Customize specific page and capability privileges for this staff member:
               </p>
 
@@ -1104,7 +1330,7 @@ export default function UserAccessManager({
                         <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
                           {perm.label}
                         </div>
-                        <div className="text-[11px] text-zinc-500">
+                        <div className="text-[11.5px] text-subtext">
                           {perm.desc}
                         </div>
                       </div>
@@ -1196,6 +1422,47 @@ export default function UserAccessManager({
           </div>
         </div>
       )}
+
+      {/* Hidden File Inputs for Staff Photo Management */}
+      <input
+        type="file"
+        ref={staffPhotoInputRef}
+        onChange={handleUploadStaffPhoto}
+        accept="image/png,image/jpeg,image/webp,image/jpg"
+        className="hidden"
+      />
+      <input
+        type="file"
+        ref={newStaffPhotoInputRef}
+        onChange={async (e) => {
+          const file = e.target.files?.[0]
+          if (!file) return
+          try {
+            const compressed = await compressAvatar(file, 256, 0.75)
+            setNewPhotoUrl(compressed.dataUrl)
+          } catch (err: any) {
+            triggerToast(`❌ ${err?.message || 'Error processing photo'}`)
+          }
+        }}
+        accept="image/png,image/jpeg,image/webp,image/jpg"
+        className="hidden"
+      />
+      <input
+        type="file"
+        ref={editStaffPhotoInputRef}
+        onChange={async (e) => {
+          const file = e.target.files?.[0]
+          if (!file) return
+          try {
+            const compressed = await compressAvatar(file, 256, 0.75)
+            setEditPhotoUrl(compressed.dataUrl)
+          } catch (err: any) {
+            triggerToast(`❌ ${err?.message || 'Error processing photo'}`)
+          }
+        }}
+        accept="image/png,image/jpeg,image/webp,image/jpg"
+        className="hidden"
+      />
     </div>
   )
 }

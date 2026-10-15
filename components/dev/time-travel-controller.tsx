@@ -16,6 +16,7 @@ import {
   Check,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { NepaliDatePicker } from '@/components/ui/nepali-date-picker'
 import {
   getEffectiveDate,
   isSimulatingTime,
@@ -345,12 +346,11 @@ export default function TimeTravelController() {
               <form onSubmit={handleApplyCustom} className="mt-2 space-y-1.5 animate-in fade-in duration-150">
                 <div className="grid grid-cols-2 gap-1.5">
                   <div>
-                    <label className="block text-[9px] text-zinc-400 font-mono mb-0.5">Date</label>
-                    <input
-                      type="date"
+                    <label className="block text-[9px] text-zinc-400 font-mono mb-0.5">Date (वि.सं.)</label>
+                    <NepaliDatePicker
                       value={customDate}
-                      onChange={(e) => setCustomDate(e.target.value)}
-                      className="w-full h-7 px-2 text-xs font-mono rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-surface-2 text-zinc-900 dark:text-zinc-100"
+                      onChange={(d) => setCustomDate(d)}
+                      placeholder="मिति छान्नुहोस्"
                     />
                   </div>
                   <div>

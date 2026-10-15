@@ -1,8 +1,10 @@
 'use client'
 
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createPracticalLog } from '@/app/actions/logs'
+import { getStudentsByClass } from '@/app/actions/students'
+import type { StudentWithEnrollment } from '@/lib/types/students'
 import { useLogsState } from '@/hooks/use-logs-state'
 import { Database } from '@/types/database'
 import { Button } from '@/components/ui/button'
@@ -21,7 +23,8 @@ import {
   RotateCcw,
   Calendar,
   AlertCircle,
-  Info
+  Info,
+  X,
 } from 'lucide-react'
 import {
   DEFAULT_CLASSES,
@@ -96,10 +99,26 @@ export default function LogForm({
     return Array.from(map.values())
   }, [teachers, infraFaculty])
 
-  // 4. Class / Batch & Subject (Initialized to teacher's first class)
   const defaultClass = availableClasses[0] || DEFAULT_CLASSES[0]
   const [selectedClassId, setSelectedClassId] = useState<string>(defaultClass.id)
   const activeClassObj = availableClasses.find((c: any) => c.id === selectedClassId) || defaultClass
+
+  const [classStudents, setClassStudents] = useState<StudentWithEnrollment[]>([])
+
+  useEffect(() => {
+    let isMounted = true
+    getStudentsByClass({ classId: selectedClassId }).then((res) => {
+      if (isMounted && res.success && res.data) {
+        setClassStudents(res.data)
+        if (res.data.length > 0) {
+          setTotalStudents(res.data.length)
+        }
+      }
+    })
+    return () => {
+      isMounted = false
+    }
+  }, [selectedClassId])
 
   // Helper to dynamically filter subjects for a class
   const getSubjectsForClassObj = useCallback(
@@ -158,6 +177,17 @@ export default function LogForm({
   )
   const [absentRolls, setAbsentRolls] = useState<number[]>([14, 28])
   const [absentCountInput, setAbsentCountInput] = useState<number>(2)
+
+  const markedAbsentStudents = useMemo(() => {
+    return absentRolls.map((roll) => {
+      const student = classStudents.find((s) => s.roll_number === roll)
+      return {
+        roll,
+        name: student ? student.full_name : `Roll ${roll}`,
+        photo_url: student?.photo_url || null,
+      }
+    })
+  }, [absentRolls, classStudents])
 
   // 6. Practical Topic & Observations (Auto-synced from subject default)
   const [practicalTitle, setPracticalTitle] = useState<string>(
@@ -657,7 +687,7 @@ export default function LogForm({
                 type="text"
                 value={practicalTitle}
                 onChange={(e) => setPracticalTitle(e.target.value)}
-                placeholder="e.g. Verification of Binary Search Tree Operations"
+                placeholder="e.g. Binary Search Tree Operations"
                 className="h-10 text-sm font-medium font-sans"
               />
             </div>
@@ -670,7 +700,7 @@ export default function LogForm({
                 rows={2}
                 value={remarks}
                 onChange={(e) => setRemarks(e.target.value)}
-                placeholder="Workstation stability, student progress, hardware condition..."
+                placeholder="Session remarks, equipment notes..."
                 className="w-full rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-3 text-sm font-sans text-zinc-950 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
@@ -824,6 +854,49 @@ export default function LogForm({
                   </span>
                   <span className="font-semibold text-zinc-600 dark:text-zinc-400">{effectiveAbsentCount} marked absent</span>
                 </div>
+
+                {/* Marked Absent Students Visual Face Tray */}
+                {markedAbsentStudents.length > 0 && (
+                  <div className="space-y-1.5 pt-2 border-t border-zinc-200/80 dark:border-zinc-800">
+                    <div className="flex items-center justify-between text-[11px] font-semibold text-rose-600 dark:text-rose-400">
+                      <span>Marked Absent Students ({markedAbsentStudents.length}):</span>
+                    </div>
+                    <div className="flex flex-wrap gap-2 max-h-[140px] overflow-y-auto p-2 bg-rose-50/50 dark:bg-rose-950/20 rounded-xl border border-rose-200/60 dark:border-rose-900/40">
+                      {markedAbsentStudents.map((st) => (
+                        <div
+                          key={st.roll}
+                          className="flex items-center gap-1.5 bg-white dark:bg-zinc-900 border border-rose-200 dark:border-rose-900/60 pl-1 pr-2 py-1 rounded-lg text-xs shadow-2xs group"
+                        >
+                          <div className="h-6 w-6 rounded-full overflow-hidden border border-rose-400/30 bg-zinc-800 flex items-center justify-center shrink-0">
+                            {st.photo_url ? (
+                              <img src={st.photo_url} alt={st.name} className="h-full w-full object-cover" />
+                            ) : (
+                              <span className="text-[9px] font-bold text-rose-400 font-heading">
+                                {st.name.slice(0, 1).toUpperCase()}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex flex-col text-left">
+                            <span className="font-mono text-[9px] font-extrabold text-rose-600 dark:text-rose-400 leading-tight">
+                              R-{st.roll}
+                            </span>
+                            <span className="text-[10px] font-semibold text-zinc-800 dark:text-zinc-200 truncate max-w-[85px] leading-tight">
+                              {st.name}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => toggleRollNumber(st.roll)}
+                            className="ml-1 p-0.5 rounded text-zinc-400 hover:text-rose-500 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-colors cursor-pointer"
+                            title="Restore student to present"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

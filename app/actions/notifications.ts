@@ -3,7 +3,7 @@
 import { getPgPool } from '@/lib/db'
 import { isSupabaseConfigured } from '@/lib/supabase/config'
 import { getNepalDateStr, getNepaliDate } from '@/lib/nepali-date'
-import { MASTER_ROUTINE, MasterRoutineItem } from '@/lib/master-data'
+import { MASTER_ROUTINE, type MasterRoutineItem } from '@/lib/master-data'
 import { getAcademicHolidays } from '@/app/actions/holidays'
 import {
   sendTeacherDailyScheduleEmail,

@@ -469,7 +469,7 @@ export function InstitutionalAuditManager() {
                   </span>
                 </CardTitle>
                 <CardDescription className="text-xs text-zinc-500">
-                  Cryptographic, tamper-evident history of lab statuses, access elevation, timetable allocations, and policies.
+                  Immutable history of administrative actions, schedule edits, and status changes.
                 </CardDescription>
               </div>
             </div>
@@ -506,7 +506,7 @@ export function InstitutionalAuditManager() {
             <div className="sm:col-span-2 relative">
               <Search className="h-3.5 w-3.5 absolute left-3 top-2.5 text-zinc-400" />
               <Input
-                placeholder="Search by actor name, entity label, or record ID..."
+                placeholder="Search actor, entity, or ID..."
                 value={searchQuery}
                 onChange={(e) => {
                   setSearchQuery(e.target.value)

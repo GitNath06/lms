@@ -16,8 +16,11 @@ import {
   LogOut,
   UserCheck,
   Wrench,
+  Monitor,
 } from 'lucide-react'
 import { signOut } from '@/app/actions/auth'
+import { useAcademicYear } from '@/lib/context/academic-year-context'
+import { useInfrastructureState } from '@/hooks/use-infrastructure-state'
 
 interface MobileNavProps {
   isSuperAdmin: boolean
@@ -36,19 +39,26 @@ export default function MobileNav({
 }: MobileNavProps) {
   const [isOpen, setIsOpen] = useState(false)
   const pathname = usePathname()
+  const { systemActiveYearName, userViewingYear, isViewingArchived } = useAcademicYear()
+  const { labs } = useInfrastructureState()
+
+  const compLab = labs?.find((l) => l.id === 'comp' || l.type === 'computer_lab')
+  const labStatus = compLab?.status || 'Operational'
+  const isOperational = labStatus === 'Operational' && compLab?.is_active !== false
+  const isMaintenance = labStatus === 'Under Maintenance'
 
   const navItems = [
     { label: 'Dashboard', href: '/', icon: LayoutDashboard },
     { label: 'Lab Timetable', href: '/schedules', icon: Calendar },
     { label: 'Practical Logbook', href: '/records', icon: ClipboardList },
     { label: 'Incidents & Repairs', href: '/records/incidents', icon: AlertTriangle },
+    { label: 'Floor Plan', href: '/computer-lab', icon: Monitor },
     ...(canAccessMaintenance
       ? [
           {
-            label: 'Lab Maintenance',
+            label: 'Diagnostics & Maintenance',
             href: '/maintenance',
             icon: Wrench,
-            badge: 'Routines',
           },
         ]
       : []),
@@ -87,7 +97,7 @@ export default function MobileNav({
                       LabSync LIMS
                     </div>
                     <div className="text-[10px] text-zinc-400 font-mono">
-                      Academic Session 2083
+                      {isViewingArchived ? `Archived (${userViewingYear} B.S.)` : `Academic Session ${systemActiveYearName}`}
                     </div>
                   </div>
                 </div>
@@ -130,6 +140,18 @@ export default function MobileNav({
                     >
                       <Icon className="h-4 w-4" />
                       <span>{item.label}</span>
+                      {item.href === '/computer-lab' && (
+                        <span
+                          className={`ml-auto h-2 w-2 rounded-full ${
+                            isOperational
+                              ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.7)] animate-pulse'
+                              : isMaintenance
+                              ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.7)]'
+                              : 'bg-zinc-400'
+                          }`}
+                          title={`Floor Plan: ${labStatus}`}
+                        />
+                      )}
                     </Link>
                   )
                 })}

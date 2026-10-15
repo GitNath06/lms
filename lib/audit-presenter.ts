@@ -61,14 +61,14 @@ export const FIELD_LABELS: Record<string, string> = {
   // Governance & Policies
   precaution_active: 'Precaution Safety Lock',
   edit_mode_unlocked: 'Infrastructure Edit Mode',
-  sundayWeekend: 'Sunday Recess Policy',
+  sundayWeekend: 'Sunday Week Off Policy',
   saturdayWeekend: 'Saturday Statutory Holiday',
 
   // Incidents & Taxonomy
   severity: 'Incident Severity Tier',
   sla_hours: 'Resolution SLA Target',
   scope: 'Laboratory Discipline Scope',
-  equipment_name: 'Equipment / Apparatus',
+  equipment_name: 'Lab Equipment / Workstation',
   resolution_notes: 'Resolution Notes',
   resolved_at: 'Resolution Timestamp',
 

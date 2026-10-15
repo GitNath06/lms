@@ -43,6 +43,7 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { useInfrastructureState } from '@/hooks/use-infrastructure-state'
+import { NepaliDatePicker } from '@/components/ui/nepali-date-picker'
 import { useSubstitutionState } from '@/hooks/use-substitution-state'
 import { useIncidentState } from '@/hooks/use-incident-state'
 import { UserProfile } from '@/app/actions/auth'
@@ -80,9 +81,13 @@ interface SessionActionModalProps {
   onUnmergeSession?: (sessionId: string) => void
   onAddSession?: (session: MasterRoutineItem | any) => void
   onUpdateSession?: (sessionId: string, updatedFields: Partial<MasterRoutineItem>) => void
-  onSaveLog?: (logData: Omit<PracticalLogRecord, 'id' | 'createdAt'> & { id?: string }) => void
-  onSkipSession?: (sessionId: string, reason: string) => void
-  onUnskipSession?: (sessionId: string) => void
+  onSaveLog?: (logData: Omit<PracticalLogRecord, 'id' | 'createdAt'> & { id?: string; seatingSnapshot?: any[]; seating_snapshot?: any[] }) => void | Promise<void>
+  onSkipSession?: (sessionId: string, reason: string) => void | Promise<void>
+  onUnskipSession?: (sessionId: string) => void | Promise<void>
+  seatingSnapshot?: any[]
+  initialTotalStudents?: number
+  initialAbsentRolls?: number[]
+  initialAbsentCount?: number
 }
 
 export default function SessionActionModal(props: SessionActionModalProps) {
@@ -119,6 +124,10 @@ function SessionActionModalContent({
   onSaveLog,
   onSkipSession,
   onUnskipSession,
+  seatingSnapshot,
+  initialTotalStudents,
+  initialAbsentRolls,
+  initialAbsentCount,
 }: SessionActionModalProps) {
   const isBookingMode =
     initialMode === 'book' ||
@@ -268,11 +277,15 @@ function SessionActionModalContent({
 
   // Existing session state initialized directly without cascading useEffect renders
   const [totalStudents, setTotalStudents] = useState<number>(
-    existingLog?.totalStudents || session?.defaultStudents || 36
+    existingLog?.totalStudents || initialTotalStudents || session?.defaultStudents || 36
   )
-  const [absentRolls, setAbsentRolls] = useState<number[]>(existingLog?.absentRolls || [])
+  const [absentRolls, setAbsentRolls] = useState<number[]>(
+    existingLog?.absentRolls || initialAbsentRolls || []
+  )
   const [attendanceMode, setAttendanceMode] = useState<'counter' | 'grid'>('counter')
-  const [absentCountInput, setAbsentCountInput] = useState<number>(existingLog?.absentStudents || 0)
+  const [absentCountInput, setAbsentCountInput] = useState<number>(
+    existingLog?.absentStudents ?? initialAbsentCount ?? (initialAbsentRolls?.length || 0)
+  )
   const [topicLearned, setTopicLearned] = useState<string>(existingLog?.topicLearned || '')
   const [selectedLab] = useState<string>(existingLog?.lab || session?.lab || 'Computer Lab')
   const [selectedTeacher] = useState<string>(existingLog?.teacher || session?.teacher || '')
@@ -313,8 +326,15 @@ function SessionActionModalContent({
     return set
   }, [infraLabs])
 
-  const mergedCode = nextSession ? `${session?.subjectCode} + ${nextSession.subjectCode}` : (session?.subjectCode || '')
-  const mergedTitle = nextSession ? `${session?.subjectTitle} & ${nextSession.subjectTitle}` : (session?.subjectTitle || '')
+  const isSameCode = Boolean(nextSession && session?.subjectCode === nextSession.subjectCode)
+  const isSameTitle = Boolean(nextSession && session?.subjectTitle === nextSession.subjectTitle)
+
+  const mergedCode = nextSession
+    ? (isSameCode ? session?.subjectCode : `${session?.subjectCode} + ${nextSession.subjectCode}`)
+    : (session?.subjectCode || '')
+  const mergedTitle = nextSession
+    ? (isSameTitle ? session?.subjectTitle : `${session?.subjectTitle} & ${nextSession.subjectTitle}`)
+    : (session?.subjectTitle || '')
   const [remarks, setRemarks] = useState<string>(existingLog?.remarks || '')
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false)
 
@@ -547,8 +567,20 @@ function SessionActionModalContent({
         onUnmergeSession(session.id)
         if (onSuccess) onSuccess('Session split back into separate slots.')
       } else if (onMergeSession) {
-        const finalCode = mergedCode || (nextSession ? `${session.subjectCode} + ${nextSession.subjectCode}` : session.subjectCode)
-        const finalTitle = mergedTitle || (nextSession ? `${session.subjectTitle} & ${nextSession.subjectTitle}` : `${session.subjectTitle} (Extended Block)`)
+        const finalCode =
+          mergedCode ||
+          (nextSession
+            ? isSameCode
+              ? session.subjectCode
+              : `${session.subjectCode} + ${nextSession.subjectCode}`
+            : session.subjectCode)
+        const finalTitle =
+          mergedTitle ||
+          (nextSession
+            ? isSameTitle
+              ? session.subjectTitle
+              : `${session.subjectTitle} & ${nextSession.subjectTitle}`
+            : `${session.subjectTitle} (Extended Block)`)
 
         if (nextSession) {
           const combinedGrade = session.grade === nextSession.grade ? session.grade : `${session.grade} & ${nextSession.grade}`
@@ -568,6 +600,12 @@ function SessionActionModalContent({
         return
       }
 
+      if (!topicLearned.trim()) {
+        setSubError('Please specify the Practical Topic / What Was Learned before saving the practical record.')
+        setIsSubmitting(false)
+        return
+      }
+
       const sanitizedRolls = Array.from(
         new Set(
           absentRolls
@@ -580,7 +618,7 @@ function SessionActionModalContent({
       const safeAbsent = Math.max(0, Math.min(safeTotal, effectiveAbsentCount))
       const safePresent = Math.max(0, Math.min(safeTotal, safeTotal - safeAbsent))
 
-      const logRecord = {
+      const logRecord: any = {
         id: existingLog?.id,
         sessionId: session.id,
         date: getNepalDateStr(),
@@ -593,7 +631,7 @@ function SessionActionModalContent({
         teacher: selectedTeacher || session.teacher,
         lab: session.isDualLab ? `${selectedLab} + ${session.secondaryLab || 'Secondary Lab'}` : selectedLab,
         status: 'conducted' as const,
-        topicLearned: topicLearned || 'Conducted Practical Curriculum Experiment',
+        topicLearned: topicLearned.trim(),
         totalStudents: safeTotal,
         presentStudents: safePresent,
         absentStudents: safeAbsent,
@@ -603,30 +641,51 @@ function SessionActionModalContent({
           : remarks,
       }
 
-      if (onSaveLog) {
-        onSaveLog(logRecord)
-      } else {
-        // Fallback server action persistence only if onSaveLog is not provided
-        createPracticalLog({
-          schedule_id: session.id,
-          lab_id: session.labKey || 'comp',
-          teacher_id: selectedTeacher || session.teacher,
-          date: getNepalDateStr(),
-          period_label: session.timeSlot,
-          subject_name: `${session.subjectCode} - ${session.subjectTitle}`,
-          batch_group: session.grade,
-          practical_title: topicLearned || 'Conducted Practical Curriculum Experiment',
-          total_students: safeTotal,
-          present_students: safePresent,
-          absent_students: safeAbsent,
-          remarks,
-          status: 'conducted',
-          topic_learned: topicLearned,
-        }).catch(() => {})
+      const effectiveSeating = seatingSnapshot || (session as any)?.seatingSnapshot || (session as any)?.seating_snapshot
+      if (effectiveSeating) {
+        logRecord.seatingSnapshot = effectiveSeating
+        logRecord.seating_snapshot = effectiveSeating
       }
 
-      if (onSuccess) onSuccess('Practical log recorded successfully.')
-      onClose()
+      try {
+        if (onSaveLog) {
+          await onSaveLog(logRecord)
+        } else {
+          // Fallback server action persistence only if onSaveLog is not provided
+          const res = await createPracticalLog({
+            schedule_id: session.id,
+            lab_id: session.labKey || 'comp',
+            teacher_id: selectedTeacher || session.teacher,
+            date: getNepalDateStr(),
+            period_label: session.timeSlot,
+            subject_name: session.subjectTitle?.toLowerCase().startsWith(session.subjectCode.toLowerCase())
+              ? session.subjectTitle
+              : `${session.subjectCode} - ${session.subjectTitle}`,
+            batch_group: session.grade,
+            practical_title: topicLearned.trim(),
+            total_students: safeTotal,
+            present_students: safePresent,
+            absent_students: safeAbsent,
+            remarks,
+            status: 'conducted',
+            topic_learned: topicLearned.trim(),
+            seating_snapshot: effectiveSeating,
+          })
+          if (!res.success) {
+            setSubError(res.error || 'Failed to save practical record.')
+            setIsSubmitting(false)
+            return
+          }
+        }
+
+        if (onSuccess) onSuccess(existingLog ? 'Practical record updated successfully.' : 'Practical log recorded successfully.')
+        onClose()
+      } catch (err: any) {
+        setSubError(err.message || 'Error occurred while saving practical record.')
+      } finally {
+        setIsSubmitting(false)
+      }
+      return
     } else if (activeTab === 'skip') {
       if (isHoliday) {
         setSubError(`Sessions on institutional holidays cannot be marked as skipped. They are automatically cancelled due to academic recess.`)
@@ -640,34 +699,40 @@ function SessionActionModalContent({
         return
       }
 
-      const finalSkipReason = skipReason + (remarks ? ` - ${remarks}` : '')
-      if (onSkipSession) {
-        onSkipSession(session.id, finalSkipReason)
-      }
+      try {
+        const finalSkipReason = skipReason + (remarks ? ` - ${remarks}` : '')
+        if (onSkipSession) {
+          await onSkipSession(session.id, finalSkipReason)
+        }
 
-      if (onSaveLog) {
-        onSaveLog({
-          id: existingLog?.id,
-          sessionId: session.id,
-          date: getNepalDateStr(),
-          dayKey: session.dayKey,
-          slotId: session.slotId,
-          timeSlot: session.timeSlot,
-          subjectCode: session.subjectCode,
-          subjectTitle: session.subjectTitle,
-          grade: session.grade,
-          teacher: selectedTeacher || session.teacher,
-          lab: selectedLab,
-          status: 'skipped',
-          skipReason,
-          remarks,
-          totalStudents: 0,
-          presentStudents: 0,
-          absentStudents: 0,
-        })
+        if (onSaveLog) {
+          await onSaveLog({
+            id: existingLog?.id,
+            sessionId: session.id,
+            date: getNepalDateStr(),
+            dayKey: session.dayKey,
+            slotId: session.slotId,
+            timeSlot: session.timeSlot,
+            subjectCode: session.subjectCode,
+            subjectTitle: session.subjectTitle,
+            grade: session.grade,
+            teacher: selectedTeacher || session.teacher,
+            lab: selectedLab,
+            status: 'skipped',
+            skipReason,
+            remarks,
+            totalStudents: 0,
+            presentStudents: 0,
+            absentStudents: 0,
+          })
+        }
+        if (onSuccess) onSuccess(`Session marked as skipped: ${skipReason}`)
+        onClose()
+      } catch (err: any) {
+        setSubError(err.message || 'Error marking session as skipped.')
+      } finally {
+        setIsSubmitting(false)
       }
-      if (onSuccess) onSuccess(`Session marked as skipped: ${skipReason}`)
-      onClose()
       return
     } else if (activeTab === 'substitute' && session) {
       const subFacultyObj = infraFaculty.find((f) => f.id === subTeacherId)
@@ -697,7 +762,9 @@ function SessionActionModalContent({
         schedule_id: session.id,
         date: getNepalDateStr(),
         session_label: `${session.timeSlot} (${session.grade})`,
-        subject_name: `${session.subjectCode} - ${session.subjectTitle}`,
+        subject_name: session.subjectTitle?.toLowerCase().startsWith(session.subjectCode.toLowerCase())
+          ? session.subjectTitle
+          : `${session.subjectCode} - ${session.subjectTitle}`,
         subject_teacher_name: selectedTeacher || session.teacher,
         batch_name: session.grade,
         title: incTitle || `${incRemarks?.substring(0, 40) || 'Practical Breakage / Incident'} (${session.lab})`,
@@ -865,9 +932,16 @@ function SessionActionModalContent({
         )}
 
         {/* Modal Body Form */}
-        <form onSubmit={handleActionSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
+        <form onSubmit={handleActionSubmit} noValidate className="flex flex-col flex-1 min-h-0 overflow-hidden">
           {/* Scrollable Form Body */}
           <div className="p-5 sm:p-6 overflow-y-auto space-y-4 flex-1 min-h-0 font-sans">
+            {subError && (
+              <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-900 text-xs text-rose-700 dark:text-rose-300 flex items-center gap-2.5 animate-in fade-in duration-200">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-rose-600 dark:text-rose-400" />
+                <span className="font-semibold">{subError}</span>
+              </div>
+            )}
+
             {/* A. NEW BOOKING FORM */}
             {activeTab === 'book' && (
               <div className="space-y-4 animate-in fade-in duration-150">
@@ -1171,7 +1245,7 @@ function SessionActionModalContent({
                       required
                       value={bookSubjectTitle}
                       onChange={(e) => setBookSubjectTitle(e.target.value)}
-                      placeholder="e.g. Data Structures & Algorithms Lab"
+                      placeholder="e.g. Data Structures Lab"
                       className="h-10 text-sm font-medium font-sans"
                     />
                   </div>
@@ -1206,9 +1280,15 @@ function SessionActionModalContent({
                       </span>
                     )}
                   </h4>
-                  <p className="text-[11px] text-zinc-500 mt-0.5">
-                    {session?.grade} • {session?.isDualLab ? `${session?.lab} + ${session?.secondaryLab || 'Secondary Lab'}` : session?.lab}
-                    {session?.coTeacher && session.coTeacher !== session.teacher ? ` • Co-Teacher: ${session.coTeacher}` : ''}
+                  <p className="text-[11px] text-zinc-500 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                    <span>{session?.grade} • {session?.isDualLab ? `${session?.lab} + ${session?.secondaryLab || 'Secondary Lab'}` : session?.lab}</span>
+                    {session?.coTeacher && session.coTeacher !== session.teacher ? <span>• Co-Teacher: {session.coTeacher}</span> : null}
+                    {((session?.labKey === 'comp') || session?.lab?.toLowerCase().includes('comp')) && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.2 rounded-md">
+                        <CheckCircle2 className="h-2.5 w-2.5 text-emerald-500" />
+                        48-Station Seating Recorded
+                      </span>
+                    )}
                   </p>
                 </div>
                 <Badge variant="outline" className="text-[10px] font-medium">
@@ -1338,7 +1418,7 @@ function SessionActionModalContent({
                   required
                   value={topicLearned}
                   onChange={(e) => setTopicLearned(e.target.value)}
-                  placeholder="e.g. Verification of Hooke's Law"
+                  placeholder="e.g. Hooke's Law Experiment"
                   className="h-10 text-sm font-medium font-sans"
                 />
               </div>
@@ -1527,13 +1607,12 @@ function SessionActionModalContent({
 
                 <div className="space-y-1.5 font-sans">
                   <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                    Effective Date
+                    Effective Date (लागू हुने मिति)
                   </label>
-                  <Input
-                    type="date"
+                  <NepaliDatePicker
                     value={subDate}
-                    onChange={(e) => setSubDate(e.target.value)}
-                    className="h-10 text-sm bg-white dark:bg-zinc-900 font-sans"
+                    onChange={(d) => setSubDate(d)}
+                    placeholder="मिति छान्नुहोस् / Effective Date"
                   />
                 </div>
               </div>
@@ -1566,7 +1645,7 @@ function SessionActionModalContent({
                 </label>
                 <Input
                   type="text"
-                  placeholder="e.g. University practical examiner duty / sick leave"
+                  placeholder="e.g. Examiner duty, sick leave"
                   value={subReason}
                   onChange={(e) => setSubReason(e.target.value)}
                   className="h-10 text-sm bg-white dark:bg-zinc-900 font-sans"
@@ -1630,7 +1709,7 @@ function SessionActionModalContent({
                 <Input
                   type="text"
                   required
-                  placeholder="e.g. Glassware fracture or device malfunction during experiment"
+                  placeholder="e.g. Cracked beaker or monitor fault"
                   value={incTitle}
                   onChange={(e) => setIncTitle(e.target.value)}
                   className="h-10 text-sm bg-white dark:bg-zinc-900 font-sans"
@@ -1646,7 +1725,7 @@ function SessionActionModalContent({
                   rows={3}
                   value={incRemarks}
                   onChange={(e) => setIncRemarks(e.target.value)}
-                  placeholder="Describe what equipment broke or malfunctioned, how it occurred, safety steps taken, replacement needed..."
+                  placeholder="Describe what happened and any action taken..."
                   className="flex w-full rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3.5 py-2 text-sm text-zinc-900 dark:text-zinc-100 font-sans"
                 />
               </div>
@@ -1657,7 +1736,7 @@ function SessionActionModalContent({
                 </label>
                 <Input
                   type="text"
-                  placeholder="e.g. Roll 12, 19 (Class 12C)"
+                  placeholder="e.g. 12, 19"
                   value={incRolls}
                   onChange={(e) => setIncRolls(e.target.value)}
                   className="h-10 text-sm bg-white dark:bg-zinc-900 font-sans"

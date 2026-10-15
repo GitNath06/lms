@@ -18,8 +18,11 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Wrench,
+  Monitor,
 } from 'lucide-react'
 import { signOut } from '@/app/actions/auth'
+import { useAcademicYear } from '@/lib/context/academic-year-context'
+import { useInfrastructureState } from '@/hooks/use-infrastructure-state'
 
 interface CollapsibleSidebarProps {
   isSuperAdmin: boolean
@@ -34,6 +37,13 @@ export default function CollapsibleSidebar({
   const [mounted, setMounted] = useState<boolean>(false)
   const pathname = usePathname()
   const router = useRouter()
+  const { systemActiveYearName, userViewingYear, isViewingArchived } = useAcademicYear()
+  const { labs } = useInfrastructureState()
+
+  const compLab = labs?.find((l) => l.id === 'comp' || l.type === 'computer_lab')
+  const labStatus = compLab?.status || 'Operational'
+  const isOperational = labStatus === 'Operational' && compLab?.is_active !== false
+  const isMaintenance = labStatus === 'Under Maintenance'
 
   // Load persistence preference
   useEffect(() => {
@@ -85,21 +95,25 @@ export default function CollapsibleSidebar({
       href: '/records/incidents',
       shortcut: '⌘4',
       icon: AlertTriangle,
-      activeColor: 'text-rose-600 dark:text-rose-400',
-      badge: 'Active',
-      badgeColor: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20',
+      activeColor: 'text-indigo-600 dark:text-indigo-400',
+    },
+    {
+      label: 'Floor Plan',
+      shortLabel: 'Floor Plan',
+      href: '/computer-lab',
+      shortcut: '⌘5',
+      icon: Monitor,
+      activeColor: 'text-indigo-600 dark:text-indigo-400',
     },
     ...(canAccessMaintenance
       ? [
           {
-            label: 'Lab Maintenance',
-            shortLabel: 'Maintenance',
+            label: 'Lab Diagnostics & Maintenance',
+            shortLabel: 'Diagnostics & Maint',
             href: '/maintenance',
-            shortcut: '⌘5',
+            shortcut: '⌘6',
             icon: Wrench,
             activeColor: 'text-indigo-600 dark:text-indigo-400',
-            badge: 'Routines',
-            badgeColor: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20',
           },
         ]
       : []),
@@ -107,7 +121,7 @@ export default function CollapsibleSidebar({
       label: 'Daily Lab Report',
       shortLabel: 'Report',
       href: '/print/records',
-      shortcut: '⌘6',
+      shortcut: '⌘7',
       icon: Printer,
       activeColor: 'text-indigo-600 dark:text-indigo-400',
     },
@@ -170,7 +184,7 @@ export default function CollapsibleSidebar({
                   LabSync LIMS
                 </div>
                 <div className="text-[10px] text-zinc-500 dark:text-slate-400 font-mono truncate">
-                  Academic Session 2083
+                  {isViewingArchived ? `Archived (${userViewingYear} B.S.)` : `Academic Session ${systemActiveYearName}`}
                 </div>
               </div>
             </Link>
@@ -228,24 +242,43 @@ export default function CollapsibleSidebar({
                     <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-indigo-600 dark:bg-indigo-400 shadow-sm shadow-indigo-500/50" />
                   )}
 
-                  <div className="flex items-center gap-2.5">
-                    <Icon
-                      className={`h-4 w-4 shrink-0 transition-transform group-hover:scale-110 ${
-                        isActive ? item.activeColor : 'text-zinc-400 dark:text-slate-400'
-                      }`}
-                    />
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="relative shrink-0 flex items-center justify-center">
+                      <Icon
+                        className={`h-4 w-4 transition-transform group-hover:scale-110 ${
+                          isActive ? item.activeColor : 'text-zinc-400 dark:text-slate-400'
+                        }`}
+                      />
+                      {/* Collapsed view micro status dot */}
+                      {isCollapsed && item.href === '/computer-lab' && (
+                        <span
+                          className={`absolute -top-1 -right-1 h-2 w-2 rounded-full ring-2 ring-surface-1 ${
+                            isOperational
+                              ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.8)]'
+                              : isMaintenance
+                              ? 'bg-amber-500 shadow-[0_0_6px_rgba(245,158,11,0.8)]'
+                              : 'bg-zinc-400'
+                          }`}
+                        />
+                      )}
+                    </div>
                     {!isCollapsed && <span className="truncate">{item.label}</span>}
                   </div>
 
-                  {!isCollapsed && item.badge && (
-                    <span
-                      className={`px-1.5 py-0.2 rounded-full text-[9px] font-mono font-bold border ${
-                        item.badgeColor ||
-                        'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20'
-                      }`}
-                    >
-                      {item.badge}
-                    </span>
+                  {/* Expanded view live status indicator dot */}
+                  {!isCollapsed && item.href === '/computer-lab' && (
+                    <div className="flex items-center gap-1.5 ml-auto pl-2 shrink-0">
+                      <span
+                        className={`h-2 w-2 rounded-full ${
+                          isOperational
+                            ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.7)] animate-pulse'
+                            : isMaintenance
+                            ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.7)]'
+                            : 'bg-zinc-400'
+                        }`}
+                        title={`Floor Plan: ${labStatus}`}
+                      />
+                    </div>
                   )}
                 </Link>
 
@@ -257,14 +290,17 @@ export default function CollapsibleSidebar({
                         <span className="text-xs font-bold text-zinc-900 dark:text-white font-heading">
                           {item.label}
                         </span>
-                        {item.badge && (
+                        {item.href === '/computer-lab' && (
                           <span
-                            className={`px-1.5 py-0.2 rounded-full text-[9px] font-mono font-bold border ${
-                              item.badgeColor ||
-                              'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20'
+                            className={`text-[9px] font-mono font-bold px-1.5 py-0.2 rounded-md ${
+                              isOperational
+                                ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25'
+                                : isMaintenance
+                                ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/25'
+                                : 'bg-zinc-500/15 text-zinc-400 border border-zinc-500/25'
                             }`}
                           >
-                            {item.badge}
+                            {labStatus}
                           </span>
                         )}
                       </div>
@@ -301,11 +337,6 @@ export default function CollapsibleSidebar({
                   <Shield className="h-4 w-4 shrink-0 text-amber-500 group-hover:scale-110 transition-transform" />
                   {!isCollapsed && <span className="truncate">Super Admin Control</span>}
                 </div>
-                {!isCollapsed && (
-                  <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/30">
-                    Tier-1
-                  </span>
-                )}
               </Link>
 
               {isCollapsed && (
@@ -313,9 +344,6 @@ export default function CollapsibleSidebar({
                   <div className="flex flex-col gap-0.5">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-bold font-heading text-amber-100">Super Admin Control</span>
-                      <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                        Tier-1
-                      </span>
                     </div>
                     <span className="text-[10px] text-amber-400/80 font-mono">
                       System Governance & Permissions

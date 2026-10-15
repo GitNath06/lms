@@ -29,6 +29,8 @@ import {
   AlertCircle,
   Check,
   PauseCircle,
+  Users,
+  LayoutGrid,
 } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
@@ -38,6 +40,9 @@ import MaintenanceDetailDrawer from './maintenance-detail-drawer'
 import LogMaintenanceModal from './log-maintenance-modal'
 import SnoozeModal from './snooze-modal'
 import CreatePlanModal from './create-plan-modal'
+import FleetRoutineModal from './fleet-routine-modal'
+import { DiagnosticsTriageHub } from './diagnostics-triage-hub'
+import type { WorkstationBoardData, DiagnosticsTriageData } from '@/types/workstations'
 import {
   MaintenanceOverviewData,
   MaintenanceReminderRecord,
@@ -48,22 +53,23 @@ import {
 
 interface MaintenanceClientPageProps {
   initialData: MaintenanceOverviewData
+  initialWorkstationData?: WorkstationBoardData
+  initialTriageData?: DiagnosticsTriageData
+  initialSearch?: string
+  initialTab?: 'diagnostics' | 'tasks' | 'history'
 }
 
-const LAB_OPTIONS = [
-  { id: 'all', label: 'All Facilities' },
-  { id: 'comp', label: 'Computer Lab 01' },
-  { id: 'phys', label: 'Physics Lab' },
-  { id: 'chem', label: 'Chemistry Lab' },
-  { id: 'bio', label: 'Biology Lab' },
-  { id: 'elec', label: 'Electronics Lab' },
-]
-
-export default function MaintenanceClientPage({ initialData }: MaintenanceClientPageProps) {
+export default function MaintenanceClientPage({
+  initialData,
+  initialWorkstationData,
+  initialTriageData,
+  initialSearch = '',
+  initialTab = 'diagnostics',
+}: MaintenanceClientPageProps) {
   const [data, setData] = useState<MaintenanceOverviewData>(initialData)
-  const [selectedLab, setSelectedLab] = useState<string>('all')
-  const [activeTab, setActiveTab] = useState<'tasks' | 'history'>('tasks')
-  const [searchQuery, setSearchQuery] = useState<string>('')
+  const [selectedLab, setSelectedLab] = useState<string>('comp')
+  const [activeTab, setActiveTab] = useState<'diagnostics' | 'tasks' | 'history'>(initialTab)
+  const [searchQuery, setSearchQuery] = useState<string>(initialSearch)
   const [expandedPlanId, setExpandedPlanId] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
 
@@ -84,6 +90,15 @@ export default function MaintenanceClientPage({ initialData }: MaintenanceClient
   const [isDetailDrawerOpen, setIsDetailDrawerOpen] = useState(false)
   const [selectedLogForDetail, setSelectedLogForDetail] =
     useState<MaintenanceLogRecord | null>(null)
+
+  const [isFleetModalOpen, setIsFleetModalOpen] = useState(false)
+  const [selectedPlanForFleet, setSelectedPlanForFleet] =
+    useState<MaintenancePlanRecord | null>(null)
+
+  const handleOpenFleetModal = (plan: MaintenancePlanRecord) => {
+    setSelectedPlanForFleet(plan)
+    setIsFleetModalOpen(true)
+  }
 
   // Refresh data from server
   const handleRefresh = () => {
@@ -173,17 +188,29 @@ export default function MaintenanceClientPage({ initialData }: MaintenanceClient
     <div className="space-y-4 w-full pb-16 font-sans">
       {/* 1. COMPACT PURPOSE-BUILT HEADER */}
       <PageHeader
-        title="Lab Maintenance"
-        subtitle="Manage scheduled PC servicing, BIOS/OS updates, and clean maintenance logs"
+        title="Lab Diagnostics & Maintenance Workbench"
+        subtitle="Institutional hardware diagnostics, workstation floor triage, routine service plans, and certified compliance logbook"
         icon={Wrench}
-        breadcrumbs={[{ label: 'Lab Maintenance' }]}
+        breadcrumbs={[{ label: 'Lab Diagnostics & Maintenance' }]}
         badge={
-          <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 border border-indigo-500/20">
+          <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20">
             Workbench
           </span>
         }
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <Link href="/computer-lab">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9 px-3 text-xs gap-1.5 rounded-xl border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/10 cursor-pointer"
+              >
+                <Monitor className="h-3.5 w-3.5" />
+                <span>Floor Map &amp; Live Cockpit</span>
+              </Button>
+            </Link>
+
             <Button
               type="button"
               variant="outline"
@@ -234,81 +261,31 @@ export default function MaintenanceClientPage({ initialData }: MaintenanceClient
         }
       />
 
-      {/* 2. SLIM 1-LINE STATUS RIBBON */}
-      <div className="bg-white dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-2.5 shadow-2xs flex flex-wrap items-center justify-between gap-3 text-xs">
-        <div className="flex flex-wrap items-center gap-4 sm:gap-6">
-          {/* Overdue */}
-          <div className="flex items-center gap-2">
-            <span
-              className={`h-2.5 w-2.5 rounded-full ${
-                overdueCount > 0 ? 'bg-rose-500 animate-pulse' : 'bg-emerald-500'
-              }`}
-            />
-            <span className="text-zinc-500 dark:text-zinc-400 font-medium">Overdue Alerts:</span>
-            <span
-              className={`font-mono font-bold ${
-                overdueCount > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-zinc-900 dark:text-white'
-              }`}
-            >
-              {overdueCount} {overdueCount === 0 && <span className="text-emerald-500 font-normal">(All on schedule)</span>}
-            </span>
-          </div>
 
-          <div className="h-3.5 w-px bg-zinc-200 dark:bg-zinc-800 hidden sm:block" />
-
-          {/* Pending Service */}
-          <div className="flex items-center gap-2">
-            <span className="text-zinc-500 dark:text-zinc-400 font-medium">Awaiting Service:</span>
-            <span className="font-mono font-bold text-sky-600 dark:text-sky-400">
-              {pendingCount} tasks
-            </span>
-          </div>
-
-          <div className="h-3.5 w-px bg-zinc-200 dark:bg-zinc-800 hidden sm:block" />
-
-          {/* Configured Routines */}
-          <div className="flex items-center gap-2">
-            <span className="text-zinc-500 dark:text-zinc-400 font-medium">Configured Routines:</span>
-            <span className="font-mono font-bold text-zinc-900 dark:text-white">
-              {data.plans.length} schedules
-            </span>
-          </div>
-
-          <div className="h-3.5 w-px bg-zinc-200 dark:bg-zinc-800 hidden sm:block" />
-
-          {/* Completed Records */}
-          <div className="flex items-center gap-2">
-            <span className="text-zinc-500 dark:text-zinc-400 font-medium">Completed Logs:</span>
-            <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
-              {data.logs.length} on file
-            </span>
-          </div>
-        </div>
-
-        {/* Facility Selector Pills */}
-        <div className="flex items-center gap-1 overflow-x-auto py-1">
-          {LAB_OPTIONS.map((lab) => (
-            <button
-              key={lab.id}
-              type="button"
-              onClick={() => setSelectedLab(lab.id)}
-              className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
-                selectedLab === lab.id
-                  ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-950 shadow-xs'
-                  : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-              }`}
-            >
-              {lab.label}
-            </button>
-          ))}
-        </div>
-      </div>
 
       {/* 3. MAIN WORKSPACE WITH 2 CLEAR TABS */}
-      <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-xs overflow-hidden">
+      <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-[0_1px_3px_0_rgba(0,0,0,0.06),0_1px_2px_-1px_rgba(0,0,0,0.06)] overflow-hidden">
         {/* Tab Selector & Search Toolbar */}
-        <div className="p-3 sm:p-4 border-b border-zinc-100 dark:border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-zinc-50/50 dark:bg-zinc-900/50">
-          <div className="flex items-center gap-2 p-1 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 w-fit">
+        <div className="p-3 sm:p-4 border-b border-zinc-200/60 dark:border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-zinc-50/50 dark:bg-zinc-900/50">
+          <div className="flex items-center gap-2 p-1 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 w-fit flex-wrap">
+            <button
+              type="button"
+              onClick={() => setActiveTab('diagnostics')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+                activeTab === 'diagnostics'
+                  ? 'bg-white dark:bg-zinc-900 text-zinc-950 dark:text-white shadow-xs'
+                  : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+              }`}
+            >
+              <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+              <span>Diagnostics &amp; Triage</span>
+              {initialTriageData && (
+                <span className="font-mono text-[11px] px-1.5 py-0.2 rounded-full bg-amber-500/15 text-amber-500 font-bold">
+                  {initialTriageData.metrics.open_count + initialTriageData.metrics.in_progress_count}
+                </span>
+              )}
+            </button>
+
             <button
               type="button"
               onClick={() => setActiveTab('tasks')}
@@ -319,7 +296,7 @@ export default function MaintenanceClientPage({ initialData }: MaintenanceClient
               }`}
             >
               <Wrench className="h-3.5 w-3.5 text-indigo-500" />
-              <span>Routine Tasks & Schedules</span>
+              <span>Routine Tasks</span>
               <span className="font-mono text-[11px] px-1.5 py-0.2 rounded-full bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300">
                 {filteredPlans.length}
               </span>
@@ -335,28 +312,47 @@ export default function MaintenanceClientPage({ initialData }: MaintenanceClient
               }`}
             >
               <FileCheck2 className="h-3.5 w-3.5 text-emerald-500" />
-              <span>Service History & Logbook</span>
+              <span>Maintenance History</span>
               <span className="font-mono text-[11px] px-1.5 py-0.2 rounded-full bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300">
                 {filteredLogs.length}
               </span>
             </button>
           </div>
 
-          {/* Quick Search */}
-          <div className="relative w-full sm:w-72">
-            <Search className="h-3.5 w-3.5 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <Input
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={
-                activeTab === 'tasks'
-                  ? 'Search routine, category, checklist...'
-                  : 'Search machines, technician, notes...'
-              }
-              className="h-8.5 pl-8.5 text-xs bg-white dark:bg-zinc-950 border-zinc-200 dark:border-zinc-800"
-            />
-          </div>
+          {/* Quick Search for Tasks & History */}
+          {activeTab !== 'diagnostics' && (
+            <div className="relative w-full sm:w-72">
+              <Search className="h-3.5 w-3.5 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <Input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={
+                  activeTab === 'tasks'
+                    ? 'Search routines...'
+                    : 'Search service logs...'
+                }
+                className="h-8.5 pl-8.5 text-xs bg-white dark:bg-zinc-950 border-zinc-200 dark:border-zinc-800"
+              />
+            </div>
+          )}
         </div>
+
+        {/* TAB 1: ACTIVE DIAGNOSTICS & RESOLUTION HUB */}
+        {activeTab === 'diagnostics' && (
+          <div className="p-4 sm:p-5">
+            {initialTriageData ? (
+              <DiagnosticsTriageHub
+                initialData={initialTriageData}
+                initialSearchQuery={initialSearch}
+                onRefresh={handleRefresh}
+              />
+            ) : (
+              <div className="py-12 text-center text-xs text-zinc-400">
+                Loading diagnostics telemetry...
+              </div>
+            )}
+          </div>
+        )}
 
         {/* TAB 1: UNIFIED TASKS & SCHEDULE TABLE */}
         {activeTab === 'tasks' && (
@@ -383,8 +379,8 @@ export default function MaintenanceClientPage({ initialData }: MaintenanceClient
                         </p>
                         <p className="text-zinc-500 text-[11px]">
                           {searchQuery
-                            ? 'No matches for your search. Clear search to view all.'
-                            : 'Click "New Routine" above to schedule your first maintenance task.'}
+                            ? 'No matches found. Clear search to show all.'
+                            : 'No routines configured for this lab.'}
                         </p>
                       </div>
                     </td>
@@ -523,9 +519,20 @@ export default function MaintenanceClientPage({ initialData }: MaintenanceClient
                             )}
                           </td>
 
-                          {/* Action Column: Direct Log Button right here! */}
+                          {/* Action Column: Direct Log & Fleet Routine Buttons */}
                           <td className="py-3 px-4 text-right">
                             <div className="flex items-center justify-end gap-1.5">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleOpenFleetModal(plan)}
+                                className="h-7 px-2.5 text-xs font-semibold rounded-lg border-indigo-500/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/10 cursor-pointer flex items-center gap-1"
+                                title="Run machine-by-machine fleet checklist"
+                              >
+                                <LayoutGrid className="h-3 w-3" />
+                                <span className="hidden xl:inline">Fleet Grid</span>
+                              </Button>
+
                               <Button
                                 size="sm"
                                 onClick={() => handleOpenLogForPlan(plan)}
@@ -726,6 +733,19 @@ export default function MaintenanceClientPage({ initialData }: MaintenanceClient
         onClose={() => setIsDetailDrawerOpen(false)}
         log={selectedLogForDetail}
       />
+
+      {/* MODAL 4: Fleet Routine Execution Grid & CAD Floor Plan */}
+      {isFleetModalOpen && selectedPlanForFleet && (
+        <FleetRoutineModal
+          isOpen={isFleetModalOpen}
+          onClose={() => {
+            setIsFleetModalOpen(false)
+            setSelectedPlanForFleet(null)
+          }}
+          onSuccess={handleRefresh}
+          plan={selectedPlanForFleet}
+        />
+      )}
     </div>
   )
 }

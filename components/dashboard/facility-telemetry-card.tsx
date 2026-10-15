@@ -88,8 +88,8 @@ export default function FacilityTelemetryCard({
   const maintenanceCount = displayLabs.filter((l) => l.status === 'Under Maintenance').length
 
   return (
-    <Card className="glass-card border-zinc-200/80 dark:border-border-card shadow-2xs overflow-hidden">
-      <CardHeader className="p-3 sm:p-3.5 pb-2 border-b border-zinc-100 dark:border-border-subtle flex flex-row items-center justify-between">
+    <Card className="glass-card overflow-hidden">
+      <CardHeader className="p-3 sm:p-3.5 pb-2 border-b border-zinc-200/60 dark:border-border-subtle flex flex-row items-center justify-between">
         <div>
           <CardTitle className="text-xs sm:text-[13px] font-bold font-sans text-zinc-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
             <span className="h-2 w-2 rounded-full bg-slate-400 dark:bg-slate-500" />
@@ -138,7 +138,7 @@ export default function FacilityTelemetryCard({
                   ? 'border-amber-500/30 bg-amber-50/15 dark:bg-amber-950/15 shadow-2xs'
                   : isOccupied
                   ? 'border-emerald-500/30 dark:border-emerald-500/30 bg-emerald-50/10 dark:bg-emerald-950/15 shadow-2xs'
-                  : 'border-zinc-200/80 dark:border-white/[0.06] bg-zinc-50/40 dark:bg-surface-2/40'
+                  : 'border-zinc-200 dark:border-white/[0.08] bg-zinc-50/80 dark:bg-surface-2/60 shadow-2xs'
               }`}
             >
               <div className="flex items-center justify-between mb-1">

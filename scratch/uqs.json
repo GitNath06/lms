@@ -1,0 +1,67 @@
+[
+  {
+    "table_name": "class_subjects",
+    "constraint_name": "uq_class_subject_teaching_assignment",
+    "columns": "academic_year_id, class_id, subject_id, teacher_id"
+  },
+  {
+    "table_name": "classes",
+    "constraint_name": "classes_name_key",
+    "columns": "name"
+  },
+  {
+    "table_name": "log_attendance",
+    "constraint_name": "log_attendance_log_id_roll_number_key",
+    "columns": "log_id, roll_number"
+  },
+  {
+    "table_name": "session_seat_overrides",
+    "constraint_name": "uq_session_override_student",
+    "columns": "schedule_id, session_date, enrollment_id"
+  },
+  {
+    "table_name": "session_seat_overrides",
+    "constraint_name": "uq_session_override_workstation",
+    "columns": "schedule_id, session_date, workstation_id"
+  },
+  {
+    "table_name": "student_enrollments",
+    "constraint_name": "uq_enrollment_roll",
+    "columns": "academic_year_id, class_id, roll_number"
+  },
+  {
+    "table_name": "student_enrollments",
+    "constraint_name": "uq_enrollment_student",
+    "columns": "academic_year_id, class_id, student_id"
+  },
+  {
+    "table_name": "student_enrollments",
+    "constraint_name": "uq_student_enrollments_id_student",
+    "columns": "id, student_id"
+  },
+  {
+    "table_name": "students",
+    "constraint_name": "students_admission_no_key",
+    "columns": "admission_no"
+  },
+  {
+    "table_name": "students",
+    "constraint_name": "students_registration_no_key",
+    "columns": "registration_no"
+  },
+  {
+    "table_name": "subjects",
+    "constraint_name": "subjects_code_key",
+    "columns": "code"
+  },
+  {
+    "table_name": "workstation_seat_plans",
+    "constraint_name": "uq_seat_plan_enrollment",
+    "columns": "lab_id, academic_year_id, class_id, enrollment_id"
+  },
+  {
+    "table_name": "workstation_seat_plans",
+    "constraint_name": "uq_seat_plan_workstation",
+    "columns": "lab_id, academic_year_id, class_id, workstation_id"
+  }
+]

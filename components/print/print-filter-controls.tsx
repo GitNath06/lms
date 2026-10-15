@@ -3,7 +3,7 @@
 import React from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { Select } from '@/components/ui/select'
-import { Input } from '@/components/ui/input'
+import { NepaliDatePicker } from '@/components/ui/nepali-date-picker'
 
 export interface PrintFilterControlsProps {
   labs: Array<{ id: string; name: string }>
@@ -50,12 +50,11 @@ export function PrintFilterControls({
         </Select>
       </div>
 
-      <div className="w-36">
-        <Input
-          type="date"
+      <div className="w-56">
+        <NepaliDatePicker
           value={currentDate}
-          onChange={(e) => handleDateChange(e.target.value)}
-          className="h-8 text-xs font-mono"
+          onChange={(d) => handleDateChange(d)}
+          placeholder="मिति छान्नुहोस् / Filter Date"
         />
       </div>
     </div>

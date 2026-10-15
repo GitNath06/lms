@@ -14,9 +14,13 @@ import {
   Building2,
   CheckCircle2,
   Lock,
+  Camera,
+  Trash2,
+  Loader2,
 } from 'lucide-react'
-import { signOut } from '@/app/actions/auth'
+import { signOut, updateCurrentUserPhoto } from '@/app/actions/auth'
 import { UserRole, UserProfile } from '@/lib/permissions'
+import { compressAvatar } from '@/lib/student-photos/compressor'
 
 interface UserProfileMenuProps {
   profile: UserProfile | null
@@ -24,7 +28,15 @@ interface UserProfileMenuProps {
 
 export default function UserProfileMenu({ profile }: UserProfileMenuProps) {
   const [isOpen, setIsOpen] = useState(false)
+  const [photoUrl, setPhotoUrl] = useState<string | null>(profile?.photo_url || profile?.avatar_url || null)
+  const [isUploading, setIsUploading] = useState(false)
+  const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    setPhotoUrl(profile?.photo_url || profile?.avatar_url || null)
+  }, [profile?.photo_url, profile?.avatar_url])
 
   // Close when clicking outside
   useEffect(() => {
@@ -46,6 +58,46 @@ export default function UserProfileMenu({ profile }: UserProfileMenuProps) {
         .join('')
         .toUpperCase()
     : 'LA'
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setIsUploading(true)
+    setFeedbackMsg(null)
+    try {
+      const compressed = await compressAvatar(file, 256, 0.75)
+      const res = await updateCurrentUserPhoto(compressed.dataUrl)
+      if (res.success) {
+        setPhotoUrl(compressed.dataUrl)
+        setFeedbackMsg('Photo updated!')
+        setTimeout(() => setFeedbackMsg(null), 3000)
+      } else {
+        setFeedbackMsg(res.error || 'Failed to update photo')
+        setTimeout(() => setFeedbackMsg(null), 4000)
+      }
+    } catch (err: any) {
+      setFeedbackMsg(err?.message || 'Compression failed')
+      setTimeout(() => setFeedbackMsg(null), 4000)
+    } finally {
+      setIsUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  const handleRemovePhoto = async () => {
+    setIsUploading(true)
+    try {
+      const res = await updateCurrentUserPhoto(null)
+      if (res.success) {
+        setPhotoUrl(null)
+        setFeedbackMsg('Photo removed')
+        setTimeout(() => setFeedbackMsg(null), 3000)
+      }
+    } finally {
+      setIsUploading(false)
+    }
+  }
 
   // Distinct styling configurations tailored to each profile type
   const roleConfig = {
@@ -69,7 +121,7 @@ export default function UserProfileMenu({ profile }: UserProfileMenuProps) {
       avatarBg: 'bg-gradient-to-tr from-indigo-600 to-blue-500 text-white',
       accentText: 'text-indigo-600 dark:text-indigo-400',
       quickActionHref: '/maintenance',
-      quickActionLabel: 'Lab Maintenance Workbench',
+      quickActionLabel: 'Diagnostics & Maintenance',
     },
     hod: {
       label: 'Head of Department',
@@ -97,6 +149,15 @@ export default function UserProfileMenu({ profile }: UserProfileMenuProps) {
 
   return (
     <div className="relative" ref={menuRef}>
+      {/* Hidden File Input for Avatar Upload */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handlePhotoUpload}
+        accept="image/png,image/jpeg,image/webp,image/jpg"
+        className="hidden"
+      />
+
       {/* Trigger Button */}
       <button
         type="button"
@@ -116,9 +177,17 @@ export default function UserProfileMenu({ profile }: UserProfileMenuProps) {
 
         {/* Customized Avatar Ring */}
         <div
-          className={`h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold transition-transform group-hover:scale-105 ${roleConfig.avatarRing} ${roleConfig.avatarBg}`}
+          className={`h-8 w-8 rounded-full overflow-hidden flex items-center justify-center text-xs font-bold transition-transform group-hover:scale-105 ${roleConfig.avatarRing} ${roleConfig.avatarBg}`}
         >
-          {initials}
+          {photoUrl ? (
+            <img
+              src={photoUrl}
+              alt={profile?.full_name || 'Staff Profile'}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            initials
+          )}
         </div>
 
         <ChevronDown
@@ -133,26 +202,66 @@ export default function UserProfileMenu({ profile }: UserProfileMenuProps) {
         <div className="absolute right-0 mt-2 w-72 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl shadow-2xl p-4 space-y-3 z-50 animate-in fade-in zoom-in-95 duration-150 font-sans">
           {/* Top Profile Banner */}
           <div className="flex items-start gap-3 pb-3 border-b border-zinc-100 dark:border-zinc-800">
-            <div
-              className={`h-11 w-11 rounded-2xl flex items-center justify-center text-sm font-bold shrink-0 ${roleConfig.avatarRing} ${roleConfig.avatarBg}`}
-            >
-              {initials}
+            {/* Avatar with Camera Trigger */}
+            <div className="relative group/avatar shrink-0">
+              <div
+                className={`h-12 w-12 rounded-2xl overflow-hidden flex items-center justify-center text-sm font-bold shadow-md ${roleConfig.avatarRing} ${roleConfig.avatarBg}`}
+              >
+                {photoUrl ? (
+                  <img
+                    src={photoUrl}
+                    alt={profile?.full_name || 'Staff'}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  initials
+                )}
+              </div>
+              <button
+                type="button"
+                disabled={isUploading}
+                onClick={() => fileInputRef.current?.click()}
+                title="Change Profile Picture"
+                className="absolute -bottom-1 -right-1 p-1 rounded-full bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700 shadow-sm hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-transform hover:scale-110 cursor-pointer"
+              >
+                {isUploading ? (
+                  <Loader2 className="h-3 w-3 animate-spin text-indigo-500" />
+                ) : (
+                  <Camera className="h-3 w-3" />
+                )}
+              </button>
             </div>
-            <div className="space-y-0.5 overflow-hidden">
+
+            <div className="space-y-0.5 overflow-hidden flex-1">
               <div className="text-xs font-bold text-zinc-950 dark:text-white truncate">
                 {profile?.full_name || 'Faculty Member'}
               </div>
               <div className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400 truncate">
                 {profile?.email || 'staff@rrl.edu.np'}
               </div>
-              <div className="pt-0.5">
+              <div className="pt-0.5 flex items-center justify-between gap-1">
                 <span
                   className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-mono font-bold border ${roleConfig.tagBadge}`}
                 >
                   <span>{roleConfig.icon}</span>
                   <span>{roleConfig.label}</span>
                 </span>
+                {photoUrl && !isUploading && (
+                  <button
+                    type="button"
+                    onClick={handleRemovePhoto}
+                    className="text-[9px] text-zinc-400 hover:text-rose-500 transition-colors font-mono cursor-pointer"
+                    title="Remove Photo"
+                  >
+                    Remove
+                  </button>
+                )}
               </div>
+              {feedbackMsg && (
+                <div className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 font-semibold pt-0.5">
+                  {feedbackMsg}
+                </div>
+              )}
             </div>
           </div>
 

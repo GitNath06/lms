@@ -1,4 +1,4 @@
-export type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE' | 'RESET' | 'OVERRIDE'
+export type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE' | 'RESET' | 'OVERRIDE' | 'PROMOTION_BATCH' | 'PROMOTION_ROLLBACK'
 
 export type AuditEntityType =
   | 'lab'
@@ -8,6 +8,14 @@ export type AuditEntityType =
   | 'curriculum'
   | 'policy'
   | 'infrastructure'
+  | 'student'
+  | 'roster'
+  | 'cohort_promotion'
+  | 'workstation'
+  | 'workstation_issue'
+  | 'seat_plan'
+  | 'attendance'
+  | 'academic_year'
 
 export interface AuditStructuredDiff {
   before?: Record<string, any> | null

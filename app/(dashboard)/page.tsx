@@ -40,6 +40,7 @@ import dynamic from 'next/dynamic'
 import { MASTER_TIME_SLOTS, MasterRoutineItem } from '@/lib/master-data'
 import { getNepalDateStr } from '@/lib/nepali-date'
 import type { ModalMode } from '@/components/schedules/session-action-modal'
+import { sortSessionsChronologically } from '@/lib/utils'
 import { useLiveSchedule } from '@/hooks/use-live-schedule'
 import { useRoutineState } from '@/hooks/use-routine-state'
 import { useLogsState, PracticalLogRecord } from '@/hooks/use-logs-state'
@@ -149,8 +150,8 @@ export default function DashboardPage() {
   // Privileged users (Admin, Lab Incharge, HOD) can manage all sessions; teachers can manage their own sessions
   const canManageSession = (s: MasterRoutineItem) => isPrivileged || isMySession(s)
 
-  // Unified Institutional Schedule View across all profiles
-  const effectiveSessions = todaySessions
+  // Unified Institutional Schedule View across all profiles (strictly chronologically sorted)
+  const effectiveSessions = sortSessionsChronologically(todaySessions)
 
   // Categorize sessions based on active scope
   const loggedSessions: { session: MasterRoutineItem; log: PracticalLogRecord }[] = []
@@ -304,7 +305,7 @@ export default function DashboardPage() {
       {todayHoliday && (
         <div
           onClick={() => setIsCalendarModalOpen(true)}
-          className="p-3.5 px-4 sm:px-5 rounded-2xl glass-card border border-zinc-200/80 dark:border-white/[0.08] text-zinc-900 dark:text-zinc-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs animate-in fade-in duration-300 cursor-pointer hover:border-zinc-300 dark:hover:border-white/15 transition-all group"
+          className="p-3.5 px-4 sm:px-5 rounded-2xl glass-card text-zinc-900 dark:text-zinc-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in duration-300 cursor-pointer hover:border-zinc-300 dark:hover:border-white/15 transition-all group"
           title="Click to view Academic Calendar & Official National Holidays"
         >
           <div className="flex items-center gap-3.5">
@@ -385,12 +386,12 @@ export default function DashboardPage() {
           />
 
           {/* B. Segmented Session Feed Card */}
-          <Card className="glass-card border border-zinc-200/80 dark:border-white/[0.08] shadow-2xs overflow-hidden relative">
+          <Card className="glass-card overflow-hidden relative">
             {/* Milled Top Specular Sheen */}
             <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-white/15 to-transparent pointer-events-none" />
 
             {/* Tab Header Bar */}
-            <div className="border-b border-zinc-100 dark:border-white/[0.06] p-3 bg-zinc-50/50 dark:bg-surface-1/60 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+            <div className="border-b border-zinc-200/60 dark:border-white/[0.06] p-3 bg-zinc-50/50 dark:bg-surface-1/60 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
               <SlidingSegmentedTabs
                 tabs={[
                   {

@@ -91,12 +91,12 @@ test('Super Admin Precaution Lock & Governance Logic Suite', async (t) => {
       if (policyType === 'sunday_recess') {
         return {
           title: targetChecked
-            ? 'Declare Sunday as Institutional Recess?'
+            ? 'Declare Sunday as Institutional Week Off?'
             : 'Reactivate Sunday Practical Sessions?',
           description: targetChecked
             ? 'This marks Sunday as a weekly off and automatically suspends practical sessions across all laboratories.'
             : 'This marks Sunday as an active academic day and resumes timetable scheduling across all laboratories.',
-          confirmLabel: targetChecked ? 'Declare Sunday Recess' : 'Reactivate Sunday Sessions',
+          confirmLabel: targetChecked ? 'Declare Sunday Week Off' : 'Reactivate Sunday Sessions',
         };
       }
       if (policyType === 'saturday_holiday') {
@@ -114,8 +114,8 @@ test('Super Admin Precaution Lock & Governance Logic Suite', async (t) => {
     }
 
     const sundayOn = getRecessPolicyModalContent('sunday_recess', true);
-    assert.match(sundayOn.title, /Declare Sunday as Institutional Recess\?/);
-    assert.match(sundayOn.confirmLabel, /Declare Sunday Recess/);
+    assert.match(sundayOn.title, /Declare Sunday as Institutional Week Off\?/);
+    assert.match(sundayOn.confirmLabel, /Declare Sunday Week Off/);
 
     const sundayOff = getRecessPolicyModalContent('sunday_recess', false);
     assert.match(sundayOff.title, /Reactivate Sunday Practical Sessions\?/);

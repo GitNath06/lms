@@ -19,11 +19,13 @@ import {
   AlertTriangle,
   GraduationCap,
   User,
+  Monitor,
 } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { MASTER_ROUTINE } from '@/lib/master-data'
 import { useUserScope } from '@/hooks/use-user-scope'
 import { useCommandPalette } from '@/hooks/use-command-palette'
+import { useAcademicYear } from '@/lib/context/academic-year-context'
 
 export default function CommandPalette() {
   const { isOpen, close, toggle } = useCommandPalette()
@@ -31,6 +33,7 @@ export default function CommandPalette() {
   const router = useRouter()
   const { setTheme, theme } = useTheme()
   const { scope: userScope, isTeacher } = useUserScope()
+  const { systemActiveYearName } = useAcademicYear()
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -85,7 +88,7 @@ export default function CommandPalette() {
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Type command, faculty name, or subject code..."
+            placeholder="Search sessions, faculty, or actions..."
             className="w-full bg-transparent text-xs text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none"
             autoFocus
           />
@@ -124,7 +127,7 @@ export default function CommandPalette() {
             >
               <div className="flex items-center gap-2.5">
                 <Calendar className="h-3.5 w-3.5 text-zinc-500" />
-                <span>ROUTINE // Master Schedule 2083</span>
+                <span>ROUTINE // Master Schedule {systemActiveYearName}</span>
               </div>
               <ArrowRight className="h-3 w-3 text-zinc-400 opacity-0 group-hover:opacity-100 transition-opacity" />
             </button>
@@ -136,6 +139,17 @@ export default function CommandPalette() {
               <div className="flex items-center gap-2.5">
                 <Printer className="h-3.5 w-3.5 text-zinc-500" />
                 <span>PRINT // Daily Laboratory Register</span>
+              </div>
+              <ArrowRight className="h-3 w-3 text-zinc-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+            </button>
+
+            <button
+              onClick={() => handleSelect(() => router.push('/computer-lab'))}
+              className="w-full px-3 py-2 rounded-lg flex items-center justify-between text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 transition-colors group text-left"
+            >
+              <div className="flex items-center gap-2.5">
+                <Monitor className="h-3.5 w-3.5 text-indigo-500" />
+                <span>FLOOR PLAN // Computer Lab CAD Floor Plan &amp; Cockpit</span>
               </div>
               <ArrowRight className="h-3 w-3 text-zinc-400 opacity-0 group-hover:opacity-100 transition-opacity" />
             </button>

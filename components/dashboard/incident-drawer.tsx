@@ -17,6 +17,8 @@ import {
   FileText,
   ShieldAlert,
   ShieldCheck,
+  Camera,
+  Maximize2,
 } from 'lucide-react'
 import { LabIncidentRecord, useIncidentState } from '@/hooks/use-incident-state'
 import { Button } from '@/components/ui/button'
@@ -43,6 +45,7 @@ export default function IncidentDrawer({
   const [resolutionNotes, setResolutionNotes] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
 
   useEffect(() => {
     setMounted(true)
@@ -246,6 +249,34 @@ export default function IncidentDrawer({
             )}
           </div>
 
+          {/* Attached Photo Evidence */}
+          {incident.photo_url && (
+            <div className="p-3.5 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5 font-sans">
+                  <Camera className="h-4 w-4 text-indigo-500" />
+                  <span>Photo Evidence / Damage Documentation</span>
+                </span>
+                <span className="text-[10px] font-mono text-zinc-400">Attached Record</span>
+              </div>
+              <div
+                onClick={() => setLightboxUrl(incident.photo_url!)}
+                className="relative rounded-xl overflow-hidden border border-zinc-200 dark:border-zinc-700 bg-zinc-900 cursor-pointer group max-h-56 sm:max-h-64 flex items-center justify-center shadow-2xs"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={incident.photo_url}
+                  alt="Incident Evidence"
+                  className="w-full h-auto max-h-56 sm:max-h-64 object-contain group-hover:scale-[1.02] transition-transform duration-200"
+                />
+                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 text-white text-xs font-medium">
+                  <Maximize2 className="h-4 w-4" />
+                  <span>Click to enlarge photo</span>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Non-authorized Standard User notice */}
           {!canManage && (
             <div className="p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-zinc-500 text-[11px] flex items-center gap-2">
@@ -263,7 +294,7 @@ export default function IncidentDrawer({
               </label>
               <Input
                 type="text"
-                placeholder="e.g. Sent to physics workshop for recalibration / Replaced from store buffer inventory"
+                placeholder="e.g. Repaired in workshop or replaced from store"
                 value={resolutionNotes}
                 onChange={(e) => setResolutionNotes(e.target.value)}
                 className="text-xs bg-white dark:bg-zinc-800/40"
@@ -284,7 +315,7 @@ export default function IncidentDrawer({
               <Input
                 type="text"
                 required
-                placeholder="Describe why Head of Department direct attention/decision is required..."
+                placeholder="Reason for HOD escalation..."
                 value={escalationReason}
                 onChange={(e) => setEscalationReason(e.target.value)}
                 className="text-xs bg-white dark:bg-zinc-900"
@@ -377,6 +408,33 @@ export default function IncidentDrawer({
           </div>
         </div>
       </div>
+
+      {/* Lightbox Modal for Photo Evidence */}
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 z-[10001] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150"
+          onClick={() => setLightboxUrl(null)}
+        >
+          <div
+            className="relative max-w-3xl max-h-[85vh] rounded-2xl overflow-hidden bg-zinc-950 border border-zinc-800 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setLightboxUrl(null)}
+              className="absolute top-3 right-3 p-1.5 rounded-full bg-black/70 hover:bg-black text-white transition-colors z-10 cursor-pointer"
+            >
+              <X className="h-4 w-4" />
+            </button>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={lightboxUrl}
+              alt="Full Evidence Preview"
+              className="max-h-[85vh] w-auto object-contain"
+            />
+          </div>
+        </div>
+      )}
     </div>,
     document.body
   )

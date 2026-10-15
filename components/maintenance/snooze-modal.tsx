@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { NepaliDatePicker } from '@/components/ui/nepali-date-picker'
 import {
   MaintenanceReminderRecord,
   snoozeMaintenanceReminder,
@@ -95,7 +96,7 @@ export default function SnoozeModal({
                 Snooze Maintenance Reminder
               </h3>
               <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-                Temporarily defer reminder with an audit note.
+                Defer this reminder to a later date.
               </p>
             </div>
           </div>
@@ -167,13 +168,10 @@ export default function SnoozeModal({
                 <Calendar className="h-3.5 w-3.5 text-zinc-400" />
                 <span>Snooze Until Date</span>
               </label>
-              <Input
-                type="date"
-                min={new Date().toISOString().split('T')[0]}
+              <NepaliDatePicker
                 value={customDate}
-                onChange={(e) => setCustomDate(e.target.value)}
-                className="h-9 text-xs"
-                required
+                onChange={(d) => setCustomDate(d)}
+                placeholder="पछिसम्म सार्ने मिति / Snooze Date"
               />
             </div>
           )}
@@ -186,7 +184,7 @@ export default function SnoozeModal({
             <textarea
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="e.g. Awaiting delivery of Arctic MX-4 thermal paste; exams in progress this week."
+              placeholder="e.g. Awaiting parts or lab occupied for exams"
               rows={2}
               className="w-full p-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-xs text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-1 focus:ring-amber-500 shadow-2xs leading-relaxed"
               required

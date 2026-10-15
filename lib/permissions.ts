@@ -21,6 +21,8 @@ export interface UserProfile {
   full_name: string
   role: UserRole
   department: string | null
+  photo_url?: string | null
+  avatar_url?: string | null
   is_active: boolean
   approval_status?: 'pending' | 'approved' | 'rejected' | null
   permissions?: UserPermissions

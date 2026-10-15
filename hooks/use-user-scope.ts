@@ -1,8 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { UserScopeContext, getServerUserScope, resolveUserScope } from '@/lib/context/user-scope'
-import { getCurrentUserProfile, UserProfile } from '@/app/actions/auth'
+import { type UserScopeContext, resolveUserScope } from '@/lib/context/user-scope'
+import { getCurrentUserProfile, type UserProfile } from '@/app/actions/auth'
 
 let cachedProfilePromise: Promise<UserProfile | null> | null = null
 let lastProfileFetch = 0

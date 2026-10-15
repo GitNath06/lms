@@ -42,6 +42,13 @@ export interface PracticalLogRecord {
   isSynced?: boolean
 }
 
+function formatLogSubject(code?: string, title?: string): string {
+  if (!code && !title) return 'Practical Session'
+  if (!code) return title!
+  if (!title) return code
+  return title.toLowerCase().startsWith(code.toLowerCase()) ? title : `${code} - ${title}`
+}
+
 const STORAGE_KEY = 'lab_practical_logs_v1'
 const OUTBOX_KEY = 'lab_pending_logs_outbox_v1'
 
@@ -151,7 +158,7 @@ export function useLogsState() {
           lab_id: item.labId || item.lab,
           date: item.date,
           period_label: item.timeSlot,
-          subject_name: `${item.subjectCode} - ${item.subjectTitle}`,
+          subject_name: formatLogSubject(item.subjectCode, item.subjectTitle),
           batch_group: item.grade,
           practical_title: item.topicLearned || item.subjectTitle,
           total_students: item.totalStudents,
@@ -387,7 +394,7 @@ export function useLogsState() {
           lab_id: labKey,
           date: logData.date,
           period_label: logData.timeSlot,
-          subject_name: `${logData.subjectCode} - ${logData.subjectTitle}`,
+          subject_name: formatLogSubject(logData.subjectCode, logData.subjectTitle),
           batch_group: logData.grade,
           practical_title: logData.topicLearned || logData.subjectTitle,
           total_students: logData.totalStudents,

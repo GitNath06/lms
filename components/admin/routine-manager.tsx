@@ -646,7 +646,7 @@ export default function RoutineManager({ isEditModeUnlocked }: RoutineManagerPro
             <Input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search subject code, title, teacher, grade..."
+              placeholder="Search timetable..."
               className="pl-8 h-8 text-xs font-mono bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800"
             />
           </div>
@@ -837,8 +837,8 @@ export default function RoutineManager({ isEditModeUnlocked }: RoutineManagerPro
                           {day.label}
                         </h4>
                         <span className="text-xs text-zinc-400 font-mono">({day.nepaliName})</span>
-                        <Badge className="font-mono text-[10px] bg-zinc-200/80 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 border-none">
-                          {items.length} Sessions
+                        <Badge className="font-mono text-[11.5px] bg-zinc-200/80 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 border-none">
+                          {items.length} {items.length === 1 ? 'Session' : 'Sessions'}
                         </Badge>
                       </div>
                     </div>
@@ -900,7 +900,7 @@ export default function RoutineManager({ isEditModeUnlocked }: RoutineManagerPro
                     ) : (
                       <Table className="min-w-[950px]">
                         <TableHeader>
-                          <TableRow className="hover:bg-transparent border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-950/40 text-[10px] font-mono uppercase text-zinc-400">
+                          <TableRow className="hover:bg-transparent border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-950/40 text-[11.5px] font-mono uppercase text-zinc-600 dark:text-slate-300 font-bold tracking-wider">
                             <TableHead className="w-40 font-bold whitespace-nowrap">Time & Period</TableHead>
                             <TableHead className="w-40 font-bold whitespace-nowrap">Facility</TableHead>
                             <TableHead className="w-24 font-bold whitespace-nowrap">Class</TableHead>
@@ -1162,7 +1162,7 @@ export default function RoutineManager({ isEditModeUnlocked }: RoutineManagerPro
                     ) : (
                       <Table className="min-w-[950px]">
                         <TableHeader>
-                          <TableRow className="hover:bg-transparent border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-950/40 text-[10px] font-mono uppercase text-zinc-400">
+                          <TableRow className="hover:bg-transparent border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-950/40 text-[11.5px] font-mono uppercase text-zinc-600 dark:text-slate-300 font-bold tracking-wider">
                             <TableHead className="w-28 font-bold whitespace-nowrap">Day</TableHead>
                             <TableHead className="w-40 font-bold whitespace-nowrap">Time & Period</TableHead>
                             <TableHead className="w-24 font-bold whitespace-nowrap">Class</TableHead>
@@ -1699,7 +1699,7 @@ export default function RoutineManager({ isEditModeUnlocked }: RoutineManagerPro
                     <Input
                       value={formSubjectTitle}
                       onChange={(e) => setFormSubjectTitle(e.target.value)}
-                      placeholder="e.g. Data Structures & Algorithms Lab"
+                      placeholder="e.g. Data Structures Lab"
                       className="h-9 text-xs font-sans bg-zinc-50/50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800"
                       required
                     />

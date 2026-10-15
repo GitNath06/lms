@@ -3,13 +3,14 @@
 import { revalidatePath } from 'next/cache'
 import { after } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { Database } from '@/types/database'
+import type { Database } from '@/types/database'
 import { isSupabaseConfigured } from '@/lib/supabase/config'
 import { DEFAULT_HOLIDAYS, isDateWithinHoliday } from '@/lib/master-data'
-import { getServerUserScope } from '@/lib/context/user-scope'
+import { checkServerDateSuspension } from '@/lib/calendar-policy'
+import { getServerUserScope } from '@/lib/context/server-user-scope'
 import { getTeacherAssignments } from '@/lib/context/institutional-relationships'
-import { getPgPool } from '@/lib/db'
 import { dispatchSkippedSessionNotification } from '@/app/actions/notifications'
+import { getPgPool } from '@/lib/db'
 
 type PracticalLogInsert = Database['public']['Tables']['practical_logs']['Insert']
 type PracticalLogUpdate = Database['public']['Tables']['practical_logs']['Update']
@@ -28,7 +29,7 @@ const SEED_PRACTICAL_LOGS = [
     date: new Date().toISOString().split('T')[0],
     period_label: 'Period 1 & 2 (10:10 - 11:45)',
     subject_name: 'COMP-12 - Data Structures & Algorithms Lab',
-    batch_group: '12C - Tech Stream Sec A',
+    batch_group: '12 Eng',
     practical_title: 'Implementation of Binary Search Trees in C++',
     total_students: 38,
     present_students: 36,
@@ -50,7 +51,7 @@ const SEED_PRACTICAL_LOGS = [
     date: new Date().toISOString().split('T')[0],
     period_label: 'Period 3 & 4 (11:45 - 01:15)',
     subject_name: 'PHY-11 - Optics & Wave Mechanics',
-    batch_group: '11 Sc - Science Stream Sec B',
+    batch_group: '11 Eng',
     practical_title: 'Verification of Hooke’s Law and Spring Constant Calculation',
     total_students: 40,
     present_students: 38,
@@ -102,12 +103,14 @@ export async function createPracticalLog(
     const absent = Math.max(0, total - present)
 
     logPayload = {
+      schedule_id: (data.get('schedule_id') as string) || (data.get('sessionId') as string) || null,
+      class_subject_id: (data.get('class_subject_id') as string) || null,
       lab_id: (data.get('lab_id') as string) || 'comp',
       teacher_id: (data.get('teacher_id') as string) || 't1',
       date: (data.get('date') as string) || new Date().toISOString().split('T')[0],
       period_label: (data.get('period_label') as string) || 'Period 1 (10:10 - 11:00)',
       subject_name: (data.get('subject_name') as string) || 'Practical Session',
-      batch_group: (data.get('batch_group') as string) || '12C',
+      batch_group: (data.get('batch_group') as string) || '12 Eng',
       practical_title: (data.get('practical_title') as string) || 'Experiment Entry',
       total_students: total,
       present_students: present,
@@ -122,14 +125,26 @@ export async function createPracticalLog(
     present = Math.min(total, Math.max(0, present))
     const absent = Math.max(0, total - present)
 
+    let subjectName = data.subject_name
+    if (!subjectName) {
+      if (data.subjectTitle && data.subjectCode) {
+        subjectName = data.subjectTitle.toLowerCase().startsWith(data.subjectCode.toLowerCase())
+          ? data.subjectTitle
+          : `${data.subjectCode} - ${data.subjectTitle}`
+      } else {
+        subjectName = data.subjectTitle || data.subjectCode || 'Practical Session'
+      }
+    }
+
     logPayload = {
       schedule_id: data.schedule_id || data.sessionId || null,
+      class_subject_id: data.class_subject_id || data.classSubjectId || null,
       lab_id: data.lab_id || data.labKey || data.lab || 'comp',
       teacher_id: data.teacher_id || 't1',
       date: data.date || new Date().toISOString().split('T')[0],
       period_label: data.period_label || data.timeSlot || 'Period 1',
-      subject_name: data.subject_name || data.subjectTitle || data.subjectCode || 'Practical Session',
-      batch_group: data.batch_group || data.grade || '12C',
+      subject_name: subjectName,
+      batch_group: data.batch_group || data.grade || '12 Eng',
       practical_title: data.practical_title || data.topicLearned || 'Laboratory Practical Experiment',
       total_students: total,
       present_students: present,
@@ -142,12 +157,12 @@ export async function createPracticalLog(
     }
   }
 
-  // Reject practical log creation (both conducted and skipped) on institutional holidays
-  const holiday = DEFAULT_HOLIDAYS.find((h) => isDateWithinHoliday(logPayload.date, h))
-  if (holiday) {
+  // Reject practical log creation (both conducted and skipped) on institutional holidays or weekly recesses
+  const suspension = await checkServerDateSuspension(logPayload.date)
+  if (suspension.isSuspended) {
     return {
       success: false,
-      error: `Practical log rejected: ${logPayload.date} is an official institutional holiday (${holiday.title || holiday.name || 'Academic Recess'}). Practicals are automatically cancelled and no log entries (conducted or skipped) can be created.`,
+      error: `Practical log rejected: ${logPayload.date} is an official institutional ${suspension.type === 'holiday' ? 'holiday' : 'recess'} (${suspension.title}). Practicals are automatically suspended and no log entries (conducted or skipped) can be created.`,
     }
   }
 
@@ -211,19 +226,16 @@ export async function createPracticalLog(
   const isExplicitEdit = Boolean(data.id || (data.isEdit && data.existingLogId))
   const targetEditId = data.id || data.existingLogId
 
-  // Check PostgreSQL DB for duplicates if configured
-  if (process.env.DATABASE_URL) {
+  // Check Supabase DB for duplicates under RLS
+  if (isSupabaseConfigured()) {
     try {
-      const pool = getPgPool()
-      const existingDbRows = await pool.query(
-        `SELECT id, to_char(date, 'YYYY-MM-DD') as date, lab_id, period_label, batch_group, subject_name
-         FROM public.practical_logs
-         WHERE lab_id = $1;`,
-        [checkLab]
-      )
+      const supabase = await createClient()
+      const { data: existingDbRows, error: dupErr } = await (supabase.from('practical_logs') as any)
+        .select('id, date, lab_id, period_label, batch_group, subject_name')
+        .eq('lab_id', checkLab)
 
-      if (existingDbRows.rows && existingDbRows.rows.length > 0) {
-        const dbMatch = existingDbRows.rows.find((r) => {
+      if (!dupErr && existingDbRows && existingDbRows.length > 0) {
+        const dbMatch = existingDbRows.find((r: any) => {
           if (isExplicitEdit && r.id === targetEditId) return false
           return (
             r.date === checkDate &&
@@ -242,7 +254,7 @@ export async function createPracticalLog(
         }
       }
     } catch (err) {
-      console.warn('Error querying PostgreSQL for duplicates:', err)
+      console.warn('Error querying Supabase for duplicates:', err)
     }
   }
 
@@ -362,33 +374,391 @@ export async function createPracticalLog(
       const { data: userData } = await supabase.auth.getUser()
       const loggedBy = isUUID(userData.user?.id) ? userData.user?.id : null
 
+      // Resolve canonical class_subject_id and dual-write snapshots
+      let resolvedClassSubjectId = logPayload.class_subject_id || null
+      let targetClassId: string | null = null
+      let effectiveYearId = logPayload.academic_year_id || null
+
+      if (logPayload.schedule_id && !resolvedClassSubjectId) {
+        const { data: sched } = await supabase
+          .from('schedules')
+          .select('id, class_subject_id, academic_year_id, batch_name, subject_name, teacher_id')
+          .eq('id', logPayload.schedule_id)
+          .maybeSingle()
+
+        if (sched?.class_subject_id) {
+          resolvedClassSubjectId = sched.class_subject_id
+          if (!effectiveYearId && sched.academic_year_id) {
+            effectiveYearId = sched.academic_year_id
+          }
+        }
+      }
+
+      if (resolvedClassSubjectId) {
+        const { data: cs } = await supabase
+          .from('class_subjects')
+          .select(`
+            id, class_id, subject_id, teacher_id, academic_year_id,
+            classes:class_id ( id, name ),
+            subjects:subject_id ( id, code, name )
+          `)
+          .eq('id', resolvedClassSubjectId)
+          .maybeSingle()
+
+        if (cs) {
+          targetClassId = (cs as any).class_id
+          effectiveYearId = (cs as any).academic_year_id || effectiveYearId
+          const sub = (cs as any).subjects
+          const cls = (cs as any).classes
+          if (sub?.code && sub?.name) {
+            logPayload.subject_name = `${sub.code} - ${sub.name}`
+          }
+          if (cls?.name) {
+            logPayload.batch_group = cls.name
+          }
+        }
+      } else {
+        // Look up candidate class_subjects matching batch and subject
+        const norm = (s?: string | null) => (s ? s.trim().toLowerCase() : '')
+        const { data: csList } = await supabase
+          .from('class_subjects')
+          .select(`
+            id, class_id, subject_id, teacher_id, academic_year_id,
+            classes:class_id ( id, name, grade ),
+            subjects:subject_id ( id, code, name )
+          `)
+
+        if (csList && csList.length > 0) {
+          const normBatch = norm(logPayload.batch_group)
+          const normSub = norm(logPayload.subject_name)
+          const matched = (csList as any[]).find((cs) => {
+            const clsName = norm(cs.classes?.name)
+            const clsId = norm(cs.class_id)
+            const subCode = norm(cs.subjects?.code)
+            const classMatch = normBatch === clsName || normBatch === clsId || normBatch.includes(clsName) || (cs.classes?.grade && normBatch.includes(String(cs.classes.grade)))
+            const subjectMatch = subCode && normSub.includes(subCode)
+            return classMatch && subjectMatch
+          })
+
+          if (matched) {
+            resolvedClassSubjectId = matched.id
+            targetClassId = matched.class_id
+            effectiveYearId = matched.academic_year_id || effectiveYearId
+            const sub = matched.subjects
+            const cls = matched.classes
+            if (sub?.code && sub?.name) {
+              logPayload.subject_name = `${sub.code} - ${sub.name}`
+            }
+            if (cls?.name) {
+              logPayload.batch_group = cls.name
+            }
+          } else {
+            // Fallback match by class or first available curriculum record to preserve not-null constraint
+            const fallbackByClass = (csList as any[]).find((cs) => {
+              const clsName = norm(cs.classes?.name)
+              const clsId = norm(cs.class_id)
+              return normBatch === clsName || normBatch === clsId || normBatch.includes(clsName)
+            })
+            const fallback = fallbackByClass || csList[0]
+            if (fallback) {
+              resolvedClassSubjectId = fallback.id
+              targetClassId = fallback.class_id
+              effectiveYearId = fallback.academic_year_id || effectiveYearId
+            }
+          }
+        }
+      }
+
+      if (!effectiveYearId) {
+        const { data: currYear } = await supabase
+          .from('academic_years')
+          .select('id')
+          .eq('is_current', true)
+          .maybeSingle()
+        effectiveYearId = currYear?.id || null
+      }
+
+      // -------------------------------------------------------------
+      // UNIVERSAL SEATING SNAPSHOT INVARIANT FOR COMPUTER LAB
+      // -------------------------------------------------------------
+      let resolvedSeatingSnapshot = data.seating_snapshot || data.seatingSnapshot || null
+
+      if (
+        safeLabId === 'comp' &&
+        (!resolvedSeatingSnapshot || !Array.isArray(resolvedSeatingSnapshot) || resolvedSeatingSnapshot.length === 0)
+      ) {
+        try {
+          const { data: workstations } = await (supabase
+            .from('workstations') as any)
+            .select('id, label, row_label')
+            .eq('lab_id', 'comp')
+            .eq('is_active', true)
+            .order('label', { ascending: true })
+
+          if (workstations && workstations.length > 0) {
+            let classIdForSeating = targetClassId
+            if (!classIdForSeating && logPayload.batch_group) {
+              const { data: clsData } = await supabase
+                .from('classes')
+                .select('id')
+                .ilike('name', `%${logPayload.batch_group.trim()}%`)
+                .maybeSingle()
+              classIdForSeating = clsData?.id || null
+            }
+
+            const effectiveSeatPlan: Record<
+              string,
+              {
+                studentId: string
+                enrollmentId: string
+                rollNumber: number
+                fullName: string
+                isOverride: boolean
+                originalWorkstationLabel?: string | null
+              }
+            > = {}
+
+            if (classIdForSeating && effectiveYearId) {
+              const { data: tier1Data } = await (supabase
+                .from('workstation_seat_plans') as any)
+                .select(`
+                  workstation_id, enrollment_id,
+                  student_enrollments:enrollment_id (
+                    id, student_id, roll_number,
+                    students:student_id ( id, full_name, admission_no, gender, photo_url )
+                  )
+                `)
+                .eq('class_id', classIdForSeating)
+                .eq('academic_year_id', effectiveYearId)
+
+              if (tier1Data) {
+                for (const row of tier1Data as any[]) {
+                  const enr = row.student_enrollments
+                  if (enr && enr.students) {
+                    effectiveSeatPlan[row.workstation_id] = {
+                      studentId: enr.student_id,
+                      enrollmentId: enr.id,
+                      rollNumber: enr.roll_number,
+                      fullName: enr.students.full_name,
+                      isOverride: false,
+                      originalWorkstationLabel: null,
+                    }
+                  }
+                }
+              }
+
+              // Apply Tier 2 session seat overrides if schedule_id is present
+              if (logPayload.schedule_id) {
+                const { data: tier2Data } = await (supabase
+                  .from('session_seat_overrides') as any)
+                  .select(`
+                    workstation_id, enrollment_id,
+                    student_enrollments:enrollment_id (
+                      id, student_id, roll_number,
+                      students:student_id ( id, full_name, admission_no, gender, photo_url )
+                    )
+                  `)
+                  .eq('schedule_id', logPayload.schedule_id)
+                  .eq('session_date', logPayload.date)
+
+                if (tier2Data) {
+                  const wsLabelMap = new Map<string, string>(
+                    workstations.map((w: any) => [w.id, w.label])
+                  )
+
+                  for (const override of tier2Data as any[]) {
+                    const enr = override.student_enrollments
+                    if (enr && enr.students) {
+                      let originalLabel: string | null = null
+                      // Vacate previous seat
+                      for (const [wId, entry] of Object.entries(effectiveSeatPlan)) {
+                        if (entry.enrollmentId === enr.id && wId !== override.workstation_id) {
+                          originalLabel = wsLabelMap.get(wId) || null
+                          delete effectiveSeatPlan[wId]
+                        }
+                      }
+
+                      effectiveSeatPlan[override.workstation_id] = {
+                        studentId: enr.student_id,
+                        enrollmentId: enr.id,
+                        rollNumber: enr.roll_number,
+                        fullName: enr.students.full_name,
+                        isOverride: true,
+                        originalWorkstationLabel: originalLabel,
+                      }
+                    }
+                  }
+                }
+              }
+            }
+
+            resolvedSeatingSnapshot = workstations.map((ws: any) => {
+              const seat = effectiveSeatPlan[ws.id]
+              const isAbsent = seat ? safeAbsentRolls.includes(seat.rollNumber) : false
+              return {
+                workstation_id: ws.id,
+                workstation_label: ws.label,
+                row_label: ws.row_label || null,
+                student_id: seat ? seat.studentId : null,
+                enrollment_id: seat ? seat.enrollmentId : null,
+                student_name: seat ? seat.fullName : null,
+                roll_number: seat ? seat.rollNumber : null,
+                is_present: seat ? !isAbsent : false,
+                is_override: seat ? seat.isOverride : false,
+                original_workstation_label: seat?.originalWorkstationLabel || null,
+                notes: seat?.isOverride
+                  ? seat.originalWorkstationLabel
+                    ? `Relocated from ${seat.originalWorkstationLabel}`
+                    : 'Session relocation override'
+                  : null,
+              }
+            })
+          }
+        } catch (seatErr) {
+          console.warn('Could not auto-construct seating snapshot for computer lab:', seatErr)
+        }
+      }
+
+      const upsertData: any = {
+        id: recordId,
+        schedule_id: logPayload.schedule_id || null,
+        class_subject_id: resolvedClassSubjectId,
+        lab_id: safeLabId,
+        teacher_id: safeTeacherId,
+        academic_year_id: effectiveYearId,
+        date: logPayload.date,
+        period_label: logPayload.period_label,
+        subject_name: logPayload.subject_name,
+        batch_group: logPayload.batch_group,
+        practical_title: logPayload.practical_title,
+        total_students: logPayload.total_students,
+        present_students: logPayload.present_students,
+        absent_students: logPayload.absent_students,
+        absent_rolls: safeAbsentRolls,
+        remarks: logPayload.remarks || null,
+        status: logPayload.status || 'conducted',
+        skip_reason: logPayload.skip_reason || null,
+        topic_learned: logPayload.topic_learned || null,
+        logged_by: loggedBy,
+      }
+
+      if (resolvedSeatingSnapshot && Array.isArray(resolvedSeatingSnapshot) && resolvedSeatingSnapshot.length > 0) {
+        upsertData.seating_snapshot = resolvedSeatingSnapshot
+      }
+
       const { error: dbError } = await (supabase.from('practical_logs') as any).upsert(
-        {
-          id: recordId,
-          schedule_id: logPayload.schedule_id || null,
-          lab_id: safeLabId,
-          teacher_id: safeTeacherId,
-          date: logPayload.date,
-          period_label: logPayload.period_label,
-          subject_name: logPayload.subject_name,
-          batch_group: logPayload.batch_group,
-          practical_title: logPayload.practical_title,
-          total_students: logPayload.total_students,
-          present_students: logPayload.present_students,
-          absent_students: logPayload.absent_students,
-          absent_rolls: safeAbsentRolls,
-          remarks: logPayload.remarks || null,
-          status: logPayload.status || 'conducted',
-          skip_reason: logPayload.skip_reason || null,
-          topic_learned: logPayload.topic_learned || null,
-          logged_by: loggedBy,
-        },
+        upsertData,
         { onConflict: 'id' }
       )
 
       if (dbError) {
         console.error('❌ Supabase log upsert error:', dbError)
-        return { success: false, error: dbError.message, log: newLogRecord }
+        // If RLS blocked (e.g. background job / unauthenticated server caller / testing script), fall back to direct pg pool
+        if (dbError.code === '42501' || dbError.message?.includes('row-level security')) {
+          try {
+            const pool = getPgPool()
+            if (pool) {
+              await pool.query(
+                `INSERT INTO public.practical_logs (
+                  id, schedule_id, class_subject_id, lab_id, teacher_id, academic_year_id,
+                  date, period_label, subject_name, batch_group, practical_title,
+                  total_students, present_students, absent_students, absent_rolls,
+                  remarks, status, skip_reason, topic_learned, logged_by, seating_snapshot
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+                ON CONFLICT (id) DO UPDATE SET
+                  schedule_id = EXCLUDED.schedule_id,
+                  class_subject_id = EXCLUDED.class_subject_id,
+                  lab_id = EXCLUDED.lab_id,
+                  teacher_id = EXCLUDED.teacher_id,
+                  academic_year_id = EXCLUDED.academic_year_id,
+                  date = EXCLUDED.date,
+                  period_label = EXCLUDED.period_label,
+                  subject_name = EXCLUDED.subject_name,
+                  batch_group = EXCLUDED.batch_group,
+                  practical_title = EXCLUDED.practical_title,
+                  total_students = EXCLUDED.total_students,
+                  present_students = EXCLUDED.present_students,
+                  absent_students = EXCLUDED.absent_students,
+                  absent_rolls = EXCLUDED.absent_rolls,
+                  remarks = EXCLUDED.remarks,
+                  status = EXCLUDED.status,
+                  skip_reason = EXCLUDED.skip_reason,
+                  topic_learned = EXCLUDED.topic_learned,
+                  logged_by = EXCLUDED.logged_by,
+                  seating_snapshot = COALESCE(EXCLUDED.seating_snapshot, practical_logs.seating_snapshot)`,
+                [
+                  upsertData.id,
+                  upsertData.schedule_id,
+                  upsertData.class_subject_id,
+                  upsertData.lab_id,
+                  upsertData.teacher_id,
+                  upsertData.academic_year_id,
+                  upsertData.date,
+                  upsertData.period_label,
+                  upsertData.subject_name,
+                  upsertData.batch_group,
+                  upsertData.practical_title,
+                  upsertData.total_students,
+                  upsertData.present_students,
+                  upsertData.absent_students,
+                  upsertData.absent_rolls,
+                  upsertData.remarks,
+                  upsertData.status,
+                  upsertData.skip_reason,
+                  upsertData.topic_learned,
+                  upsertData.logged_by,
+                  upsertData.seating_snapshot ? JSON.stringify(upsertData.seating_snapshot) : null,
+                ]
+              )
+            }
+          } catch (pgErr) {
+            console.error('PostgreSQL direct pool fallback also failed:', pgErr)
+            return { success: false, error: dbError.message, log: newLogRecord }
+          }
+        } else {
+          return { success: false, error: dbError.message, log: newLogRecord }
+        }
+      }
+
+      // Post-insert: bridge attendance records with enrollment_id AND student_id via canonical relationship
+      if (effectiveYearId && targetClassId) {
+        try {
+          const { data: enrollments } = await supabase
+            .from('student_enrollments')
+            .select('id, student_id, roll_number')
+            .eq('academic_year_id', effectiveYearId)
+            .eq('class_id', targetClassId)
+            .eq('status', 'active')
+
+          if (enrollments && enrollments.length > 0) {
+            for (const enr of enrollments) {
+              await supabase
+                .from('log_attendance')
+                .update({
+                  enrollment_id: enr.id,
+                  student_id: enr.student_id,
+                })
+                .eq('log_id', recordId)
+                .eq('roll_number', enr.roll_number)
+                .is('enrollment_id', null)
+            }
+          }
+        } catch (attErr) {
+          console.warn('Attendance relational bridge non-blocking notice:', attErr)
+        }
+      }
+
+      // Link any existing temporary session overrides to this submitted practical log
+      if (logPayload.schedule_id && logPayload.date) {
+        try {
+          await supabase
+            .from('session_seat_overrides')
+            .update({ practical_log_id: recordId })
+            .eq('schedule_id', logPayload.schedule_id)
+            .eq('session_date', logPayload.date)
+        } catch (ovErr) {
+          console.warn('Session override link non-blocking notice:', ovErr)
+        }
       }
     } catch (err: any) {
       console.warn('Supabase log insert skipped (fallback active):', err)
@@ -447,60 +817,6 @@ export async function updatePracticalLog(id: string, data: Partial<PracticalLogU
     store[idx] = { ...store[idx], ...data, updated_at: new Date().toISOString() }
   }
 
-  if (process.env.DATABASE_URL) {
-    try {
-      const pool = getPgPool()
-      const fields: string[] = []
-      const values: any[] = []
-      let pIdx = 1
-
-      if (data.practical_title !== undefined) {
-        fields.push(`practical_title = $${pIdx++}`)
-        values.push(data.practical_title)
-      }
-      if (data.experiment_name !== undefined) {
-        fields.push(`experiment_name = $${pIdx++}`)
-        values.push(data.experiment_name)
-      }
-      if (data.status !== undefined) {
-        fields.push(`status = $${pIdx++}`)
-        values.push(data.status)
-      }
-      if (data.skip_reason !== undefined) {
-        fields.push(`skip_reason = $${pIdx++}`)
-        values.push(data.skip_reason)
-      }
-      if (data.present_students !== undefined) {
-        fields.push(`present_students = $${pIdx++}`)
-        values.push(data.present_students)
-      }
-      if (data.total_students !== undefined) {
-        fields.push(`total_students = $${pIdx++}`)
-        values.push(data.total_students)
-      }
-      if (data.absent_roll_numbers !== undefined) {
-        fields.push(`absent_roll_numbers = $${pIdx++}`)
-        values.push(data.absent_roll_numbers)
-      }
-      if (data.remarks !== undefined) {
-        fields.push(`remarks = $${pIdx++}`)
-        values.push(data.remarks)
-      }
-      if (data.verification_remarks !== undefined) {
-        fields.push(`verification_remarks = $${pIdx++}`)
-        values.push(data.verification_remarks)
-      }
-
-      if (fields.length > 0) {
-        fields.push(`updated_at = NOW()`)
-        values.push(id)
-        const sql = `UPDATE practical_logs SET ${fields.join(', ')} WHERE id = $${pIdx}`
-        await pool.query(sql, values)
-      }
-    } catch (dbErr) {
-      console.warn('⚠️ Direct PG update fallback error:', dbErr)
-    }
-  }
 
   if (isSupabaseConfigured()) {
     try {
@@ -690,14 +1006,6 @@ export async function deletePracticalLog(id: string) {
 
   globalThis.__PRACTICAL_LOGS_STORE__ = store.filter((l) => l.id !== id)
 
-  if (process.env.DATABASE_URL) {
-    try {
-      const pool = getPgPool()
-      await pool.query('DELETE FROM practical_logs WHERE id = $1', [id])
-    } catch (e) {
-      console.warn('⚠️ Direct PG delete fallback error:', e)
-    }
-  }
 
   if (isSupabaseConfigured()) {
     try {

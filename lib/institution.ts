@@ -7,13 +7,15 @@ export const INSTITUTION_NAME =
   process.env.NEXT_PUBLIC_INSTITUTION_NAME || 'Ratna Rajya Laxmi Secondary School'
 
 export const INSTITUTION_CONFIG = {
-  code: 'RRLSS-NP',
+  code: process.env.NEXT_PUBLIC_INSTITUTION_CODE || 'RRLSS-NP',
   name: process.env.NEXT_PUBLIC_INSTITUTION_NAME || 'RATNA RAJYA LAXMI SECONDARY SCHOOL',
-  nameNepali: 'श्री रत्न राज्य लक्ष्मी माध्यमिक विद्यालय',
-  department: 'Department of Science & Computer Engineering',
+  shortName: process.env.NEXT_PUBLIC_INSTITUTION_SHORT_NAME || 'Ratna Rajya Laxmi Sec School',
+  nameNepali: process.env.NEXT_PUBLIC_INSTITUTION_NAME_NEPALI || 'श्री रत्न राज्य लक्ष्मी माध्यमिक विद्यालय',
+  department: process.env.NEXT_PUBLIC_INSTITUTION_DEPT || 'Department of Science & Computer Engineering',
   departmentNepali: 'विज्ञान तथा कम्प्युटर इन्जिनियरिङ विभाग',
-  location: 'Gaindakot-11, Pitauji, Nawalparasi (Nawalpur), Gandaki, Nepal',
-  website: 'https://ratnarajya.edu.np',
+  location: process.env.NEXT_PUBLIC_INSTITUTION_LOCATION || 'Gaindakot-10, Pitauji, Nawalpur, Gandaki, Nepal',
+  locationShort: process.env.NEXT_PUBLIC_INSTITUTION_LOCATION_SHORT || 'Gaindakot-10, Pitauji',
+  website: process.env.NEXT_PUBLIC_INSTITUTION_WEBSITE || 'https://ratnarajya.edu.np',
   academicYear: '2083 B.S. / 2026 A.D.',
   systemTitle: 'Academic Laboratory Practical & Management System (LabSync)',
   systemSubtitle: 'Official Practical Experiment Logs, Incident Tracking & Certified Verification Registry',

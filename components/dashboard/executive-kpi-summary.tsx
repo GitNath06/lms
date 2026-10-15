@@ -55,7 +55,7 @@ export function TodaysActivityCard({
   return (
     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3">
       {/* Card 1: Practical Slots */}
-      <div className="glass-card rounded-xl sm:rounded-2xl border border-zinc-200/80 dark:border-white/[0.08] bg-white dark:bg-surface-2/80 p-2.5 sm:p-3 flex flex-col justify-between shadow-2xs hover:border-zinc-300 dark:hover:border-white/[0.15] transition-all relative overflow-hidden dark:shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]">
+      <div className="glass-card rounded-xl sm:rounded-2xl bg-white dark:bg-surface-2/80 p-2.5 sm:p-3 flex flex-col justify-between hover:border-zinc-300 dark:hover:border-white/[0.15] transition-all relative overflow-hidden dark:shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]">
         {/* Specular sheen */}
         <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-white/15 to-transparent pointer-events-none" />
 
@@ -89,7 +89,7 @@ export function TodaysActivityCard({
       </div>
 
       {/* Card 2: Avg Attendance */}
-      <div className="glass-card rounded-xl sm:rounded-2xl border border-zinc-200/80 dark:border-white/[0.08] bg-white dark:bg-surface-2/80 p-2.5 sm:p-3 flex flex-col justify-between shadow-2xs hover:border-zinc-300 dark:hover:border-white/[0.15] transition-all relative overflow-hidden dark:shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]">
+      <div className="glass-card rounded-xl sm:rounded-2xl bg-white dark:bg-surface-2/80 p-2.5 sm:p-3 flex flex-col justify-between hover:border-zinc-300 dark:hover:border-white/[0.15] transition-all relative overflow-hidden dark:shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]">
         {/* Specular sheen */}
         <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-white/15 to-transparent pointer-events-none" />
 
@@ -147,7 +147,7 @@ export function TodaysActivityCard({
       </div>
 
       {/* Card 3: Sessions Logged */}
-      <div className="glass-card rounded-xl sm:rounded-2xl border border-zinc-200/80 dark:border-white/[0.08] bg-white dark:bg-surface-2/80 p-2.5 sm:p-3 flex flex-col justify-between shadow-2xs hover:border-zinc-300 dark:hover:border-white/[0.15] transition-all relative overflow-hidden dark:shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]">
+      <div className="glass-card rounded-xl sm:rounded-2xl bg-white dark:bg-surface-2/80 p-2.5 sm:p-3 flex flex-col justify-between hover:border-zinc-300 dark:hover:border-white/[0.15] transition-all relative overflow-hidden dark:shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]">
         {/* Specular sheen */}
         <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-white/15 to-transparent pointer-events-none" />
 
@@ -212,7 +212,7 @@ export function TodaysActivityCard({
 
 export function QuickOperationsCard() {
   return (
-    <div className="glass-card rounded-xl sm:rounded-2xl p-2.5 sm:p-3 border border-zinc-200/80 dark:border-white/[0.08] shadow-2xs space-y-2 dark:shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)] relative overflow-hidden flex flex-col justify-between">
+    <div className="glass-card rounded-xl sm:rounded-2xl p-2.5 sm:p-3 space-y-2 dark:shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)] relative overflow-hidden flex flex-col justify-between">
       {/* Milled Top Specular Sheen */}
       <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-white/15 to-transparent pointer-events-none" />
 
