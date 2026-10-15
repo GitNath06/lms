@@ -21,6 +21,10 @@ import {
   Check,
   ExternalLink,
   Monitor,
+  Cpu,
+  HardDrive,
+  RotateCcw,
+  ShieldCheck,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -28,11 +32,13 @@ import { WorkstationPhotoCapture } from './workstation-photo-capture'
 import {
   reportWorkstationIssue,
   resolveWorkstationIssue,
+  resetWorkstationHardwareLock,
 } from '@/app/actions/workstations'
 import type {
   WorkstationWithIssues,
   WorkstationIssueRecord,
   WorkstationPhoto,
+  WorkstationHardwareSpecs,
 } from '@/types/workstations'
 import type { IssueCategoryRow } from '@/types/database'
 import type { WorkstationSeatAssignment } from '@/lib/types/seat-plans'
@@ -123,6 +129,7 @@ export function WorkstationIssueDrawer({
   // Displaced student assignment state
   const [selectedDisplacedEnrollmentId, setSelectedDisplacedEnrollmentId] = useState<string>('')
   const [isSubmittingDisplaced, setIsSubmittingDisplaced] = useState(false)
+  const [isResettingLock, setIsResettingLock] = useState(false)
 
   // Close on Escape key
   useEffect(() => {
@@ -365,6 +372,32 @@ export function WorkstationIssueDrawer({
       setErrorMessage(msg)
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  // 6. Reset Hardware Lock Action
+  const handleResetHardwareLock = async () => {
+    if (!workstation) return
+    const confirmed = window.confirm(
+      `Are you sure you want to reset the hardware lock on ${workstation.label}? This will allow a new computer or replaced motherboard to re-enroll.`
+    )
+    if (!confirmed) return
+
+    setIsResettingLock(true)
+    setErrorMessage(null)
+    try {
+      const res = await resetWorkstationHardwareLock(workstation.id)
+      if (res.success) {
+        setSuccessMessage(`Hardware lock reset on ${workstation.label}. Ready for new agent pairing.`)
+        await onSuccess()
+      } else {
+        setErrorMessage(res.error || 'Failed to reset hardware lock.')
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error resetting hardware lock.'
+      setErrorMessage(msg)
+    } finally {
+      setIsResettingLock(false)
     }
   }
 
@@ -782,6 +815,133 @@ export function WorkstationIssueDrawer({
                   </Button>
                 </Link>
               </div>
+
+              {/* Hardware Telemetry & Silicon Node Diagnostics */}
+              {(() => {
+                const specs = workstation.hardware_specs as WorkstationHardwareSpecs | null
+                return (
+                  <div className="rounded-xl border border-white/[0.08] bg-[#151E32] p-3.5 shadow-sm space-y-3">
+                    <div className="flex items-center justify-between border-b border-white/5 pb-2">
+                      <div className="flex items-center gap-2">
+                        <Cpu className="h-4 w-4 text-indigo-400" />
+                        <span className="font-heading font-bold text-xs uppercase tracking-wider text-slate-200">
+                          Hardware Specs &amp; Diagnostics
+                        </span>
+                      </div>
+                      {specs ? (
+                        <span className="inline-flex items-center gap-1.5 text-[10px] font-mono text-emerald-400 bg-emerald-950/40 border border-emerald-800/40 px-2 py-0.5 rounded-md">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                          Agent Synced
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-mono text-slate-500 bg-white/[0.04] px-2 py-0.5 rounded-md">
+                          No Telemetry Yet
+                        </span>
+                      )}
+                    </div>
+
+                    {specs ? (
+                      <div className="space-y-2.5 text-xs">
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="p-2 rounded-lg bg-black/30 border border-white/5">
+                            <div className="text-[10px] uppercase font-mono text-slate-400">Processor</div>
+                            <div className="font-semibold text-white truncate text-[11px] mt-0.5" title={specs.cpu}>
+                              {specs.cpu}
+                            </div>
+                            <div className="text-[10px] text-slate-500 font-mono">{specs.cpu_cores} Cores</div>
+                          </div>
+
+                          <div className="p-2 rounded-lg bg-black/30 border border-white/5">
+                            <div className="text-[10px] uppercase font-mono text-slate-400">RAM Installed</div>
+                            <div className="font-semibold text-white text-[11px] mt-0.5">
+                              {specs.ram_gb} GB RAM
+                            </div>
+                            <div className="text-[10px] text-slate-500 font-mono">DDR System Memory</div>
+                          </div>
+                        </div>
+
+                        {/* Storage Gauge */}
+                        <div className="p-2 rounded-lg bg-black/30 border border-white/5 space-y-1.5">
+                          <div className="flex items-center justify-between text-[11px]">
+                            <span className="text-slate-400 flex items-center gap-1 font-mono">
+                              <HardDrive className="h-3 w-3 text-indigo-400" /> Storage (C:)
+                            </span>
+                            <span className="font-mono text-white font-semibold">
+                              {specs.disk_c_free_gb} GB Free / {specs.disk_c_total_gb} GB
+                            </span>
+                          </div>
+                          <div className="h-2 w-full rounded-full bg-slate-800 overflow-hidden">
+                            <div
+                              className={`h-full transition-all rounded-full ${
+                                specs.disk_c_free_gb < 5.0
+                                  ? 'bg-rose-500'
+                                  : specs.disk_c_free_gb < 15.0
+                                  ? 'bg-amber-500'
+                                  : 'bg-indigo-500'
+                              }`}
+                              style={{ width: `${Math.min(100, Math.max(5, specs.disk_c_used_pct || 50))}%` }}
+                            />
+                          </div>
+                          {specs.disk_c_free_gb < 15.0 && (
+                            <div className="text-[10px] text-amber-400 font-medium pt-0.5 flex items-center gap-1">
+                              <AlertTriangle className="h-3 w-3" />
+                              <span>Low Storage Warning: Less than 15GB remaining on Drive C:</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* OS & Network Details */}
+                        <div className="p-2 rounded-lg bg-black/30 border border-white/5 text-[11px] space-y-1 font-mono">
+                          <div className="flex items-center justify-between text-slate-300">
+                            <span className="text-slate-500">OS:</span>
+                            <span className="text-right truncate max-w-[210px]">{specs.os_caption} (Build {specs.os_build})</span>
+                          </div>
+                          <div className="flex items-center justify-between text-slate-300">
+                            <span className="text-slate-500">IP / MAC:</span>
+                            <span>{specs.lan_ip} • {specs.mac_address}</span>
+                          </div>
+                          {workstation.machine_guid && (
+                            <div className="flex items-center justify-between text-slate-300 pt-1 border-t border-white/5">
+                              <span className="text-slate-500">Hardware Lock:</span>
+                              <span className="text-[10px] text-emerald-400 truncate max-w-[190px]" title={workstation.machine_guid}>
+                                Bound ({workstation.machine_guid.slice(-17)})
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-3 rounded-lg bg-black/20 border border-white/5 text-center text-xs text-slate-400">
+                        <p>No hardware telemetry received yet.</p>
+                        <p className="text-[11px] text-slate-500 mt-1">
+                          Run <code className="text-indigo-300 font-mono">labsync-agent.ps1</code> on this physical PC to bind hardware specs.
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Reset Hardware Lock Button */}
+                    {isPrivileged && workstation.machine_guid && (
+                      <div className="pt-2 border-t border-white/5 flex items-center justify-between">
+                        <span className="text-[10.5px] text-slate-400">
+                          Replaced Motherboard / NIC?
+                        </span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          disabled={isResettingLock}
+                          onClick={handleResetHardwareLock}
+                          className="h-7 px-2.5 rounded-lg text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 text-xs font-semibold gap-1 cursor-pointer"
+                          title="Unbind current hardware GUID to allow new physical machine pairing"
+                        >
+                          <RotateCcw className={`h-3 w-3 ${isResettingLock ? 'animate-spin' : ''}`} />
+                          <span>Reset Hardware Lock</span>
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
 
               {/* Active Logged Database Tickets */}
               {activeIssues.length === 0 && !assistanceRequest ? (

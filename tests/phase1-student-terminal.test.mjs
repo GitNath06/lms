@@ -66,15 +66,14 @@ describe('Phase 1: Zero-Login Student Terminal Self-Reporting & Live Help Beacon
     assert.ok('student_roll' in colMap, 'workstation_issues must have student_roll column')
   })
 
-  it('Domain Models: TERMINAL_QUICK_ISSUES contains standard 7 laboratory issue chips', () => {
-    assert.equal(TERMINAL_QUICK_ISSUES.length, 7)
+  it('Domain Models: TERMINAL_QUICK_ISSUES contains standard 6 alive-only issue chips', () => {
+    assert.equal(TERMINAL_QUICK_ISSUES.length, 6)
     const ids = TERMINAL_QUICK_ISSUES.map((c) => c.id)
-    assert.ok(ids.includes('windows_activation'))
-    assert.ok(ids.includes('office_license'))
-    assert.ok(ids.includes('missing_software'))
-    assert.ok(ids.includes('system_freeze'))
     assert.ok(ids.includes('peripherals'))
     assert.ok(ids.includes('no_internet'))
+    assert.ok(ids.includes('missing_software'))
+    assert.ok(ids.includes('app_freeze'))
+    assert.ok(ids.includes('audio_issue'))
     assert.ok(ids.includes('other'))
   })
 
@@ -131,7 +130,7 @@ describe('Phase 1: Zero-Login Student Terminal Self-Reporting & Live Help Beacon
     if (!dbUrl) return
 
     const pool = new pg.Pool({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } })
-    const wsRes = await pool.query(`SELECT id, label, lab_id FROM public.workstations WHERE is_active = true LIMIT 1`)
+    const wsRes = await pool.query(`SELECT id, label, lab_id, pairing_token FROM public.workstations WHERE is_active = true LIMIT 1`)
     if (wsRes.rows.length === 0) {
       await pool.end()
       return
@@ -148,6 +147,7 @@ describe('Phase 1: Zero-Login Student Terminal Self-Reporting & Live Help Beacon
       description: 'Cannot run practical script in laboratory session',
       studentName: 'Test Student',
       studentRoll: '99',
+      pairingToken: testWs.pairing_token || undefined,
     })
 
     assert.equal(submitRes.success, true, `Report submission failed: ${submitRes.error}`)

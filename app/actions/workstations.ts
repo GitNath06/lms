@@ -1397,3 +1397,55 @@ export async function deleteCustomLayoutTemplate(
   }
 }
 
+/**
+ * Resets the hardware lock (machine_guid) on a workstation to allow re-enrollment
+ * after hardware replacement (motherboard, NIC) or OS re-installation.
+ * Restricted to Lab In-Charge or Super Admin.
+ */
+export async function resetWorkstationHardwareLock(
+  workstationId: string
+): Promise<{ success: boolean; error?: string }> {
+  const { isPrivileged, scope } = await getAuthContext()
+  if (!isPrivileged) {
+    return { success: false, error: 'Unauthorized: Administrative role required to reset hardware lock.' }
+  }
+
+  const pool = getPgPool()
+  try {
+    const res = await pool.query(
+      `UPDATE public.workstations 
+       SET machine_guid = NULL, updated_at = NOW() 
+       WHERE id = $1 
+       RETURNING id, label, machine_guid`,
+      [workstationId]
+    )
+
+    if (res.rows.length === 0) {
+      return { success: false, error: 'Workstation not found.' }
+    }
+
+    const ws = res.rows[0]
+
+    await recordAuditEvent({
+      action: 'UPDATE',
+      entityType: 'workstation',
+      entityId: workstationId,
+      entityLabel: `Reset Hardware Lock: ${ws.label}`,
+      before: { machine_guid: 'LOCKED' },
+      after: { machine_guid: null },
+      metadata: {
+        actor_id: scope.userId,
+        reason: 'Hardware lock reset by Lab In-Charge for re-enrollment',
+      },
+    })
+
+    revalidatePath('/computer-lab')
+    revalidatePath('/maintenance')
+    return { success: true }
+  } catch (error: any) {
+    console.error('Error resetting workstation hardware lock:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+

@@ -1,3 +1,5 @@
+import type { WorkstationHardwareSpecs } from '@/types/workstations'
+
 export interface TerminalIssueChip {
   id: string
   label: string
@@ -8,53 +10,46 @@ export interface TerminalIssueChip {
 
 export const TERMINAL_QUICK_ISSUES: TerminalIssueChip[] = [
   {
-    id: 'windows_activation',
-    label: 'Windows Not Activated',
-    iconName: 'ShieldAlert',
-    severity: 'medium',
-    description: 'Windows license expired or activation watermark visible on screen',
-  },
-  {
-    id: 'office_license',
-    label: 'MS Office Unlicensed',
-    iconName: 'FileText',
-    severity: 'medium',
-    description: 'MS Word / Excel / PowerPoint activation notice or read-only mode',
-  },
-  {
-    id: 'missing_software',
-    label: 'Missing Software',
-    iconName: 'PackageX',
-    severity: 'high',
-    description: 'Required subject software not installed (Python, VS Code, Turbo C++, DBMS)',
-  },
-  {
-    id: 'system_freeze',
-    label: 'Crash / Blue Screen',
-    iconName: 'ZapOff',
-    severity: 'critical',
-    description: 'PC rebooting unexpectedly, BSOD screen, or completely frozen',
-  },
-  {
     id: 'peripherals',
-    label: 'Mouse / Keyboard / Audio',
+    label: 'Mouse / Keyboard Fault',
     iconName: 'MousePointer',
     severity: 'low',
-    description: 'Mouse wheel, keys not responding, or headphone jack faulty',
+    description: 'Keys jamming, mouse clicker broken, or wheel not scrolling properly.',
   },
   {
     id: 'no_internet',
-    label: 'No Internet / Network Disconnected',
+    label: 'No Internet / LAN Disconnected',
     iconName: 'WifiOff',
     severity: 'high',
-    description: 'LAN cable unplugged or internet connection unavailable',
+    description: 'Local network unplugged or web browser shows connection timed out.',
+  },
+  {
+    id: 'missing_software',
+    label: 'Missing Lab Software',
+    iconName: 'PackageX',
+    severity: 'high',
+    description: 'Required subject software not installed (Turbo C++, Python, VS Code, MySQL).',
+  },
+  {
+    id: 'app_freeze',
+    label: 'Application Freeze / Crash',
+    iconName: 'ZapOff',
+    severity: 'medium',
+    description: 'Program not responding, compiler crashing, or code editor completely frozen.',
+  },
+  {
+    id: 'audio_issue',
+    label: 'Audio / Headphone Issue',
+    iconName: 'VolumeX',
+    severity: 'low',
+    description: 'No sound output or headphone jack not recognized during audio practical.',
   },
   {
     id: 'other',
-    label: 'Other Problem',
+    label: 'Other Workstation Problem',
     iconName: 'HelpCircle',
     severity: 'medium',
-    description: 'Custom laboratory hardware or software difficulty',
+    description: 'Custom problem encountered while working on this terminal.',
   },
 ]
 
@@ -86,6 +81,9 @@ export interface TerminalContextData {
   labId: string
   labName: string
   lanIp?: string | null
+  machineGuid?: string | null
+  hardwareSpecs?: WorkstationHardwareSpecs | null
+  lastSeenAt?: string | null
   isPaired: boolean
   pairingToken?: string | null
   currentStudent?: TerminalStudentIdentity | null

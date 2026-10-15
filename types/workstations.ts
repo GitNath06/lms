@@ -3,6 +3,7 @@ import {
   IssueCategoryRow,
   WorkstationIssueRow,
   LabFloorElementRow,
+  Json,
 } from '@/types/database'
 
 export interface WorkstationPhoto {
@@ -38,9 +39,25 @@ export interface WorkstationIssueRecord {
   updated_at: string
 }
 
+export interface WorkstationHardwareSpecs {
+  cpu: string
+  cpu_cores: number
+  ram_gb: number
+  disk_c_total_gb: number
+  disk_c_free_gb: number
+  disk_c_used_pct: number
+  os_caption: string
+  os_build: string
+  mac_address: string
+  lan_ip: string
+  agent_version: string
+  last_synced_at: string
+}
+
 export type WorkstationDerivedStatus = 'operational' | 'flagged' | 'under_repair'
 
-export interface WorkstationWithIssues extends WorkstationRow {
+export interface WorkstationWithIssues extends Omit<WorkstationRow, 'hardware_specs'> {
+  hardware_specs: WorkstationHardwareSpecs | Json | null
   open_issues_count: number
   highest_severity: 'low' | 'medium' | 'high' | 'critical' | null
   status: WorkstationDerivedStatus

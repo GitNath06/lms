@@ -1,10 +1,12 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { cookies } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { getPgPool } from '@/lib/db'
 import { getServerUserScope } from '@/lib/context/server-user-scope'
 import { recordAuditEvent } from '@/lib/audit/audit-ledger'
+import { verifyTerminalSessionToken } from '@/lib/security/terminal-token'
 import type {
   TerminalContextData,
   SubmitStudentReportInput,
@@ -21,6 +23,39 @@ async function getAuthContext() {
     process.env.NODE_ENV === 'development'
 
   return { scope, isPrivileged }
+}
+
+/**
+ * Resolves verified terminal session from the HttpOnly session cookie.
+ */
+export async function getActiveTerminalSession(): Promise<{
+  authenticated: boolean
+  stationId?: string
+  stationCode?: string
+  machineGuid?: string
+  error?: string
+}> {
+  try {
+    const cookieStore = await cookies()
+    const sessionCookie = cookieStore.get('labsync_terminal_session')?.value
+    if (!sessionCookie) {
+      return { authenticated: false, error: 'No active terminal session cookie.' }
+    }
+
+    const verified = verifyTerminalSessionToken(sessionCookie)
+    if (!verified.valid || !verified.payload) {
+      return { authenticated: false, error: verified.reason || 'Session cookie expired or invalid.' }
+    }
+
+    return {
+      authenticated: true,
+      stationId: verified.payload.stationId,
+      stationCode: verified.payload.stationCode,
+      machineGuid: verified.payload.machineGuid,
+    }
+  } catch (err: any) {
+    return { authenticated: false, error: err.message }
+  }
 }
 
 /**
@@ -48,6 +83,9 @@ export async function getTerminalContext(
         w.row_label,
         w.lan_ip,
         w.pairing_token,
+        w.machine_guid,
+        w.hardware_specs,
+        w.last_seen_at,
         w.is_active,
         l.name as lab_name
       FROM public.workstations w
@@ -221,6 +259,9 @@ export async function getTerminalContext(
       labId,
       labName,
       lanIp: ws.lan_ip,
+      machineGuid: ws.machine_guid,
+      hardwareSpecs: ws.hardware_specs,
+      lastSeenAt: ws.last_seen_at?.toISOString?.() || ws.last_seen_at,
       isPaired,
       pairingToken: storedToken,
       currentStudent,
@@ -387,28 +428,39 @@ export async function submitStudentIssueReport(
       return { success: false, error: 'Station code and issue title are required.' }
     }
 
-    // 1. Anti-Spoofing Security Verification
-    const verification = await verifyTerminalAccess(
-      stationCode,
-      pairingToken ?? undefined,
-      clientIp ?? undefined
-    )
-    if (!verification.allowed) {
-      return { success: false, error: verification.reason || 'Terminal verification failed.' }
+    // 1. Anti-Spoofing Security Verification (HttpOnly Session Cookie prioritized)
+    let workstationId: string
+    let effectiveStationCode = stationCode
+
+    const activeSession = await getActiveTerminalSession()
+    if (activeSession.authenticated && activeSession.stationId && activeSession.stationCode) {
+      workstationId = activeSession.stationId
+      effectiveStationCode = activeSession.stationCode
+    } else {
+      // Fallback verification for paired browsers or admin tests
+      const verification = await verifyTerminalAccess(
+        stationCode,
+        pairingToken ?? undefined,
+        clientIp ?? undefined
+      )
+      if (!verification.allowed) {
+        return { success: false, error: verification.reason || 'Terminal verification failed.' }
+      }
+      workstationId = verification.workstationId
+      effectiveStationCode = verification.stationCode
     }
 
     const pool = getPgPool()
-    const workstationId = verification.workstationId
 
     // Map severity based on issue tag or default to medium
     let severity: 'low' | 'medium' | 'high' | 'critical' = 'medium'
-    if (issueTag === 'system_freeze') severity = 'critical'
+    if (issueTag === 'app_freeze' || issueTag === 'system_freeze') severity = 'critical'
     else if (issueTag === 'missing_software' || issueTag === 'no_internet') severity = 'high'
-    else if (issueTag === 'peripherals') severity = 'low'
+    else if (issueTag === 'peripherals' || issueTag === 'audio_issue') severity = 'low'
 
     const reporterName = studentName?.trim()
       ? `${studentName.trim()}${studentRoll ? ` (Roll ${studentRoll})` : ''}`
-      : `Terminal ${verification.stationCode}`
+      : `Terminal ${effectiveStationCode}`
 
     const insertQuery = `
       INSERT INTO public.workstation_issues (
@@ -446,10 +498,10 @@ export async function submitStudentIssueReport(
       action: 'CREATE',
       entityType: 'workstation_issue',
       entityId: issueId,
-      entityLabel: `Terminal ${verification.stationCode} Help Request: ${title}`,
+      entityLabel: `Terminal ${effectiveStationCode} Help Request: ${title}`,
       after: {
         workstation_id: workstationId,
-        station_code: verification.stationCode,
+        station_code: effectiveStationCode,
         title,
         severity,
         source: 'student_terminal',
@@ -519,7 +571,7 @@ export async function getLiveAssistanceRequests(
         .order('created_at', { ascending: false })
         .limit(10)
 
-      if (!sbErr && issues) {
+      if (!sbErr && issues && issues.length > 0) {
         const requests = (issues as any[]).map((r) => ({
           id: r.id,
           workstationId: r.workstation_id,

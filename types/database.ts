@@ -885,6 +885,9 @@ export interface Database {
           position_id: string | null
           lan_ip: string | null
           pairing_token: string | null
+          machine_guid: string | null
+          hardware_specs: Json | null
+          last_seen_at: string | null
           is_active: boolean
           created_at: string
           updated_at: string
@@ -900,6 +903,9 @@ export interface Database {
           position_id?: string | null
           lan_ip?: string | null
           pairing_token?: string | null
+          machine_guid?: string | null
+          hardware_specs?: Json | null
+          last_seen_at?: string | null
           is_active?: boolean
           created_at?: string
           updated_at?: string
@@ -915,6 +921,9 @@ export interface Database {
           position_id?: string | null
           lan_ip?: string | null
           pairing_token?: string | null
+          machine_guid?: string | null
+          hardware_specs?: Json | null
+          last_seen_at?: string | null
           is_active?: boolean
           created_at?: string
           updated_at?: string

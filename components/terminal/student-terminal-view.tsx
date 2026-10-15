@@ -13,6 +13,7 @@ import {
   ZapOff,
   MousePointer,
   WifiOff,
+  VolumeX,
   User,
   Clock,
   Send,
@@ -20,9 +21,10 @@ import {
   Lock,
   ArrowRight,
   RefreshCw,
+  HardDrive,
+  Cpu,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import {
   TERMINAL_QUICK_ISSUES,
@@ -33,9 +35,13 @@ import { submitStudentIssueReport } from '@/app/actions/terminal'
 
 interface StudentTerminalViewProps {
   initialData: TerminalContextData
+  isSessionAuthenticated?: boolean
 }
 
-export function StudentTerminalView({ initialData }: StudentTerminalViewProps) {
+export function StudentTerminalView({
+  initialData,
+  isSessionAuthenticated = false,
+}: StudentTerminalViewProps) {
   const [data, setData] = useState<TerminalContextData>(initialData)
   const [selectedChip, setSelectedChip] = useState<TerminalIssueChip | null>(null)
   const [customDetails, setCustomDetails] = useState('')
@@ -43,20 +49,20 @@ export function StudentTerminalView({ initialData }: StudentTerminalViewProps) {
   const [studentRoll, setStudentRoll] = useState(
     data.currentStudent?.rollNumber ? String(data.currentStudent.rollNumber) : ''
   )
-  const [isIdentityConfirmed, setIsIdentityConfirmed] = useState(Boolean(data.currentStudent))
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitSuccess, setSubmitSuccess] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [clientPairingToken, setClientPairingToken] = useState<string | null>(null)
 
-  // Load persistent browser pairing token from localStorage if present
+  // Load persistent browser pairing token from localStorage if present (for fallback)
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const storedToken = localStorage.getItem(`labsync_paired_token_${data.stationCode}`) || localStorage.getItem('labsync_paired_token')
+      const storedToken =
+        localStorage.getItem(`labsync_paired_token_${data.stationCode}`) ||
+        localStorage.getItem('labsync_paired_token')
       if (storedToken) {
         setClientPairingToken(storedToken)
       } else if (data.pairingToken) {
-        // Automatically persist if provided in initial data
         localStorage.setItem(`labsync_paired_token_${data.stationCode}`, data.pairingToken)
         localStorage.setItem('labsync_paired_token', data.pairingToken)
         setClientPairingToken(data.pairingToken)
@@ -102,22 +108,23 @@ export function StudentTerminalView({ initialData }: StudentTerminalViewProps) {
 
   const renderChipIcon = (iconName: string) => {
     switch (iconName) {
-      case 'ShieldAlert':
-        return <ShieldAlert className="w-5 h-5 text-amber-400" />
-      case 'FileText':
-        return <FileText className="w-5 h-5 text-blue-400" />
-      case 'PackageX':
-        return <PackageX className="w-5 h-5 text-rose-400" />
-      case 'ZapOff':
-        return <ZapOff className="w-5 h-5 text-rose-500 animate-pulse" />
       case 'MousePointer':
         return <MousePointer className="w-5 h-5 text-indigo-400" />
       case 'WifiOff':
         return <WifiOff className="w-5 h-5 text-amber-500" />
+      case 'PackageX':
+        return <PackageX className="w-5 h-5 text-rose-400" />
+      case 'ZapOff':
+        return <ZapOff className="w-5 h-5 text-amber-400 animate-pulse" />
+      case 'VolumeX':
+        return <VolumeX className="w-5 h-5 text-indigo-300" />
       default:
         return <HelpCircle className="w-5 h-5 text-zinc-400" />
     }
   }
+
+  const hasHardwareSpecs = Boolean(data.hardwareSpecs)
+  const specs = data.hardwareSpecs
 
   return (
     <div className="min-h-screen bg-[#0B0F19] text-zinc-100 font-sans flex flex-col justify-between selection:bg-indigo-500 selection:text-white">
@@ -138,7 +145,7 @@ export function StudentTerminalView({ initialData }: StudentTerminalViewProps) {
                   {data.rowLabel || 'Floor Node'}
                 </Badge>
               </div>
-              <p className="text-xs text-zinc-400">Student Self-Reporting & Assistance Terminal</p>
+              <p className="text-xs text-zinc-400">Student Self-Reporting &amp; Assistance Terminal</p>
             </div>
           </div>
 
@@ -154,7 +161,31 @@ export function StudentTerminalView({ initialData }: StudentTerminalViewProps) {
       </header>
 
       {/* Main Body */}
-      <main className="flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6 space-y-6">
+      <main className="flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6 space-y-5">
+        {/* Hardware Telemetry Badge (If populated by agent) */}
+        {hasHardwareSpecs && specs && (
+          <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-3 flex flex-wrap items-center justify-between gap-2.5 text-xs text-zinc-300 shadow-sm">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-semibold text-[11px]">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                Physical Hardware Bound
+              </span>
+              <span className="text-zinc-500 font-mono text-[11px] truncate max-w-[220px] sm:max-w-none">
+                {specs.cpu}
+              </span>
+              <span className="text-zinc-600 hidden sm:inline">•</span>
+              <span className="font-mono text-zinc-300 font-semibold">{specs.ram_gb} GB RAM</span>
+              <span className="text-zinc-600 hidden sm:inline">•</span>
+              <span className="text-zinc-400">
+                Drive C: <strong className="text-zinc-200 font-mono">{specs.disk_c_free_gb} GB</strong> free
+              </span>
+            </div>
+            <div className="text-[10.5px] font-mono text-zinc-500">
+              {specs.lan_ip}
+            </div>
+          </div>
+        )}
+
         {/* Active Session & Student Recognition Card */}
         <section className="bg-zinc-900/70 border border-zinc-800/80 rounded-2xl p-4 sm:p-5 shadow-lg relative overflow-hidden">
           <div className="absolute top-0 right-0 w-48 h-48 bg-indigo-500/5 rounded-full blur-3xl pointer-events-none" />
@@ -163,7 +194,7 @@ export function StudentTerminalView({ initialData }: StudentTerminalViewProps) {
             <div>
               <div className="text-xs text-zinc-400 uppercase tracking-wider font-semibold flex items-center gap-1.5">
                 <Clock className="w-3.5 h-3.5 text-indigo-400" />
-                Active Class Session
+                Active Practical Session
               </div>
               <div className="text-base font-bold text-zinc-100 font-heading mt-0.5">
                 {data.activeSession?.subjectName || 'Open Laboratory Practical Hours'}
@@ -178,7 +209,7 @@ export function StudentTerminalView({ initialData }: StudentTerminalViewProps) {
             {/* Anti-Spoofing Security Indicator */}
             <div className="flex items-center gap-1.5 text-xs text-emerald-400 bg-emerald-950/40 border border-emerald-800/50 px-2.5 py-1.5 rounded-lg self-start sm:self-auto">
               <Lock className="w-3.5 h-3.5" />
-              <span>Hardware Locked to {data.stationCode}</span>
+              <span>Locked to {data.stationCode}</span>
             </div>
           </div>
 
@@ -212,13 +243,13 @@ export function StudentTerminalView({ initialData }: StudentTerminalViewProps) {
                       <span className="text-indigo-400 font-mono text-xs">(Roll {data.currentStudent.rollNumber})</span>
                     </>
                   ) : (
-                    <span className="text-zinc-500 italic">No student assigned to this station</span>
+                    <span className="text-zinc-500 italic">No student enrolled for current practical</span>
                   )}
                 </div>
               </div>
             </div>
 
-            {/* Confirmation Toggle */}
+            {/* Student Name/Roll Confirmation Inputs */}
             <div className="flex items-center gap-2">
               <input
                 type="text"
@@ -243,10 +274,10 @@ export function StudentTerminalView({ initialData }: StudentTerminalViewProps) {
           <div className="p-4 rounded-xl bg-emerald-950/50 border border-emerald-500/50 text-emerald-200 flex items-start gap-3 shadow-lg animate-in fade-in slide-in-from-top-2 duration-300">
             <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
             <div className="flex-1">
-              <div className="text-sm font-bold text-white">Assistance Request Dispatched!</div>
+              <div className="text-sm font-bold text-white">Assistance Request Submitted!</div>
               <div className="text-xs text-emerald-300/90 mt-0.5">
-                The Teacher Podium and Lab In-Charge Cockpit have been notified with an alert beacon for{' '}
-                <strong className="text-white font-mono">{data.stationCode}</strong>. Please stay at your terminal while assistance arrives.
+                Your report has been logged for <strong className="text-white font-mono">{data.stationCode}</strong>.
+                The Lab In-Charge and Teacher Cockpit have been notified. Please continue working on other assigned tasks.
               </div>
             </div>
             <Button
@@ -268,14 +299,14 @@ export function StudentTerminalView({ initialData }: StudentTerminalViewProps) {
           </div>
         )}
 
-        {/* 1-Tap Quick Issue Chips Section */}
+        {/* 1-Tap Quick Issue Chips Section (6 Alive-Only Categories) */}
         <section className="space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-bold text-zinc-200 uppercase tracking-wider font-heading flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-indigo-400" />
-              1-Tap Quick Issue Reporting
+              Select Workstation Issue
             </h2>
-            <span className="text-xs text-zinc-500">Tap the chip matching your problem</span>
+            <span className="text-xs text-zinc-500">Tap the card matching your problem</span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -286,7 +317,7 @@ export function StudentTerminalView({ initialData }: StudentTerminalViewProps) {
                   key={chip.id}
                   type="button"
                   onClick={() => handleChipClick(chip)}
-                  className={`p-3.5 rounded-xl text-left transition-all border flex items-start gap-3 group relative overflow-hidden ${
+                  className={`p-3.5 rounded-xl text-left transition-all border flex items-start gap-3 group relative overflow-hidden cursor-pointer ${
                     isSelected
                       ? 'bg-indigo-950/40 border-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.2)]'
                       : 'bg-zinc-900/60 border-zinc-800/80 hover:border-zinc-700 hover:bg-zinc-900 text-zinc-300'
@@ -323,7 +354,7 @@ export function StudentTerminalView({ initialData }: StudentTerminalViewProps) {
               placeholder={
                 selectedChip
                   ? `e.g. Details about "${selectedChip.label}"...`
-                  : 'Describe what is happening on your terminal screen...'
+                  : 'Describe what is happening on your terminal screen or hardware...'
               }
               value={customDetails}
               onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setCustomDetails(e.target.value)}
@@ -346,17 +377,17 @@ export function StudentTerminalView({ initialData }: StudentTerminalViewProps) {
             <Button
               type="submit"
               disabled={isSubmitting || !selectedChip}
-              className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs px-5 py-2 rounded-xl shadow-md transition-all disabled:opacity-50 flex items-center gap-2"
+              className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs px-5 py-2 rounded-xl shadow-md transition-all disabled:opacity-50 flex items-center gap-2 cursor-pointer"
             >
               {isSubmitting ? (
                 <>
                   <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  <span>Dispatching...</span>
+                  <span>Submitting...</span>
                 </>
               ) : (
                 <>
                   <Send className="w-3.5 h-3.5" />
-                  <span>Request Assistance</span>
+                  <span>Submit Issue Report</span>
                 </>
               )}
             </Button>
@@ -367,7 +398,7 @@ export function StudentTerminalView({ initialData }: StudentTerminalViewProps) {
         {data.recentIssues && data.recentIssues.length > 0 && (
           <section className="space-y-2.5 pt-2">
             <div className="text-xs font-bold text-zinc-400 uppercase tracking-wider font-heading">
-              Existing Tickets for {data.stationCode}
+              Open Tickets for {data.stationCode}
             </div>
             <div className="divide-y divide-zinc-800/80 bg-zinc-900/40 border border-zinc-800/70 rounded-xl overflow-hidden">
               {data.recentIssues.map((iss) => (
@@ -403,7 +434,7 @@ export function StudentTerminalView({ initialData }: StudentTerminalViewProps) {
 
       {/* Institutional Footer */}
       <footer className="border-t border-zinc-800/60 bg-zinc-950/80 px-4 py-3 text-center text-xs text-zinc-500 font-mono">
-        LabSync LIMS · Terminal Self-Reporting Gateway · 2-Tier Hardware Lock Active
+        LabSync LIMS · Terminal Self-Reporting Gateway · Silicon Hardware Lock Active
       </footer>
     </div>
   )
