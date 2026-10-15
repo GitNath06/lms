@@ -106,12 +106,12 @@ $osBuild = if ($osInfo -and $osInfo.BuildNumber) { [string]$osInfo.BuildNumber }
 # 2F. Local IPv4 Address
 $lanIp = if ($activeNic -and $activeNic.IPAddress) { $activeNic.IPAddress[0] } else { "127.0.0.1" }
 
-Write-Host "    • Composite GUID : $compositeGuid" -ForegroundColor DarkCyan
-Write-Host "    • CPU            : $cpuName ($cpuCores Cores)" -ForegroundColor Gray
-Write-Host "    • Memory         : $ramGb GB RAM" -ForegroundColor Gray
-Write-Host "    • Storage (C:)   : $diskFreeGb GB Free of $diskTotalGb GB ($diskUsedPct% Used)" -ForegroundColor Gray
-Write-Host "    • OS Version     : $osCaption (Build $osBuild)" -ForegroundColor Gray
-Write-Host "    • Network Link   : $lanIp ($macAddr)" -ForegroundColor Gray
+Write-Host "    - Composite GUID : $compositeGuid" -ForegroundColor DarkCyan
+Write-Host "    - CPU            : $cpuName ($cpuCores Cores)" -ForegroundColor Gray
+Write-Host "    - Memory         : $ramGb GB RAM" -ForegroundColor Gray
+Write-Host "    - Storage (C:)   : $diskFreeGb GB Free of $diskTotalGb GB ($diskUsedPct% Used)" -ForegroundColor Gray
+Write-Host "    - OS Version     : $osCaption (Build $osBuild)" -ForegroundColor Gray
+Write-Host "    - Network Link   : $lanIp ($macAddr)" -ForegroundColor Gray
 
 # 3. Construct Payload
 $telemetryPayload = @{
@@ -157,12 +157,12 @@ try {
     if ($response.success -and $response.redirect_url) {
         $handshakeSuccess = $true
         $redirectUrl = $response.redirect_url
-        Write-Host "[✓] Machine Handshake Authorized!" -ForegroundColor Green
-        Write-Host "    • Bound Station Code : $($response.station_code)" -ForegroundColor Green
+        Write-Host "[OK] Machine Handshake Authorized!" -ForegroundColor Green
+        Write-Host "    - Bound Station Code : $($response.station_code)" -ForegroundColor Green
         if ($response.is_new_pairing) {
-            Write-Host "    • TOFU Status        : New hardware lock established" -ForegroundColor Yellow
+            Write-Host "    - TOFU Status        : New hardware lock established" -ForegroundColor Yellow
         } else {
-            Write-Host "    • TOFU Status        : Verified existing hardware lock" -ForegroundColor Green
+            Write-Host "    - TOFU Status        : Verified existing hardware lock" -ForegroundColor Green
         }
     } else {
         Write-Host "[!] Handshake Rejected: $($response.error)" -ForegroundColor Red
@@ -183,8 +183,8 @@ catch {
         }
     } catch {}
 
-    Write-Host "  • Detected Status : $linkStatus" -ForegroundColor Yellow
-    Write-Host "  • Error Details   : $($_.Exception.Message)" -ForegroundColor DarkYellow
+    Write-Host "  - Detected Status : $linkStatus" -ForegroundColor Yellow
+    Write-Host "  - Error Details   : $($_.Exception.Message)" -ForegroundColor DarkYellow
     Write-Host ""
     Write-Host "  ACTION REQUIRED:" -ForegroundColor White
     Write-Host "  Please notify the Lab In-Charge or Instructor verbally that this desk" -ForegroundColor White
@@ -211,7 +211,7 @@ if ($handshakeSuccess -and -not [string]::IsNullOrWhiteSpace($redirectUrl)) {
 
     if (-not $DebugMode) {
         Write-Host ""
-        Write-Host "[✓] Workstation initialized. Window closing in 3 seconds..." -ForegroundColor DarkGray
+        Write-Host "[OK] Workstation initialized. Window closing in 3 seconds..." -ForegroundColor DarkGray
         Start-Sleep -Seconds 3
     } else {
         Write-Host ""
