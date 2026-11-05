@@ -68,17 +68,17 @@ export function CanvasMinimapRadar({
   )
 
   return (
-    <div className="absolute bottom-3 right-3 z-30 flex flex-col rounded-xl border border-white/[0.08] bg-[#101726]/95 backdrop-blur-md shadow-2xl p-2 select-none">
+    <div className="absolute bottom-3 right-3 z-30 flex flex-col rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-white/90 dark:bg-[#101726]/90 backdrop-blur-md shadow-xl p-2 select-none">
       {/* Header bar */}
-      <div className="flex items-center justify-between gap-2 pb-1.5 mb-1.5 border-b border-white/[0.06] text-[10px] font-bold text-slate-300">
-        <div className="flex items-center gap-1.5 text-indigo-400">
+      <div className="flex items-center justify-between gap-2 pb-1.5 mb-1.5 border-b border-zinc-200 dark:border-white/[0.06] text-[10px] font-bold text-zinc-700 dark:text-slate-300">
+        <div className="flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400">
           <Compass className="h-3 w-3" />
           <span>Floor Radar</span>
         </div>
         <button
           type="button"
           onClick={onClose}
-          className="text-slate-400 hover:text-white p-0.5 rounded transition-colors"
+          className="text-zinc-400 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white p-0.5 rounded transition-colors"
         >
           <X className="h-3 w-3" />
         </button>
@@ -89,25 +89,25 @@ export function CanvasMinimapRadar({
         ref={radarRef}
         onClick={handleMinimapClick}
         style={{ width: `${mapW}px`, height: `${mapH}px` }}
-        className="relative rounded-lg bg-[#0B0F19] border border-white/10 overflow-hidden cursor-crosshair shadow-inner"
+        className="relative rounded-lg bg-slate-50 dark:bg-[#0B0F19] border border-zinc-200 dark:border-white/10 overflow-hidden cursor-crosshair shadow-inner"
       >
         {/* Architectural grid micro-lines */}
         <div
-          className="absolute inset-0 opacity-15"
+          className="absolute inset-0 opacity-15 dark:opacity-20"
           style={{
             backgroundImage:
-              'linear-gradient(to right, rgba(255,255,255,0.2) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.2) 1px, transparent 1px)',
+              'linear-gradient(to right, currentColor 1px, transparent 1px), linear-gradient(to bottom, currentColor 1px, transparent 1px)',
             backgroundSize: '16px 16px',
           }}
         />
 
         {/* Workstation Micro-dots */}
         {workstations.map((ws) => {
-          let dotColor = 'bg-emerald-400'
+          let dotColor = 'bg-emerald-500'
           if (ws.status === 'flagged' || (ws.active_issues?.length || 0) > 0) {
             dotColor = 'bg-rose-500'
           } else if (ws.status === 'under_repair') {
-            dotColor = 'bg-amber-400'
+            dotColor = 'bg-amber-500'
           } else if (ws.isPresent === false) {
             dotColor = 'bg-rose-400'
           }
@@ -134,7 +134,7 @@ export function CanvasMinimapRadar({
             width: `${boxW}px`,
             height: `${boxH}px`,
           }}
-          className="absolute border border-indigo-400 bg-indigo-500/20 rounded-xs shadow-[0_0_8px_rgba(99,102,241,0.4)] pointer-events-none"
+          className="absolute border border-indigo-500 bg-indigo-500/20 rounded-xs shadow-[0_0_8px_rgba(99,102,241,0.4)] pointer-events-none"
         />
       </div>
     </div>

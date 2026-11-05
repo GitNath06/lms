@@ -13,16 +13,20 @@ import {
   Calendar,
   GraduationCap,
   CheckCircle2,
+  SlidersHorizontal,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react'
 import { PracticalRecordFilters, PracticalGroupingKey } from '@/types/records'
 import { getCascadingOptions } from '@/lib/context/cascading-filters'
-import { UserScopeContext } from '@/lib/context/user-scope'
+import { resolveUserScope, type UserScopeContext } from '@/lib/context/user-scope'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useInfrastructureState } from '@/hooks/use-infrastructure-state'
 import { NepaliDatePicker } from '@/components/ui/nepali-date-picker'
+import { getBsDatePreset } from '@/lib/nepali-date'
 
 interface PracticalFilterBarProps {
   filters: PracticalRecordFilters
@@ -59,20 +63,15 @@ export default function PracticalFilterBar({
   // Dynamic context-first cascading options using live infrastructure state
   const cascading = React.useMemo(() => {
     const activeLabs = (infraLabs && infraLabs.length > 0) ? infraLabs : labs
-    const scope: UserScopeContext = userScope || {
-      userId: '',
-      fullName: userName || 'Faculty',
-      email: '',
-      role: (userRole as any) || 'teacher',
+    const scope: UserScopeContext = userScope || resolveUserScope({
+      id: 'current',
+      full_name: userName || 'Faculty',
+      role: (userRole as any) || (isPrivileged ? 'super_admin' : 'teacher'),
+      approval_status: 'approved',
+      is_active: true,
       department: '',
-      isPrivileged,
-      isTeacher: !isPrivileged,
-      assignedLabIds: activeLabs.map((l) => l.id),
-      assignedClasses: [],
-      assignedSubjects: [],
-      defaultViewMode: isPrivileged ? 'institutional' : 'my_data',
-      teacherProfile: null,
-    }
+      created_at: new Date().toISOString(),
+    })
     return getCascadingOptions(
       scope,
       {
@@ -114,6 +113,23 @@ export default function PracticalFilterBar({
   React.useEffect(() => {
     setDraftFilters(filters)
   }, [filters])
+
+  // Mobile on-demand accordion toggle
+  const [isMobileExpanded, setIsMobileExpanded] = React.useState(false)
+
+  // Count active non-default filters for mobile badge
+  const activeFilterCount = React.useMemo(() => {
+    let count = 0
+    if (draftFilters.academic_year_id && draftFilters.academic_year_id !== 'all') count++
+    if (draftFilters.lab_id && draftFilters.lab_id !== 'all') count++
+    if (draftFilters.batch_group && draftFilters.batch_group !== 'all') count++
+    if (draftFilters.subject_name && draftFilters.subject_name !== 'all') count++
+    if (draftFilters.teacher_id && draftFilters.teacher_id !== 'all') count++
+    if (draftFilters.status && draftFilters.status !== 'all') count++
+    if (draftFilters.date_from) count++
+    if (draftFilters.date_to) count++
+    return count
+  }, [draftFilters])
 
   const handleDraftChange = (field: keyof PracticalRecordFilters, value: any, autoApply = false) => {
     const updated = {
@@ -174,7 +190,33 @@ export default function PracticalFilterBar({
           </div>
         </div>
 
-        <div className="flex items-center gap-2 self-end sm:self-auto">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
+          {/* Mobile On-Demand Filter Drawer / Accordion Toggle */}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setIsMobileExpanded(!isMobileExpanded)}
+            className={`md:hidden h-8 px-2.5 rounded-xl text-xs font-semibold gap-1.5 transition-colors cursor-pointer ${
+              activeFilterCount > 0 || isMobileExpanded
+                ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                : 'border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300'
+            }`}
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+            <span>Filters</span>
+            {activeFilterCount > 0 && (
+              <span className="h-4 min-w-4 px-1 rounded-full bg-emerald-600 text-white text-[10px] font-mono font-bold flex items-center justify-center">
+                {activeFilterCount}
+              </span>
+            )}
+            {isMobileExpanded ? (
+              <ChevronUp className="h-3 w-3 opacity-60" />
+            ) : (
+              <ChevronDown className="h-3 w-3 opacity-60" />
+            )}
+          </Button>
+
           {/* Group By Selector */}
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-xs font-medium text-zinc-800 dark:text-zinc-200">
             <Layers className="h-3.5 w-3.5 text-zinc-500 dark:text-slate-400" />
@@ -197,7 +239,7 @@ export default function PracticalFilterBar({
             variant="outline"
             size="sm"
             onClick={handleReset}
-            className="h-8 px-2.5 rounded-xl text-xs font-mono border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 gap-1.5"
+            className="h-8 px-2.5 rounded-xl text-xs font-mono border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 gap-1.5 cursor-pointer"
           >
             <RotateCcw className="h-3 w-3" />
             <span>Reset</span>
@@ -214,8 +256,10 @@ export default function PracticalFilterBar({
         </div>
       </div>
 
-      {/* Multi-Dimensional Filter Grid (8-Slot Unified Scope Grid) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-2.5 pt-2 border-t border-zinc-100 dark:border-zinc-800/80 text-xs">
+      {/* On-Demand Collapsible Filter Body on Mobile (<768px), Permanent on Desktop */}
+      <div className={`${isMobileExpanded ? 'block' : 'hidden md:block'} space-y-3.5`}>
+        {/* Multi-Dimensional Filter Grid (8-Slot Unified Scope Grid) */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-2.5 pt-2 border-t border-zinc-100 dark:border-zinc-800/80 text-xs">
         {/* 1. Academic Year */}
         <div className="space-y-1">
           <label className="text-[11px] font-mono uppercase text-zinc-600 dark:text-slate-300 font-bold flex items-center gap-1">
@@ -270,8 +314,8 @@ export default function PracticalFilterBar({
             className="w-full h-8 px-2 bg-zinc-50 dark:bg-zinc-950/60 border border-zinc-300/80 dark:border-zinc-800 rounded-lg text-xs font-medium text-zinc-900 dark:text-zinc-200 focus:outline-hidden focus:ring-1 focus:ring-emerald-500 cursor-pointer truncate"
           >
             <option value="all">All Classes ({cascading.validClasses.length})</option>
-            {cascading.validClasses.map((c) => (
-              <option key={c.name} value={c.name}>{c.name} — {c.fullName || c.name}</option>
+            {cascading.validClasses.map((c, idx) => (
+              <option key={`cls-${c.id || c.name}-${idx}`} value={c.name}>{c.name} — {c.fullName || c.name}</option>
             ))}
           </select>
         </div>
@@ -287,9 +331,19 @@ export default function PracticalFilterBar({
             className="w-full h-8 px-2 bg-zinc-50 dark:bg-zinc-950/60 border border-zinc-300/80 dark:border-zinc-800 rounded-lg text-xs font-medium text-zinc-900 dark:text-zinc-200 focus:outline-hidden focus:ring-1 focus:ring-emerald-500 cursor-pointer truncate"
           >
             <option value="all">All Subjects ({cascading.validSubjects.length})</option>
-            {cascading.validSubjects.map((s) => (
-              <option key={s.code} value={s.code}>{s.code} — {s.title}</option>
-            ))}
+            {(() => {
+              const seen = new Set<string>()
+              return cascading.validSubjects
+                .filter((s) => {
+                  const k = s.code.trim().toUpperCase()
+                  if (seen.has(k)) return false
+                  seen.add(k)
+                  return true
+                })
+                .map((s, idx) => (
+                  <option key={`subj-${s.code}-${idx}`} value={s.code}>{s.code} — {s.title}</option>
+                ))
+            })()}
           </select>
         </div>
 
@@ -304,8 +358,8 @@ export default function PracticalFilterBar({
             className="w-full h-8 px-2 bg-zinc-50 dark:bg-zinc-950/60 border border-zinc-300/80 dark:border-zinc-800 rounded-lg text-xs font-medium text-zinc-900 dark:text-zinc-200 focus:outline-hidden focus:ring-1 focus:ring-emerald-500 cursor-pointer truncate"
           >
             <option value="all">All Teachers ({cascading.validTeachers.length})</option>
-            {cascading.validTeachers.map((t) => (
-              <option key={t.id} value={t.id}>{t.name}</option>
+            {cascading.validTeachers.map((t, idx) => (
+              <option key={`tch-${t.id}-${idx}`} value={t.id}>{t.name}</option>
             ))}
           </select>
         </div>
@@ -328,27 +382,86 @@ export default function PracticalFilterBar({
 
         {/* 7. Date From */}
         <div className="space-y-1">
-          <label className="text-[11px] font-mono uppercase text-zinc-600 dark:text-slate-300 font-bold flex items-center gap-1">
-            <Calendar className="h-3 w-3" /> मिति देखि (From Date)
-          </label>
+          <div className="flex items-center justify-between">
+            <label className="text-[11px] font-mono uppercase text-zinc-600 dark:text-slate-300 font-bold flex items-center gap-1">
+              <Calendar className="h-3 w-3" /> मिति देखि (From)
+            </label>
+          </div>
           <NepaliDatePicker
             value={draftFilters.date_from || ''}
-            onChange={(d) => handleDraftChange('date_from', d)}
+            onChange={(d) => handleDraftChange('date_from', d, true)}
             placeholder="सुरु मिति / From Date"
           />
         </div>
 
         {/* 8. Date To */}
         <div className="space-y-1">
-          <label className="text-[11px] font-mono uppercase text-zinc-600 dark:text-slate-300 font-bold flex items-center gap-1">
-            <Calendar className="h-3 w-3" /> मिति सम्म (To Date)
-          </label>
+          <div className="flex items-center justify-between">
+            <label className="text-[11px] font-mono uppercase text-zinc-600 dark:text-slate-300 font-bold flex items-center gap-1">
+              <Calendar className="h-3 w-3" /> मिति सम्म (To)
+            </label>
+          </div>
           <NepaliDatePicker
             value={draftFilters.date_to || ''}
-            onChange={(d) => handleDraftChange('date_to', d)}
+            onChange={(d) => handleDraftChange('date_to', d, true)}
             placeholder="अन्त्य मिति / To Date"
             align="right"
           />
+        </div>
+      </div>
+
+        {/* Quick Nepali Miti Presets Bar (Smooth horizontal scroll on mobile) */}
+        <div className="flex items-center gap-1.5 pt-1 text-[11px] overflow-x-auto no-scrollbar flex-nowrap sm:flex-wrap">
+          <span className="text-zinc-500 font-mono text-[10px] uppercase font-bold mr-1 shrink-0">Miti Presets:</span>
+          <button
+            type="button"
+            onClick={() => {
+              const range = getBsDatePreset('current_month')
+              const updated = { ...draftFilters, date_from: range.date_from, date_to: range.date_to }
+              setDraftFilters(updated)
+              onFiltersChange({ ...updated, page: 1 })
+            }}
+            className="px-2 py-0.5 rounded-md bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-medium transition-colors cursor-pointer shrink-0"
+          >
+            यस महिना (This Month)
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const range = getBsDatePreset('last_month')
+              const updated = { ...draftFilters, date_from: range.date_from, date_to: range.date_to }
+              setDraftFilters(updated)
+              onFiltersChange({ ...updated, page: 1 })
+            }}
+            className="px-2 py-0.5 rounded-md bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-medium transition-colors cursor-pointer shrink-0"
+          >
+            गत महिना (Last Month)
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const range = getBsDatePreset('current_year')
+              const updated = { ...draftFilters, date_from: range.date_from, date_to: range.date_to }
+              setDraftFilters(updated)
+              onFiltersChange({ ...updated, page: 1 })
+            }}
+            className="px-2 py-0.5 rounded-md bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-medium transition-colors cursor-pointer shrink-0"
+          >
+            यस शैक्षिक सत्र (Academic Year)
+          </button>
+          {(draftFilters.date_from || draftFilters.date_to) && (
+            <button
+              type="button"
+              onClick={() => {
+                const updated = { ...draftFilters, date_from: '', date_to: '' }
+                setDraftFilters(updated)
+                onFiltersChange({ ...updated, page: 1 })
+              }}
+              className="px-2 py-0.5 rounded-md bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 font-medium transition-colors cursor-pointer shrink-0"
+            >
+              Clear Dates
+            </button>
+          )}
         </div>
       </div>
     </form>

@@ -11,6 +11,7 @@ import { getNepalDateStr } from '@/lib/nepali-date'
 import { createClient } from '@/lib/supabase/client'
 import { isSupabaseConfigured } from '@/lib/supabase/config'
 import { DEFAULT_HOLIDAYS, isDateWithinHoliday } from '@/lib/master-data'
+import { getCachedData, setCachedData } from '@/lib/cache/client-query-cache'
 
 export interface PracticalLogRecord {
   id: string
@@ -49,34 +50,8 @@ function formatLogSubject(code?: string, title?: string): string {
   return title.toLowerCase().startsWith(code.toLowerCase()) ? title : `${code} - ${title}`
 }
 
-const STORAGE_KEY = 'lab_practical_logs_v1'
-const OUTBOX_KEY = 'lab_pending_logs_outbox_v1'
-
-const INITIAL_MOCK_LOGS: PracticalLogRecord[] = [
-  {
-    id: 'log-seed-1',
-    sessionId: 'mon-1',
-    date: getNepalDateStr(),
-    dayKey: 'mon',
-    slotId: 't2',
-    timeSlot: '10:10 - 11:00',
-    subjectCode: 'COMP-12',
-    subjectTitle: 'Computer Engineering Lab',
-    grade: 'Class 12',
-    teacher: 'Mr. R. Sharma',
-    lab: 'Computer Lab',
-    labId: 'comp',
-    status: 'conducted',
-    topicLearned: 'Implementation of Binary Search Trees in C++',
-    totalStudents: 38,
-    presentStudents: 36,
-    absentStudents: 2,
-    absentRolls: [14, 28],
-    remarks: 'All workstations functioning properly. Students completed traversal exercise.',
-    createdAt: new Date(Date.now() - 3600000 * 3).toISOString(),
-    isSynced: true,
-  },
-]
+const STORAGE_KEY = 'lmr_practical_logs'
+const OUTBOX_KEY = 'lmr_practical_logs_outbox'
 
 // Outbox helpers
 function getPendingOutbox(): PracticalLogRecord[] {
@@ -87,7 +62,7 @@ function getPendingOutbox(): PracticalLogRecord[] {
       const parsed = JSON.parse(raw)
       if (Array.isArray(parsed)) return parsed
     }
-  } catch {}
+  } catch { }
   return []
 }
 
@@ -98,7 +73,7 @@ function savePendingOutbox(queue: PracticalLogRecord[]) {
     queueMicrotask(() => {
       window.dispatchEvent(new CustomEvent('sync-status-changed', { detail: { pendingCount: queue.length } }))
     })
-  } catch {}
+  } catch { }
 }
 
 function addToOutbox(record: PracticalLogRecord) {
@@ -119,8 +94,34 @@ function removeFromOutbox(id: string, sessionId?: string, date?: string) {
   savePendingOutbox(filtered)
 }
 
+export interface CachedLogsPayload {
+  logs: PracticalLogRecord[]
+  totalCount: number
+  conductedCount: number
+  skippedCount: number
+}
+
 export function useLogsState() {
-  const [logs, setLogs] = useState<PracticalLogRecord[]>(INITIAL_MOCK_LOGS)
+  const [logs, setLogs] = useState<PracticalLogRecord[]>(() => {
+    const cached = getCachedData<CachedLogsPayload>(`logs:list:${getNepalDateStr()}`)
+    return cached?.logs || []
+  })
+  const [logCounts, setLogCounts] = useState(() => {
+    const cached = getCachedData<CachedLogsPayload>(`logs:list:${getNepalDateStr()}`)
+    return {
+      totalCount: cached?.totalCount ?? 0,
+      conductedCount: cached?.conductedCount ?? 0,
+      skippedCount: cached?.skippedCount ?? 0,
+    }
+  })
+  const [isLoading, setIsLoading] = useState<boolean>(() => {
+    const cached = getCachedData<CachedLogsPayload>(`logs:list:${getNepalDateStr()}`)
+    return !cached
+  })
+  const [hasFetchedOnce, setHasFetchedOnce] = useState<boolean>(() => {
+    const cached = getCachedData<CachedLogsPayload>(`logs:list:${getNepalDateStr()}`)
+    return Boolean(cached)
+  })
 
   const [isSyncing, setIsSyncing] = useState<boolean>(false)
   const isSyncingRef = useRef(false)
@@ -135,7 +136,7 @@ export function useLogsState() {
           setLogs(parsed)
         }
       }
-    } catch {}
+    } catch { }
   }, [])
 
   // Flush Outbox Queue to Supabase
@@ -220,22 +221,36 @@ export function useLogsState() {
       return
     }
 
+    setIsLoading(true)
     try {
       // First attempt to flush any pending offline logs
       await flushOutbox()
 
-      const remoteLogs = await getPracticalLogs()
-      if (remoteLogs && remoteLogs.length > 0) {
+      const todayStr = getNepalDateStr()
+      const cacheKey = `logs:list:${todayStr}`
+      const remoteLogs = await getPracticalLogs({ effectiveDate: todayStr })
+      const rawList: any[] = Array.isArray(remoteLogs) ? remoteLogs : (remoteLogs as any)?.logs || []
+      const totalCount = typeof (remoteLogs as any)?.totalCount === 'number' ? (remoteLogs as any).totalCount : rawList.length
+      const conductedCount = typeof (remoteLogs as any)?.conductedCount === 'number' ? (remoteLogs as any).conductedCount : rawList.filter((l: any) => l.status !== 'skipped').length
+      const skippedCount = typeof (remoteLogs as any)?.skippedCount === 'number' ? (remoteLogs as any).skippedCount : rawList.filter((l: any) => l.status === 'skipped').length
+
+      setLogCounts({ totalCount, conductedCount, skippedCount })
+
+      if (rawList && rawList.length > 0) {
         const pending = getPendingOutbox()
         const pendingKeySet = new Set(pending.map((p) => `${p.sessionId}_${p.date}`))
         const pendingIdSet = new Set(pending.map((p) => p.id))
 
-        const mappedRemote: PracticalLogRecord[] = remoteLogs
+        const mappedRemote: PracticalLogRecord[] = rawList
           .filter((l: any) => !pendingIdSet.has(l.id) && !pendingKeySet.has(`${l.schedule_id}_${l.date}`))
           .map((l: any) => ({
             id: l.id,
             sessionId: l.schedule_id || `log-${l.id}`,
-            date: l.date,
+            date: typeof l.date === 'string'
+              ? (l.date.includes('T') ? l.date.split('T')[0] : l.date)
+              : l.date instanceof Date
+              ? `${l.date.getFullYear()}-${String(l.date.getMonth() + 1).padStart(2, '0')}-${String(l.date.getDate()).padStart(2, '0')}`
+              : String(l.date || ''),
             dayKey: 'mon',
             slotId: 't2',
             timeSlot: l.period_label,
@@ -263,12 +278,21 @@ export function useLogsState() {
           if (typeof window !== 'undefined') {
             localStorage.setItem(STORAGE_KEY, JSON.stringify(merged))
           }
-        } catch {}
+        } catch { }
         setLogs(merged)
+        setCachedData(cacheKey, {
+          logs: merged,
+          totalCount,
+          conductedCount,
+          skippedCount,
+        })
         return
       }
     } catch (e) {
       console.warn('Using local logs store fallback:', e)
+    } finally {
+      setIsLoading(false)
+      setHasFetchedOnce(true)
     }
 
     // Local fallback
@@ -280,7 +304,7 @@ export function useLogsState() {
           setLogs(parsed)
         }
       }
-    } catch (e) {}
+    } catch (e) { }
   }, [flushOutbox])
 
   useEffect(() => {
@@ -310,7 +334,7 @@ export function useLogsState() {
           window.removeEventListener('online', handleOnline)
           supabase.removeChannel(channel)
         }
-      } catch {}
+      } catch { }
     }
 
     return () => {
@@ -333,7 +357,7 @@ export function useLogsState() {
             return parsed
           })
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     window.addEventListener('logs-updated', handleUpdate)
@@ -359,12 +383,12 @@ export function useLogsState() {
       (logData.lab?.toLowerCase().includes('comp')
         ? 'comp'
         : logData.lab?.toLowerCase().includes('phys')
-        ? 'phys'
-        : logData.lab?.toLowerCase().includes('chem')
-        ? 'chem'
-        : logData.lab?.toLowerCase().includes('bio')
-        ? 'bio'
-        : 'elec')
+          ? 'phys'
+          : logData.lab?.toLowerCase().includes('chem')
+            ? 'chem'
+            : logData.lab?.toLowerCase().includes('bio')
+              ? 'bio'
+              : 'elec')
 
     const newRecord: PracticalLogRecord = {
       ...logData,
@@ -484,11 +508,18 @@ export function useLogsState() {
 
   return {
     logs,
+    logCounts,
+    totalCount: logCounts.totalCount,
+    conductedCount: logCounts.conductedCount,
+    skippedCount: logCounts.skippedCount,
     saveLog,
     updateLog,
     deleteLog,
     getLogForSession,
     isSyncing,
     flushOutbox,
+    isLoading,
+    hasFetchedOnce,
+    refreshLogs: loadRemoteLogs,
   }
 }

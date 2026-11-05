@@ -22,10 +22,13 @@ function getTransporter() {
       cachedTransporter = nodemailer.createTransport({
         service: 'gmail',
         pool: true,
-        maxConnections: 2,
+        maxConnections: 3,
         maxMessages: 50,
         rateDelta: 1000,
         rateLimit: 3, // Max 3 emails per second to prevent Gmail 421/454 throttles
+        connectionTimeout: 8000, // 8s max to establish SMTP connection
+        greetingTimeout: 5000,   // 5s max for SMTP greeting
+        socketTimeout: 10000,    // 10s socket inactivity limit
         auth: {
           user,
           pass,
@@ -54,13 +57,19 @@ export async function sendMail({ to, subject, html, text }: SendEmailParams) {
   }
 
   try {
-    const info = await transporter.sendMail({
+    const sendPromise = transporter.sendMail({
       from: `"LabSync Institutional Portal" <${senderEmail}>`,
       to,
       subject,
       text: text || '',
       html,
     })
+
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('SMTP dispatch timed out after 8.5 seconds')), 8500)
+    )
+
+    const info: any = await Promise.race([sendPromise, timeoutPromise])
     console.log(`✅ Email sent to ${to} (Message ID: ${info.messageId})`)
     return { success: true, messageId: info.messageId }
   } catch (error: any) {
@@ -688,4 +697,128 @@ export async function sendNewUserRegistrationAdminAlertEmail(params: {
     text: `New registration awaiting approval: ${newUser.fullName} (${newUser.email}). Authorize in admin console: ${APP_URL}/admin?tab=users`,
   })
 }
+
+/**
+ * 10. Send Dual-OTP Email Change: Old Email Authorization Notice
+ */
+export async function sendOldEmailChangeSecurityOtp(
+  to: string,
+  fullName: string,
+  otpCode: string,
+  newEmail: string
+) {
+  const subject = `[LabSync Security] ${otpCode} - Authorize email address change`
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 540px; margin: 0 auto; background: #ffffff; border: 1px solid #e4e4e7; border-radius: 16px; overflow: hidden; padding: 32px;">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <div style="display: inline-block; background: #d97706; color: #ffffff; padding: 10px 18px; border-radius: 12px; font-weight: bold; font-size: 16px; letter-spacing: 0.5px;">
+          🛡️ Security Authorization
+        </div>
+        <p style="color: #71717a; font-size: 13px; margin-top: 8px;">LabSync Account Security Handshake</p>
+      </div>
+
+      <div style="background: #fffbeb; border-radius: 12px; padding: 24px; text-align: center; margin-bottom: 24px; border: 1px solid #fef3c7;">
+        <h2 style="color: #92400e; margin: 0 0 10px 0; font-size: 20px;">Email Address Change Requested</h2>
+        <p style="color: #78350f; font-size: 14px; margin: 0 0 16px 0;">
+          Hello <strong>${fullName}</strong>, an authorization request was submitted to transfer your LabSync LIMS account email from this address to:
+        </p>
+        <p style="font-family: monospace; font-size: 15px; font-weight: 700; color: #1e1b4b; background: #ffffff; border: 1px solid #fde68a; border-radius: 8px; padding: 8px 12px; display: inline-block;">
+          ${newEmail}
+        </p>
+
+        <div style="margin-top: 20px; background: #ffffff; border: 2px dashed #d97706; border-radius: 12px; padding: 16px; display: inline-block;">
+          <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #92400e; margin-bottom: 4px;">
+            Current Account Authorization Code
+          </div>
+          <span style="font-family: monospace; font-size: 36px; font-weight: 800; letter-spacing: 8px; color: #d97706;">
+            ${otpCode}
+          </span>
+        </div>
+
+        <p style="color: #b45309; font-size: 12px; margin: 16px 0 0 0; font-weight: 600;">
+          ⏱️ This authorization code expires in 10 minutes.
+        </p>
+      </div>
+
+      <div style="background: #f8fafc; border-radius: 12px; padding: 16px; border: 1px solid #e2e8f0; margin-bottom: 20px;">
+        <p style="color: #334155; font-size: 12px; line-height: 1.5; margin: 0;">
+          <strong>⚠️ Did not request this change?</strong><br/>
+          If you did NOT request this email transfer, someone may have access to your account. Change your password immediately or report this to your IT Super Admin.
+        </p>
+      </div>
+
+      <hr style="border: none; border-top: 1px solid #f1f5f9; margin: 24px 0;" />
+
+      <p style="color: #94a3b8; font-size: 11px; text-align: center; margin: 0;">
+        ${INSTITUTION_NAME} • Institutional Credentials Governance
+      </p>
+    </div>
+  `
+
+  return sendMail({
+    to,
+    subject,
+    html,
+    text: `LabSync Email Change Request: Transfer to ${newEmail}. Your authorization code is ${otpCode}. It expires in 10 minutes. If you did not request this, secure your account immediately.`,
+  })
+}
+
+/**
+ * 11. Send Dual-OTP Email Change: New Email Verification Code
+ */
+export async function sendNewEmailChangeVerificationOtp(
+  to: string,
+  fullName: string,
+  otpCode: string
+) {
+  const subject = `[LabSync] ${otpCode} - Confirm your new institutional email`
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 540px; margin: 0 auto; background: #ffffff; border: 1px solid #e4e4e7; border-radius: 16px; overflow: hidden; padding: 32px;">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <div style="display: inline-block; background: #4f46e5; color: #ffffff; padding: 10px 18px; border-radius: 12px; font-weight: bold; font-size: 16px; letter-spacing: 0.5px;">
+          ✉️ Email Verification
+        </div>
+        <p style="color: #71717a; font-size: 13px; margin-top: 8px;">LabSync Account Destination Verification</p>
+      </div>
+
+      <div style="background: #f8fafc; border-radius: 12px; padding: 24px; text-align: center; margin-bottom: 24px; border: 1px solid #f1f5f9;">
+        <h2 style="color: #0f172a; margin: 0 0 10px 0; font-size: 20px;">Confirm Your New Email Address</h2>
+        <p style="color: #475569; font-size: 14px; margin: 0 0 20px 0;">
+          Hello <strong>${fullName}</strong>, use the confirmation code below to verify that you own and can receive mail at this address for LabSync LIMS:
+        </p>
+
+        <div style="background: #ffffff; border: 2px dashed #4f46e5; border-radius: 12px; padding: 16px; display: inline-block; margin: 0 auto;">
+          <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #4338ca; margin-bottom: 4px;">
+            Destination Verification Code
+          </div>
+          <span style="font-family: monospace; font-size: 36px; font-weight: 800; letter-spacing: 8px; color: #4f46e5;">
+            ${otpCode}
+          </span>
+        </div>
+
+        <p style="color: #dc2626; font-size: 12px; margin: 16px 0 0 0; font-weight: 600;">
+          ⏱️ This confirmation code expires in 10 minutes.
+        </p>
+      </div>
+
+      <p style="color: #64748b; font-size: 13px; line-height: 1.5; margin: 0 0 16px 0;">
+        You will need to submit this code together with the authorization code sent to your current institutional email address to complete the transfer.
+      </p>
+
+      <hr style="border: none; border-top: 1px solid #f1f5f9; margin: 24px 0;" />
+
+      <p style="color: #94a3b8; font-size: 11px; text-align: center; margin: 0;">
+        ${INSTITUTION_NAME} • Institutional Credentials Governance
+      </p>
+    </div>
+  `
+
+  return sendMail({
+    to,
+    subject,
+    html,
+    text: `Confirm your new LabSync institutional email. Your destination verification code is: ${otpCode}. It expires in 10 minutes.`,
+  })
+}
+
 

@@ -36,64 +36,64 @@ export function WorkstationReliabilityTab() {
     <div className="space-y-4 font-sans text-zinc-900 dark:text-zinc-100">
       {/* KPI Cards Strip */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
-        <div className="rounded-xl border border-white/[0.08] bg-[#101726] p-3 flex flex-col justify-between shadow-sm">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+        <div className="rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] p-3 flex flex-col justify-between shadow-xs">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-slate-400">
             Workstations Monitored
           </span>
-          <span className="font-heading text-xl sm:text-2xl font-extrabold text-white tabular-nums mt-1">
+          <span className="font-heading text-xl sm:text-2xl font-extrabold text-zinc-900 dark:text-white tabular-nums mt-1">
             {report?.total_workstations || 0}
           </span>
         </div>
 
-        <div className="rounded-xl border border-white/[0.08] bg-[#101726] p-3 flex flex-col justify-between shadow-sm">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">
+        <div className="rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] p-3 flex flex-col justify-between shadow-xs">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
             Overall Hardware Uptime
           </span>
-          <span className="font-heading text-xl sm:text-2xl font-extrabold text-emerald-400 tabular-nums mt-1">
+          <span className="font-heading text-xl sm:text-2xl font-extrabold text-emerald-600 dark:text-emerald-400 tabular-nums mt-1">
             {report?.overall_uptime_pct || 98}%
           </span>
         </div>
 
-        <div className="rounded-xl border border-white/[0.08] bg-[#101726] p-3 flex flex-col justify-between shadow-sm">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-400">
+        <div className="rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] p-3 flex flex-col justify-between shadow-xs">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
             Mean Time to Resolution (MTTR)
           </span>
-          <span className="font-heading text-xl sm:text-2xl font-extrabold text-indigo-400 tabular-nums mt-1">
+          <span className="font-heading text-xl sm:text-2xl font-extrabold text-indigo-600 dark:text-indigo-400 tabular-nums mt-1">
             {report?.overall_mttr_hours || 4.2}h
           </span>
         </div>
 
-        <div className="rounded-xl border border-white/[0.08] bg-[#101726] p-3 flex flex-col justify-between shadow-sm">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-rose-400">
+        <div className="rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] p-3 flex flex-col justify-between shadow-xs">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400">
             Active Flagged Faults
           </span>
-          <span className="font-heading text-xl sm:text-2xl font-extrabold text-rose-400 tabular-nums mt-1">
+          <span className="font-heading text-xl sm:text-2xl font-extrabold text-rose-600 dark:text-rose-400 tabular-nums mt-1">
             {report?.faulty_count || 0}
           </span>
         </div>
       </div>
 
       {/* Hotspots Section (Problematic PCs) */}
-      <div className="rounded-2xl border border-white/[0.08] bg-[#101726] p-4 shadow-xl space-y-3">
-        <div className="flex items-center justify-between border-b border-white/[0.08] pb-2.5">
+      <div className="rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] p-4 shadow-sm space-y-3">
+        <div className="flex items-center justify-between border-b border-zinc-200 dark:border-white/[0.08] pb-2.5">
           <div className="flex items-center gap-2">
-            <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-rose-500/10 text-rose-400">
+            <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20">
               <ShieldAlert className="h-3.5 w-3.5" />
             </span>
-            <h3 className="font-heading font-extrabold text-sm text-white">
+            <h3 className="font-heading font-extrabold text-sm text-zinc-900 dark:text-white">
               Workstation Hotspots &amp; Recurrent Faults
             </h3>
           </div>
-          <span className="text-xs text-slate-400">Click any terminal to inspect full technical biography</span>
+          <span className="text-xs text-zinc-500 dark:text-slate-400">Click any terminal to inspect full technical biography</span>
         </div>
 
         {loading ? (
-          <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-2">
-            <Loader2 className="h-6 w-6 animate-spin text-indigo-400" />
+          <div className="flex flex-col items-center justify-center py-12 text-zinc-500 dark:text-slate-400 gap-2">
+            <Loader2 className="h-6 w-6 animate-spin text-indigo-600 dark:text-indigo-400" />
             <span className="text-xs">Analyzing hardware reliability logs...</span>
           </div>
         ) : (report?.hotspot_workstations || []).length === 0 ? (
-          <div className="text-center py-8 text-slate-400 text-xs">
+          <div className="text-center py-8 text-zinc-500 dark:text-slate-400 text-xs">
             Zero recurrent fault hotspots detected! All 34 workstations are performing within nominal thresholds.
           </div>
         ) : (
@@ -103,20 +103,20 @@ export function WorkstationReliabilityTab() {
                 key={ws.workstation_id}
                 type="button"
                 onClick={() => setSelectedWsBioId(ws.workstation_id)}
-                className="text-left p-3 rounded-xl border border-white/5 bg-[#151E32] hover:border-indigo-500/40 hover:bg-[#151E32]/80 transition-all flex flex-col justify-between gap-2 group cursor-pointer shadow-xs"
+                className="text-left p-3 rounded-xl border border-zinc-200 dark:border-white/5 bg-zinc-50 dark:bg-[#151E32] hover:border-indigo-400 dark:hover:border-indigo-500/40 hover:bg-zinc-100 dark:hover:bg-[#151E32]/80 transition-all flex flex-col justify-between gap-2 group cursor-pointer shadow-xs"
               >
                 <div className="flex items-center justify-between w-full">
-                  <span className="font-mono font-bold text-xs text-white group-hover:text-indigo-300 transition-colors">
+                  <span className="font-mono font-bold text-xs text-zinc-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition-colors">
                     {ws.workstation_label}
                   </span>
-                  <Badge className="bg-rose-500/10 text-rose-300 font-mono text-[9px] tabular-nums">
+                  <Badge className="bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 font-mono text-[9px] tabular-nums border border-rose-200 dark:border-rose-500/20">
                     {ws.total_issues_count} Faults
                   </Badge>
                 </div>
 
-                <div className="flex items-center justify-between text-[11px] text-slate-400 w-full">
-                  <span>Uptime: <strong className="text-white">{ws.uptime_pct}%</strong></span>
-                  <span className="text-indigo-400 flex items-center gap-0.5 group-hover:translate-x-0.5 transition-transform">
+                <div className="flex items-center justify-between text-[11px] text-zinc-600 dark:text-slate-400 w-full">
+                  <span>Uptime: <strong className="text-zinc-900 dark:text-white">{ws.uptime_pct}%</strong></span>
+                  <span className="text-indigo-600 dark:text-indigo-400 flex items-center gap-0.5 group-hover:translate-x-0.5 transition-transform">
                     <span>Biography</span>
                     <ChevronRight className="h-3 w-3" />
                   </span>
@@ -128,27 +128,27 @@ export function WorkstationReliabilityTab() {
       </div>
 
       {/* Comprehensive Workstation Roster Table */}
-      <div className="rounded-2xl border border-white/[0.08] bg-[#101726] overflow-hidden shadow-xl">
-        <div className="p-3.5 border-b border-white/[0.08] flex items-center justify-between">
-          <h3 className="font-heading font-extrabold text-sm text-white flex items-center gap-2">
-            <Monitor className="h-4 w-4 text-indigo-400" />
+      <div className="rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] overflow-hidden shadow-sm">
+        <div className="p-3.5 border-b border-zinc-200 dark:border-white/[0.08] flex items-center justify-between">
+          <h3 className="font-heading font-extrabold text-sm text-zinc-900 dark:text-white flex items-center gap-2">
+            <Monitor className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
             <span>Complete Workstations Inventory &amp; Service Availability Index</span>
           </h3>
-          <Badge className="bg-indigo-500/10 text-indigo-300 text-[10px]">
+          <Badge className="bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 text-[10px] border border-indigo-200 dark:border-indigo-500/20">
             {report?.workstations.length || 0} Physical Terminals
           </Badge>
         </div>
 
         {loading ? (
-          <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-2">
-            <Loader2 className="h-6 w-6 animate-spin text-indigo-400" />
+          <div className="flex flex-col items-center justify-center py-16 text-zinc-500 dark:text-slate-400 gap-2">
+            <Loader2 className="h-6 w-6 animate-spin text-indigo-600 dark:text-indigo-400" />
             <span className="text-xs">Loading workstation records...</span>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
-                <tr className="border-b border-white/[0.08] bg-[#151E32]/60 text-slate-400 font-bold uppercase text-[10px] tracking-wider">
+                <tr className="border-b border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32]/60 text-zinc-500 dark:text-slate-400 font-bold uppercase text-[10px] tracking-wider">
                   <th className="py-2.5 px-3">Terminal</th>
                   <th className="py-2.5 px-3">Row</th>
                   <th className="py-2.5 px-3">Type</th>
@@ -159,38 +159,38 @@ export function WorkstationReliabilityTab() {
                   <th className="py-2.5 px-3 text-right w-32">Technical Bio</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/[0.05]">
+              <tbody className="divide-y divide-zinc-200 dark:divide-white/[0.05]">
                 {report?.workstations.map((w) => (
-                  <tr key={w.workstation_id} className="hover:bg-white/[0.02] transition-colors">
-                    <td className="py-2 px-3 font-mono font-bold text-white">
+                  <tr key={w.workstation_id} className="hover:bg-zinc-50 dark:hover:bg-white/[0.02] transition-colors">
+                    <td className="py-2 px-3 font-mono font-bold text-zinc-900 dark:text-white">
                       {w.workstation_label}
                     </td>
-                    <td className="py-2 px-3 text-slate-400">
+                    <td className="py-2 px-3 text-zinc-500 dark:text-slate-400">
                       {w.row_label || '—'}
                     </td>
-                    <td className="py-2 px-3 text-slate-400 uppercase text-[10px]">
+                    <td className="py-2 px-3 text-zinc-500 dark:text-slate-400 uppercase text-[10px]">
                       {w.device_type}
                     </td>
                     <td className="py-2 px-3 text-center">
                       <Badge
                         className={`text-[9px] font-bold ${
                           w.status === 'operational'
-                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                            ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20'
                             : w.status === 'under_repair'
-                            ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                            : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                            ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-400 border border-amber-200 dark:border-amber-500/20'
+                            : 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20'
                         }`}
                       >
                         {w.status}
                       </Badge>
                     </td>
-                    <td className="py-2 px-3 text-center font-mono tabular-nums text-slate-200">
+                    <td className="py-2 px-3 text-center font-mono tabular-nums text-zinc-700 dark:text-slate-200">
                       {w.total_issues_count}
                     </td>
-                    <td className="py-2 px-3 text-center font-mono tabular-nums text-rose-400">
+                    <td className="py-2 px-3 text-center font-mono tabular-nums text-rose-600 dark:text-rose-400">
                       {w.open_issues_count}
                     </td>
-                    <td className="py-2 px-3 text-center font-mono font-extrabold text-emerald-400 tabular-nums">
+                    <td className="py-2 px-3 text-center font-mono font-extrabold text-emerald-600 dark:text-emerald-400 tabular-nums">
                       {w.uptime_pct}%
                     </td>
                     <td className="py-2 px-3 text-right">
@@ -199,7 +199,7 @@ export function WorkstationReliabilityTab() {
                         variant="outline"
                         size="sm"
                         onClick={() => setSelectedWsBioId(w.workstation_id)}
-                        className="h-7 px-2 text-[11px] rounded-lg border-white/10 text-indigo-300 hover:bg-indigo-600 hover:text-white transition-all gap-1"
+                        className="h-7 px-2 text-[11px] rounded-lg border-zinc-200 dark:border-white/10 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-600 hover:text-white transition-all gap-1 cursor-pointer"
                       >
                         <span>View Bio</span>
                         <ChevronRight className="h-3 w-3" />

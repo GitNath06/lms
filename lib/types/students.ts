@@ -15,11 +15,12 @@ export interface StudentWithEnrollment {
   class_id: string
   academic_year_id: string
   section: string | null
-  enrollment_status: 'active' | 'transferred' | 'graduated' | 'archived'
+  enrollment_status: 'active' | 'transferred' | 'graduated' | 'archived' | 'completed'
   is_active: boolean
   assigned_workstation_label?: string | null
   is_unseated?: boolean
   photo_url?: string | null
+  has_photo?: boolean
 }
 
 export interface StudentFilterParams {

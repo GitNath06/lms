@@ -44,7 +44,6 @@ export interface PromoteCohortInput {
   fromAcademicYearId: string
   toAcademicYearId: string
   exceptions?: StudentPromotionException[]
-  internalBypassScopeCheck?: boolean
 }
 
 export interface PromoteCohortResult {

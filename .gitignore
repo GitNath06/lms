@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# database dumps & scratch exports
+scratch_db_dump.json
+*_db_dump.json

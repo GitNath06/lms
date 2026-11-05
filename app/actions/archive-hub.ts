@@ -26,14 +26,14 @@ function revalidateArchivePaths() {
 /**
  * Fetches high-level executive telemetry for the Institutional Recycle Bin & Archive Hub.
  */
-export async function getArchiveHubTelemetryAction(internalBypassScopeCheck?: boolean): Promise<{
+export async function getArchiveHubTelemetryAction(): Promise<{
   success: boolean
   data?: ArchiveHubTelemetry
   error?: string
 }> {
   try {
     const scope = await getServerUserScope()
-    if (!scope.isPrivileged && !internalBypassScopeCheck) {
+    if (!scope.isPrivileged) {
       return { success: false, error: 'Access denied: Only administrators can view archive telemetry.' }
     }
 
@@ -44,7 +44,7 @@ export async function getArchiveHubTelemetryAction(internalBypassScopeCheck?: bo
           SELECT COUNT(DISTINCT s.id)::int
           FROM public.students s
           LEFT JOIN public.student_enrollments se ON se.student_id = s.id
-          WHERE s.is_active = false OR se.status = 'archived'
+          WHERE se.status = 'archived' OR (s.is_active = false AND (se.id IS NULL OR se.status = 'archived'))
         ) AS trash_count,
         (
           SELECT COUNT(*)::int
@@ -110,7 +110,6 @@ export async function getArchivedStudentsAction(params: {
   academicYearId?: string
   classId?: string
   limit?: number
-  internalBypassScopeCheck?: boolean
 }): Promise<{
   success: boolean
   data?: ArchivedStudentRecord[]
@@ -118,7 +117,7 @@ export async function getArchivedStudentsAction(params: {
 }> {
   try {
     const scope = await getServerUserScope()
-    if (!scope.isPrivileged && !params.internalBypassScopeCheck) {
+    if (!scope.isPrivileged) {
       return { success: false, error: 'Access denied: Only administrators can access archived records.' }
     }
 
@@ -129,7 +128,7 @@ export async function getArchivedStudentsAction(params: {
     const queryParams: any[] = []
 
     if (category === 'trash') {
-      whereClause = `(s.is_active = false OR se.status = 'archived')`
+      whereClause = `se.status = 'archived' OR (s.is_active = false AND (se.id IS NULL OR se.status = 'archived'))`
     } else if (category === 'graduated') {
       whereClause = `se.status = 'graduated'`
     } else if (category === 'transferred') {
@@ -222,14 +221,14 @@ export async function getArchivedStudentsAction(params: {
 /**
  * Queries past/archived academic years with operational statistics.
  */
-export async function getArchivedAcademicYearsAction(internalBypassScopeCheck?: boolean): Promise<{
+export async function getArchivedAcademicYearsAction(): Promise<{
   success: boolean
   data?: ArchivedAcademicYearRecord[]
   error?: string
 }> {
   try {
     const scope = await getServerUserScope()
-    if (!scope.isPrivileged && !internalBypassScopeCheck) {
+    if (!scope.isPrivileged) {
       return { success: false, error: 'Access denied: Only administrators can view past cycles.' }
     }
 
@@ -270,14 +269,14 @@ export async function getArchivedAcademicYearsAction(internalBypassScopeCheck?: 
 /**
  * Queries inactive laboratories and soft-archived incident categories.
  */
-export async function getArchivedInfrastructureAction(internalBypassScopeCheck?: boolean): Promise<{
+export async function getArchivedInfrastructureAction(): Promise<{
   success: boolean
   data?: ArchivedInfrastructureRecord[]
   error?: string
 }> {
   try {
     const scope = await getServerUserScope()
-    if (!scope.isPrivileged && !internalBypassScopeCheck) {
+    if (!scope.isPrivileged) {
       return { success: false, error: 'Access denied.' }
     }
 
@@ -330,7 +329,6 @@ export async function restoreStudentAction(input: {
   studentId: string
   enrollmentId?: string
   targetRollNumber?: number
-  internalBypassScopeCheck?: boolean
 }): Promise<{
   success: boolean
   restoredStudentName?: string
@@ -338,7 +336,7 @@ export async function restoreStudentAction(input: {
   error?: string
 }> {
   const scope = await getServerUserScope()
-  if (!scope.isPrivileged && !input.internalBypassScopeCheck) {
+  if (!scope.isPrivileged) {
     return { success: false, error: 'Access denied: Only administrators can restore archived items.' }
   }
 
@@ -450,13 +448,12 @@ export async function restoreStudentAction(input: {
 export async function permanentPurgeTrashAction(input: {
   studentId: string
   enrollmentId?: string
-  internalBypassScopeCheck?: boolean
 }): Promise<{
   success: boolean
   error?: string
 }> {
   const scope = await getServerUserScope()
-  if (!scope.isPrivileged && !input.internalBypassScopeCheck) {
+  if (!scope.isPrivileged) {
     return { success: false, error: 'Access denied: Only administrators can permanently purge records.' }
   }
 
@@ -550,13 +547,12 @@ export async function permanentPurgeTrashAction(input: {
 export async function restoreInfrastructureItemAction(input: {
   itemType: 'lab' | 'incident_category'
   itemId: string
-  internalBypassScopeCheck?: boolean
 }): Promise<{
   success: boolean
   error?: string
 }> {
   const scope = await getServerUserScope()
-  if (!scope.isPrivileged && !input.internalBypassScopeCheck) {
+  if (!scope.isPrivileged) {
     return { success: false, error: 'Access denied: Only administrators can reactivate infrastructure.' }
   }
 

@@ -1,53 +1,39 @@
-import fs from 'node:fs'
-import path from 'node:path'
 import pg from 'pg'
 
-const envPath = path.resolve(process.cwd(), '.env.local')
-const content = fs.readFileSync(envPath, 'utf8')
-let dbUrl = null
-
-for (const line of content.split('\n')) {
-  const trimmed = line.trim()
-  if (trimmed.startsWith('DATABASE_URL=')) {
-    dbUrl = trimmed.slice('DATABASE_URL='.length).trim().replace(/^['"]|['"]$/g, '')
-    break
+function resolveDatabaseUrl(rawUrl) {
+  if (!rawUrl) return rawUrl
+  if (rawUrl.includes('db.') && rawUrl.includes('.supabase.co')) {
+    const match = rawUrl.match(/postgresql:\/\/([^:]+):(.+)@db\.([a-z0-9]+)\.supabase\.co(?::\d+)?\/(.+)$/)
+    if (match) {
+      const [, , pass, ref, db] = match
+      const decodedPass = decodeURIComponent(pass)
+      return `postgresql://postgres.${ref}:${encodeURIComponent(decodedPass)}@aws-0-ap-southeast-1.pooler.supabase.com:5432/${db}`
+    }
   }
+  return rawUrl
 }
 
-const pool = new pg.Pool({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } })
+const pool = new pg.Pool({
+  connectionString: resolveDatabaseUrl(process.env.DATABASE_URL),
+  ssl: { rejectUnauthorized: false },
+})
+
+import fs from 'fs'
 
 async function run() {
-  const client = await pool.connect()
-  try {
-    const q = `
-      SELECT
-        schemaname,
-        tablename,
-        policyname,
-        permissive,
-        roles,
-        cmd,
-        qual,
-        with_check
-      FROM pg_policies
-      WHERE schemaname = 'public'
-        AND tablename IN (
-          'students', 'student_enrollments', 'classes', 'subjects', 'class_subjects',
-          'schedules', 'practical_logs', 'log_attendance', 'workstation_seat_plans',
-          'session_seat_overrides', 'lab_incidents'
-        )
-      ORDER BY tablename, policyname;
-    `
-    const res = await client.query(q)
-    fs.writeFileSync('scratch/policies.json', JSON.stringify(res.rows, null, 2))
-    console.log(`Found ${res.rows.length} policies across target tables.`)
-  } finally {
-    client.release()
-    await pool.end()
-  }
+  const sql = fs.readFileSync('supabase/migrations/20261015_harden_rls_policies.sql', 'utf8')
+  console.log('Applying RLS Hardening Migration...')
+  await pool.query(sql)
+  console.log('Migration applied successfully!')
+
+  const policies = await pool.query(`
+    SELECT tablename, policyname, permissive, roles, cmd, qual
+    FROM pg_policies 
+    WHERE tablename IN ('labs', 'schedules', 'students', 'student_enrollments')
+    ORDER BY tablename, cmd
+  `)
+  console.log(JSON.stringify(policies.rows, null, 2))
+  await pool.end()
 }
 
-run().catch(err => {
-  console.error(err)
-  process.exit(1)
-})
+run().catch(console.error)

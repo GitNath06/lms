@@ -5,11 +5,8 @@ import { createClient } from '@/lib/supabase/client'
 import { isSupabaseConfigured } from '@/lib/supabase/config'
 import { broadcastSync, subscribeToSync } from '@/lib/sync-bus'
 import {
-  MASTER_TIME_SLOTS,
-  LAB_ROOMS,
-  DEFAULT_CLASSES,
-  DEFAULT_SUBJECTS,
   DEFAULT_HOLIDAYS,
+  CANONICAL_PERIOD_SLOTS,
   HolidayItem,
   isDateWithinHoliday
 } from '@/lib/master-data'
@@ -22,12 +19,21 @@ import {
 import {
   getInstitutionSetting,
   updateInstitutionSetting,
+  getPeriodSlotsAction,
+  updatePeriodSlotsAction,
 } from '@/app/actions/settings'
+import { sortPeriodSlots } from '@/lib/utils'
 import {
+  getLabFacilitiesAction,
   updateLabFacility,
   createLabFacility,
   deleteLabFacility,
 } from '@/app/actions/labs'
+import { getClassesAction } from '@/app/actions/classes'
+import { getSubjectsAction, getClassSubjectsAction } from '@/app/actions/subjects'
+import { getTeachers } from '@/app/actions/logs'
+import { getLabSyncBootstrapData } from '@/app/actions/bootstrap'
+import { getCachedQuery, setCachedQuery, setCachedData } from '@/lib/cache/client-query-cache'
 
 export interface PeriodSlotItem {
   id: string
@@ -51,6 +57,7 @@ export interface ClassEnrollmentItem {
   section: string
   capacity: number
   stream: string
+  is_active?: boolean
 }
 
 export interface FacultyMemberItem {
@@ -72,6 +79,8 @@ export interface SubjectCurriculumItem {
   labId: string
   teacherId: string
   teacherName?: string
+  classId?: string
+  classSubjectId?: string
 }
 
 export interface IncidentCategoryItem {
@@ -95,62 +104,8 @@ export interface IncidentGovernanceSettings {
   }
 }
 
-export const DEFAULT_INCIDENT_CATEGORIES: IncidentCategoryItem[] = [
-  {
-    id: 'cat-1',
-    code: 'breakage',
-    name: 'Equipment / Glassware Breakage',
-    description: 'Hardware damage, glassware fracture, tool breakage, or peripheral collapse',
-    severity: 'moderate',
-    targetLab: 'all',
-    is_active: true,
-  },
-  {
-    id: 'cat-2',
-    code: 'malfunction',
-    name: 'Equipment Fault / System Crash',
-    description: 'PC system fault, monitor blackout, multimeter no-response, power pack fuse issue',
-    severity: 'minor',
-    targetLab: 'all',
-    is_active: true,
-  },
-  {
-    id: 'cat-3',
-    code: 'burnt_apparatus',
-    name: 'Burnt Component / Circuit Short',
-    description: 'Resistor overheat, capacitor burst, IC circuit short, burning odor from PSU',
-    severity: 'moderate',
-    targetLab: 'all',
-    is_active: true,
-  },
-  {
-    id: 'cat-4',
-    code: 'chemical_hazard',
-    name: 'Chemical Spill / Acid Hazard',
-    description: 'Corrosive reagent spillage, hazardous acid leak, fume hood failure, mercury vapor leak',
-    severity: 'major_critical',
-    targetLab: 'chem',
-    is_active: true,
-  },
-  {
-    id: 'cat-5',
-    code: 'missing',
-    name: 'Missing / Unreturned Equipment',
-    description: 'Unaccounted station tool, missing patch cord, missing micro-pipette, unreturned specimen slide',
-    severity: 'minor',
-    targetLab: 'all',
-    is_active: true,
-  },
-  {
-    id: 'cat-6',
-    code: 'other',
-    name: 'Other Practical Incident',
-    description: 'Any miscellaneous station damage or safety hazard during scheduled practical session',
-    severity: 'minor',
-    targetLab: 'all',
-    is_active: true,
-  },
-]
+// Deprecated prototype mock array - All incident categories are canonically managed in public.issue_categories
+export const DEFAULT_INCIDENT_CATEGORIES: IncidentCategoryItem[] = []
 
 export const DEFAULT_INCIDENT_SETTINGS: IncidentGovernanceSettings = {
   autoEscalateMajorToHOD: true,
@@ -174,44 +129,7 @@ const STORAGE_KEYS = {
   INCIDENT_SETTINGS: 'lmr_admin_incident_settings_v2',
 }
 
-const INITIAL_FACULTY: FacultyMemberItem[] = [
-  { id: 't1', name: 'Dr. Rajesh Sharma', dept: 'Computer Science & Engineering', role: 'Lab In-Charge', email: 'r.sharma@rrl.edu.np', assignedSubjectCodes: ['COMP-12C', 'DBMS-10A', 'WPD-9B'] },
-  { id: 't2', name: 'Dr. Prakash Adhikari', dept: 'Physics Department', role: 'Senior Faculty', email: 'p.adhikari@rrl.edu.np', assignedSubjectCodes: ['PHY-11SC', 'PHY-12SC'] },
-  { id: 't3', name: 'Ms. Sunita Thapa', dept: 'Chemistry Department', role: 'Lab In-Charge', email: 's.thapa@rrl.edu.np', assignedSubjectCodes: ['CHEM-12SC'] },
-  { id: 't4', name: 'Er. Anish Karki', dept: 'Electronics & Hardware', role: 'Faculty Member', email: 'a.karki@rrl.edu.np', assignedSubjectCodes: ['ELEC-12C'] },
-  { id: 't5', name: 'Dr. Nirmala Poudel', dept: 'Biology & Life Sciences', role: 'Senior Faculty', email: 'n.poudel@rrl.edu.np', assignedSubjectCodes: ['BIO-11SC'] },
-]
 
-const INITIAL_LABS: LabFacilityItem[] = LAB_ROOMS.map((l) => ({
-  id: l.id,
-  name: l.name,
-  code: l.code,
-  capacity: l.capacity,
-  type: l.id === 'comp' ? 'computer_lab' : l.id === 'phys' ? 'physics_lab' : l.id === 'chem' ? 'chemistry_lab' : l.id === 'bio' ? 'biology_lab' : 'electronics_lab',
-  status: 'Operational',
-}))
-
-const INITIAL_CLASSES: ClassEnrollmentItem[] = DEFAULT_CLASSES.map((c) => ({
-  id: c.id,
-  name: c.name,
-  section: c.fullName.split(' - ')[1] || c.name,
-  capacity: c.strength,
-  stream: c.stream,
-}))
-
-const INITIAL_SUBJECTS: SubjectCurriculumItem[] = DEFAULT_SUBJECTS.map((s) => {
-  const teacher = INITIAL_FACULTY.find((f) => f.id === s.teacherId)
-  return {
-    code: s.code,
-    title: s.title,
-    grade: s.grade,
-    quota: s.quota,
-    lab: s.lab,
-    labId: s.labId,
-    teacherId: s.teacherId,
-    teacherName: teacher ? teacher.name : 'Assigned Faculty',
-  }
-})
 
 // Module-level deduplication cache
 let cachedLabsPromise: Promise<LabFacilityItem[] | null> | null = null
@@ -222,6 +140,7 @@ let cachedClassesPromise: Promise<ClassEnrollmentItem[] | null> | null = null
 let cachedSubjectsPromise: Promise<SubjectCurriculumItem[] | null> | null = null
 let cachedIncidentCategoriesPromise: Promise<IncidentCategoryItem[] | null> | null = null
 let cachedIncidentSettingsPromise: Promise<IncidentGovernanceSettings | null> | null = null
+let cachedBootstrapPromise: Promise<any> | null = null
 let lastInfraFetchTime = 0
 const INFRA_CACHE_TTL = 30000 // 30 seconds
 
@@ -239,11 +158,13 @@ const infraSubscribers = new Set<{
 }>()
 
 export function useInfrastructureState() {
-  const [periods, setPeriods] = useState<PeriodSlotItem[]>([...MASTER_TIME_SLOTS])
-  const [labs, setLabs] = useState<LabFacilityItem[]>(INITIAL_LABS)
-  const [classes, setClasses] = useState<ClassEnrollmentItem[]>(INITIAL_CLASSES)
-  const [faculty, setFaculty] = useState<FacultyMemberItem[]>(INITIAL_FACULTY)
-  const [subjects, setSubjects] = useState<SubjectCurriculumItem[]>(INITIAL_SUBJECTS)
+  const [isLoading, setIsLoading] = useState<boolean>(true)
+  const [hasFetchedOnce, setHasFetchedOnce] = useState<boolean>(false)
+  const [periods, setPeriods] = useState<PeriodSlotItem[]>(CANONICAL_PERIOD_SLOTS)
+  const [labs, setLabs] = useState<LabFacilityItem[]>([])
+  const [classes, setClasses] = useState<ClassEnrollmentItem[]>([])
+  const [faculty, setFaculty] = useState<FacultyMemberItem[]>([])
+  const [subjects, setSubjects] = useState<SubjectCurriculumItem[]>([])
   const [holidays, setHolidays] = useState<HolidayItem[]>(DEFAULT_HOLIDAYS)
   const [incidentCategories, setIncidentCategories] = useState<IncidentCategoryItem[]>(DEFAULT_INCIDENT_CATEGORIES)
   const [incidentSettings, setIncidentSettings] = useState<IncidentGovernanceSettings>(DEFAULT_INCIDENT_SETTINGS)
@@ -363,191 +284,199 @@ export function useInfrastructureState() {
     const now = Date.now()
     const isCacheStale = now - lastInfraFetchTime > INFRA_CACHE_TTL
 
-    // 1. Fetch remote labs (deduplicated)
-    if (isCacheStale || !cachedLabsPromise) {
+    // Master Bootstrap RPC: Consolidates 9 individual queries into 1 pooled query
+    if (isCacheStale || !cachedBootstrapPromise) {
       lastInfraFetchTime = now
-      cachedLabsPromise = Promise.resolve(
-        supabase
-          .from('labs')
-          .select('*')
-          .order('name')
-          .then(({ data: dbLabs, error }) => {
-            if (!error && dbLabs && dbLabs.length > 0) {
-              const mappedLabs: LabFacilityItem[] = dbLabs.map((l: any) => ({
-                id: l.id,
-                name: l.name,
-                code: l.code || l.id.toUpperCase(),
-                capacity: l.capacity || 40,
-                type: l.type || 'computer_lab',
-                status: l.status || (l.is_active ? 'Operational' : 'Inactive'),
-                is_active: l.is_active !== undefined ? l.is_active : l.status === 'Operational',
-              }))
-              try {
-                localStorage.setItem(STORAGE_KEYS.LABS, JSON.stringify(mappedLabs))
-              } catch (e) {}
-              return mappedLabs
+      cachedBootstrapPromise = getLabSyncBootstrapData()
+        .then((res) => {
+          if (res.success && res.data) {
+            setCachedQuery('bootstrap_data', res.data)
+            if (res.data.user_profile) {
+              setCachedData('auth:current-user-profile', res.data.user_profile)
             }
-            return null
-          })
-      )
+            return res.data
+          }
+          return null
+        })
+        .catch((err) => {
+          console.warn('Bootstrap fetch warning, falling back:', err)
+          return null
+        })
     }
 
-    cachedLabsPromise?.then((labsData) => {
-      if (labsData && isMounted) setLabs(labsData)
-    })
+    cachedBootstrapPromise?.then((bData) => {
+      if (!isMounted) return
 
-    // 2. Fetch remote faculty/profiles (deduplicated)
-    if (isCacheStale || !cachedFacultyPromise) {
-      cachedFacultyPromise = Promise.resolve(
-        supabase
-          .from('profiles')
-          .select('*')
-          .order('full_name')
-          .then(({ data: dbProfiles, error }) => {
-            if (!error && dbProfiles && dbProfiles.length > 0) {
-              const mappedFaculty: FacultyMemberItem[] = dbProfiles.map((p: any) => ({
-                id: p.id,
-                name: p.full_name || 'Faculty Member',
-                dept: p.department || 'Academic Department',
-                role: p.role === 'admin' ? 'Lab In-Charge' : 'Senior Faculty',
-                email: p.email || '',
-                photo_url: p.photo_url || p.avatar_url || null,
-                assignedSubjectCodes: [],
-              }))
-              try {
-                localStorage.setItem(STORAGE_KEYS.FACULTY, JSON.stringify(mappedFaculty))
-              } catch (e) {}
-              return mappedFaculty
+      if (bData) {
+        // 1. Labs
+        if (Array.isArray(bData.labs)) {
+          const mappedLabs: LabFacilityItem[] = bData.labs.map((l: any) => ({
+            id: l.id,
+            name: l.name,
+            code: l.code || l.id.toUpperCase(),
+            capacity: l.capacity || 40,
+            type: l.type || 'computer_lab',
+            status: l.status || 'Operational',
+            is_active: l.is_active,
+          }))
+          setLabs(mappedLabs)
+          try {
+            localStorage.setItem(STORAGE_KEYS.LABS, JSON.stringify(mappedLabs))
+          } catch (e) {}
+        }
+
+        // 2. Faculty / Teachers
+        if (Array.isArray(bData.teachers)) {
+          const mappedFaculty: FacultyMemberItem[] = bData.teachers.map((p: any) => ({
+            id: p.id,
+            name: p.full_name || 'Faculty Member',
+            dept: p.department || 'Academic Department',
+            role:
+              p.role === 'admin' || p.role === 'lab_incharge'
+                ? 'Lab In-Charge'
+                : 'Senior Faculty',
+            email: p.email || '',
+            photo_url: p.photo_url || null,
+            assignedSubjectCodes: [],
+          }))
+          setFaculty(mappedFaculty)
+          try {
+            localStorage.setItem(STORAGE_KEYS.FACULTY, JSON.stringify(mappedFaculty))
+          } catch (e) {}
+        }
+
+        // 3. Holidays
+        if (Array.isArray(bData.academic_holidays)) {
+          const mappedHolidays: HolidayItem[] =
+            bData.academic_holidays.length > 0
+              ? bData.academic_holidays.map((h: any) => ({
+                  id: h.id,
+                  title: h.name,
+                  dateStart: h.date_start,
+                  dateEnd: h.date_end || h.date_start,
+                  type: h.type || 'national',
+                }))
+              : DEFAULT_HOLIDAYS
+          setHolidays(mappedHolidays)
+          try {
+            localStorage.setItem(STORAGE_KEYS.HOLIDAYS, JSON.stringify(mappedHolidays))
+          } catch (e) {}
+        }
+
+        // 4. Periods
+        if (
+          bData.period_settings &&
+          Array.isArray(bData.period_settings) &&
+          bData.period_settings.length > 0
+        ) {
+          const mappedPeriodSlots: PeriodSlotItem[] = (bData.period_settings as any[]).map(
+            (p: any, idx: number) => ({
+              id: p.id || `slot-${idx}`,
+              name: p.name || p.label || `Period ${idx + 1}`,
+              label: p.label || p.timeRange || '',
+            })
+          )
+          const sorted = sortPeriodSlots(mappedPeriodSlots)
+          setPeriods(sorted)
+          try {
+            localStorage.setItem(STORAGE_KEYS.PERIODS, JSON.stringify(sorted))
+          } catch (e) {}
+        }
+
+        // 5. Classes
+        if (Array.isArray(bData.classes)) {
+          const mappedClasses: ClassEnrollmentItem[] = bData.classes.map((c: any) => ({
+            id: c.id,
+            name: c.name,
+            section: c.section || 'A',
+            capacity: c.capacity || 40,
+            stream: c.stream_id || (c.grade && c.grade >= 11 ? 'Science' : 'General'),
+            is_active: c.is_active,
+          }))
+          setClasses(mappedClasses)
+          try {
+            localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(mappedClasses))
+          } catch (e) {}
+        }
+
+        // 6. Subjects & Class Subjects
+        const mappedSubjects: SubjectCurriculumItem[] = []
+        const seenCodes = new Set<string>()
+
+        if (Array.isArray(bData.class_subjects)) {
+          for (const cs of bData.class_subjects) {
+            const code = cs.subject_code || cs.subject_id
+            const grade = cs.class_name || cs.class_id
+            seenCodes.add(code)
+            mappedSubjects.push({
+              code,
+              title: cs.subject_name || code,
+              grade,
+              quota: 4,
+              lab: cs.lab_name || 'Computer Lab',
+              labId: cs.default_lab_id || 'comp',
+              teacherId: cs.teacher_id || '',
+              teacherName: cs.teacher_name || undefined,
+              classId: cs.class_id,
+              classSubjectId: cs.id,
+            })
+          }
+        }
+
+        if (Array.isArray(bData.subjects)) {
+          for (const s of bData.subjects) {
+            if (!seenCodes.has(s.code)) {
+              let labName = 'Computer Lab'
+              if (s.default_lab_id === 'phys') labName = 'Physics Lab'
+              else if (s.default_lab_id === 'chem') labName = 'Chemistry Lab'
+              else if (s.default_lab_id === 'bio') labName = 'Biology Lab'
+              else if (s.default_lab_id === 'elec') labName = 'Electronics Lab'
+
+              mappedSubjects.push({
+                code: s.code,
+                title: s.name,
+                grade: 'All Classes',
+                quota: s.credit_hours || 4,
+                lab: labName,
+                labId: s.default_lab_id || 'comp',
+                teacherId: '',
+              })
             }
-            return null
-          })
-      )
-    }
-
-    cachedFacultyPromise?.then((facultyData) => {
-      if (facultyData && isMounted) setFaculty(facultyData)
-    })
-
-    // 3. Fetch remote academic holidays (deduplicated)
-    if (isCacheStale || !cachedHolidaysPromise) {
-      cachedHolidaysPromise = getAcademicHolidays().then((dbHolidays) => {
-        if (dbHolidays && dbHolidays.length > 0) {
-          const uniqueHolsMap = new Map<string, HolidayItem>()
-          dbHolidays.forEach((item) => {
-            if (item && item.id) uniqueHolsMap.set(item.id, item)
-          })
-          const dedupedHolidays = Array.from(uniqueHolsMap.values())
-          try {
-            localStorage.setItem(STORAGE_KEYS.HOLIDAYS, JSON.stringify(dedupedHolidays))
-          } catch (e) {}
-          return dedupedHolidays
+          }
         }
-        return null
-      })
-    }
 
-    cachedHolidaysPromise?.then((holsData) => {
-      if (holsData && isMounted) setHolidays(holsData)
-    })
-
-    // 4. Fetch remote periods (deduplicated)
-    if (isCacheStale || !cachedPeriodsPromise) {
-      cachedPeriodsPromise = getInstitutionSetting<PeriodSlotItem[]>(
-        'infrastructure_periods',
-        MASTER_TIME_SLOTS
-      ).then((res) => {
-        if (res && res.length > 0) {
+        if (mappedSubjects.length > 0) {
+          setSubjects(mappedSubjects)
           try {
-            localStorage.setItem(STORAGE_KEYS.PERIODS, JSON.stringify(res))
+            localStorage.setItem(STORAGE_KEYS.SUBJECTS, JSON.stringify(mappedSubjects))
           } catch (e) {}
-          return res
         }
-        return null
-      })
-    }
 
-    cachedPeriodsPromise?.then((periodsData) => {
-      if (periodsData && isMounted) setPeriods(periodsData)
-    })
-
-    // 5. Fetch remote classes (deduplicated)
-    if (isCacheStale || !cachedClassesPromise) {
-      cachedClassesPromise = getInstitutionSetting<ClassEnrollmentItem[]>(
-        'infrastructure_classes',
-        INITIAL_CLASSES
-      ).then((res) => {
-        if (res && res.length > 0) {
+        // 7. Incident Categories
+        if (Array.isArray(bData.issue_categories)) {
+          const mappedCats: IncidentCategoryItem[] = bData.issue_categories.map((c: any) => ({
+            id: c.id,
+            code: c.name.toLowerCase().replace(/\s+/g, '_'),
+            name: c.name,
+            description: c.type || '',
+            severity: c.default_severity || 'minor',
+            is_active: c.is_active !== false,
+          }))
+          setIncidentCategories(mappedCats)
           try {
-            localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(res))
+            localStorage.setItem(
+              STORAGE_KEYS.INCIDENT_CATEGORIES,
+              JSON.stringify(mappedCats)
+            )
           } catch (e) {}
-          return res
         }
-        return null
-      })
-    }
 
-    cachedClassesPromise?.then((classesData) => {
-      if (classesData && isMounted) setClasses(classesData)
-    })
-
-    // 6. Fetch remote subjects (deduplicated)
-    if (isCacheStale || !cachedSubjectsPromise) {
-      cachedSubjectsPromise = getInstitutionSetting<SubjectCurriculumItem[]>(
-        'infrastructure_subjects',
-        INITIAL_SUBJECTS
-      ).then((res) => {
-        if (res && res.length > 0) {
-          try {
-            localStorage.setItem(STORAGE_KEYS.SUBJECTS, JSON.stringify(res))
-          } catch (e) {}
-          return res
-        }
-        return null
-      })
-    }
-
-    cachedSubjectsPromise?.then((subjectsData) => {
-      if (subjectsData && isMounted) setSubjects(subjectsData)
-    })
-
-    // 7. Fetch remote incident categories (deduplicated)
-    if (isCacheStale || !cachedIncidentCategoriesPromise) {
-      cachedIncidentCategoriesPromise = getInstitutionSetting<IncidentCategoryItem[]>(
-        'infrastructure_incident_categories',
-        DEFAULT_INCIDENT_CATEGORIES
-      ).then((res) => {
-        if (res && res.length > 0) {
-          try {
-            localStorage.setItem(STORAGE_KEYS.INCIDENT_CATEGORIES, JSON.stringify(res))
-          } catch (e) {}
-          return res
-        }
-        return null
-      })
-    }
-
-    cachedIncidentCategoriesPromise?.then((catsData) => {
-      if (catsData && isMounted) setIncidentCategories(catsData)
-    })
-
-    // 8. Fetch remote incident settings (deduplicated)
-    if (isCacheStale || !cachedIncidentSettingsPromise) {
-      cachedIncidentSettingsPromise = getInstitutionSetting<IncidentGovernanceSettings>(
-        'infrastructure_incident_settings',
-        DEFAULT_INCIDENT_SETTINGS
-      ).then((res) => {
-        if (res) {
-          try {
-            localStorage.setItem(STORAGE_KEYS.INCIDENT_SETTINGS, JSON.stringify(res))
-          } catch (e) {}
-          return res
-        }
-        return null
-      })
-    }
-
-    cachedIncidentSettingsPromise?.then((settingsData) => {
-      if (settingsData && isMounted) setIncidentSettings(settingsData)
+        setIsLoading(false)
+        setHasFetchedOnce(true)
+      } else {
+        setIsLoading(false)
+        setHasFetchedOnce(true)
+      }
     })
 
     // 9. Shared Singleton Realtime subscription
@@ -562,6 +491,7 @@ export function useInfrastructureState() {
       sharedInfraChannel = supabase
         .channel('shared-infra-changes')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'labs' }, () => {
+          cachedBootstrapPromise = null
           cachedLabsPromise = null
           supabase
             .from('labs')
@@ -596,6 +526,72 @@ export function useInfrastructureState() {
             }
           })
         })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'classes' }, () => {
+          cachedClassesPromise = null
+          getClassesAction({ activeOnly: true }).then((res) => {
+            if (res.success && res.data) {
+              const mapped: ClassEnrollmentItem[] = res.data.map((c) => ({
+                id: c.id,
+                name: c.name,
+                section: c.section || 'A',
+                capacity: c.capacity || 40,
+                stream: c.stream_id || (c.grade && c.grade >= 11 ? 'Science' : 'General'),
+                is_active: c.is_active,
+              }))
+              try {
+                localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(mapped))
+              } catch (e) {}
+              infraSubscribers.forEach((sub) => sub.setClasses(mapped))
+            }
+          })
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'class_subjects' }, () => {
+          cachedSubjectsPromise = null
+          Promise.all([getClassSubjectsAction(), getSubjectsAction({ activeOnly: true })]).then(([csRes, sRes]) => {
+            const mapped: SubjectCurriculumItem[] = []
+            const seenCodes = new Set<string>()
+            if (csRes.success && Array.isArray(csRes.data)) {
+              for (const cs of csRes.data) {
+                const code = cs.subject_code || cs.subject_id
+                seenCodes.add(code)
+                mapped.push({
+                  code,
+                  title: cs.subject_name || code,
+                  grade: cs.class_name || cs.class_id,
+                  quota: 4,
+                  lab: cs.lab_name || 'Computer Lab',
+                  labId: cs.default_lab_id || 'comp',
+                  teacherId: cs.teacher_id || '',
+                  teacherName: cs.teacher_name || undefined,
+                  classId: cs.class_id,
+                  classSubjectId: cs.id,
+                })
+              }
+            }
+            if (sRes.success && Array.isArray(sRes.data)) {
+              for (const s of sRes.data) {
+                if (!seenCodes.has(s.code)) {
+                  mapped.push({
+                    code: s.code,
+                    title: s.name,
+                    grade: 'All Classes',
+                    quota: s.credit_hours || 4,
+                    lab: 'Computer Lab',
+                    labId: s.default_lab_id || 'comp',
+                    teacherId: '',
+                  })
+                }
+              }
+            }
+            try {
+              localStorage.setItem(STORAGE_KEYS.SUBJECTS, JSON.stringify(mapped))
+            } catch (e) {}
+            infraSubscribers.forEach((sub) => sub.setSubjects(mapped))
+          })
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'subjects' }, () => {
+          cachedSubjectsPromise = null
+        })
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'institution_settings' },
@@ -608,18 +604,6 @@ export function useInfrastructureState() {
                 localStorage.setItem(STORAGE_KEYS.PERIODS, JSON.stringify(row.value))
               } catch (e) {}
               infraSubscribers.forEach((sub) => sub.setPeriods(row.value))
-            } else if (row.key === 'infrastructure_classes') {
-              cachedClassesPromise = Promise.resolve(row.value)
-              try {
-                localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(row.value))
-              } catch (e) {}
-              infraSubscribers.forEach((sub) => sub.setClasses(row.value))
-            } else if (row.key === 'infrastructure_subjects') {
-              cachedSubjectsPromise = Promise.resolve(row.value)
-              try {
-                localStorage.setItem(STORAGE_KEYS.SUBJECTS, JSON.stringify(row.value))
-              } catch (e) {}
-              infraSubscribers.forEach((sub) => sub.setSubjects(row.value))
             } else if (row.key === 'infrastructure_incident_categories') {
               cachedIncidentCategoriesPromise = Promise.resolve(row.value)
               try {
@@ -693,10 +677,10 @@ export function useInfrastructureState() {
   // 1. Periods Management
   const addPeriod = useCallback((period: PeriodSlotItem) => {
     setPeriods((prev) => {
-      const updated = [...prev, period]
+      const updated = sortPeriodSlots([...prev, period])
       queueMicrotask(() => {
         saveToStorage(STORAGE_KEYS.PERIODS, updated)
-        updateInstitutionSetting('infrastructure_periods', updated).catch(() => {})
+        updatePeriodSlotsAction(updated).catch(() => {})
       })
       return updated
     })
@@ -704,10 +688,10 @@ export function useInfrastructureState() {
 
   const updatePeriod = useCallback((id: string, updates: Partial<PeriodSlotItem>) => {
     setPeriods((prev) => {
-      const updated = prev.map((p) => (p.id === id ? { ...p, ...updates } : p))
+      const updated = sortPeriodSlots(prev.map((p) => (p.id === id ? { ...p, ...updates } : p)))
       queueMicrotask(() => {
         saveToStorage(STORAGE_KEYS.PERIODS, updated)
-        updateInstitutionSetting('infrastructure_periods', updated).catch(() => {})
+        updatePeriodSlotsAction(updated).catch(() => {})
       })
       return updated
     })
@@ -718,18 +702,25 @@ export function useInfrastructureState() {
       const updated = prev.filter((p) => p.id !== id)
       queueMicrotask(() => {
         saveToStorage(STORAGE_KEYS.PERIODS, updated)
-        updateInstitutionSetting('infrastructure_periods', updated).catch(() => {})
+        updatePeriodSlotsAction(updated).catch(() => {})
       })
       return updated
     })
   }, [])
 
-  const resetPeriods = useCallback(() => {
-    setPeriods([...MASTER_TIME_SLOTS])
-    queueMicrotask(() => {
-      saveToStorage(STORAGE_KEYS.PERIODS, [...MASTER_TIME_SLOTS])
-      updateInstitutionSetting('infrastructure_periods', [...MASTER_TIME_SLOTS]).catch(() => {})
-    })
+  const resetPeriods = useCallback(async () => {
+    try {
+      const res = await getPeriodSlotsAction()
+      const slots = res.success ? res.data : []
+      const sorted = sortPeriodSlots(slots)
+      setPeriods(sorted)
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.PERIODS, sorted)
+        updatePeriodSlotsAction(sorted).catch(() => {})
+      })
+    } catch (e) {
+      console.warn('Failed to reset periods:', e)
+    }
   }, [])
 
   // 2. Labs Management
@@ -782,7 +773,6 @@ export function useInfrastructureState() {
       const updated = [...prev, cls]
       queueMicrotask(() => {
         saveToStorage(STORAGE_KEYS.CLASSES, updated)
-        updateInstitutionSetting('infrastructure_classes', updated).catch(() => {})
       })
       return updated
     })
@@ -793,7 +783,6 @@ export function useInfrastructureState() {
       const updated = prev.map((c) => (c.id === id ? { ...c, ...updates } : c))
       queueMicrotask(() => {
         saveToStorage(STORAGE_KEYS.CLASSES, updated)
-        updateInstitutionSetting('infrastructure_classes', updated).catch(() => {})
       })
       return updated
     })
@@ -804,7 +793,6 @@ export function useInfrastructureState() {
       const updated = prev.filter((c) => c.id !== id)
       queueMicrotask(() => {
         saveToStorage(STORAGE_KEYS.CLASSES, updated)
-        updateInstitutionSetting('infrastructure_classes', updated).catch(() => {})
       })
       return updated
     })
@@ -847,7 +835,7 @@ export function useInfrastructureState() {
       const updated = [...prev, sub]
       queueMicrotask(() => {
         saveToStorage(STORAGE_KEYS.SUBJECTS, updated)
-        updateInstitutionSetting('infrastructure_subjects', updated).catch(() => {})
+        // Canonical subjects persisted in public.class_subjects
       })
       return updated
     })
@@ -858,7 +846,7 @@ export function useInfrastructureState() {
       const updated = prev.map((s) => (s.code === code ? { ...s, ...updates } : s))
       queueMicrotask(() => {
         saveToStorage(STORAGE_KEYS.SUBJECTS, updated)
-        updateInstitutionSetting('infrastructure_subjects', updated).catch(() => {})
+        // Canonical subjects persisted in public.class_subjects
       })
       return updated
     })
@@ -869,7 +857,7 @@ export function useInfrastructureState() {
       const updated = prev.filter((s) => s.code !== code)
       queueMicrotask(() => {
         saveToStorage(STORAGE_KEYS.SUBJECTS, updated)
-        updateInstitutionSetting('infrastructure_subjects', updated).catch(() => {})
+        // Canonical subjects persisted in public.class_subjects
       })
       return updated
     })
@@ -902,7 +890,6 @@ export function useInfrastructureState() {
       )
       queueMicrotask(() => {
         saveToStorage(STORAGE_KEYS.SUBJECTS, updatedSubjects)
-        updateInstitutionSetting('infrastructure_subjects', updatedSubjects).catch(() => {})
       })
       return updatedSubjects
     })
@@ -1039,6 +1026,8 @@ export function useInfrastructureState() {
   }, [])
 
   return {
+    isLoading,
+    hasFetchedOnce,
     periods,
     labs,
     classes,

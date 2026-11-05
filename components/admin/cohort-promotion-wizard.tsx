@@ -44,16 +44,6 @@ import type {
   PromotionBatchHistoryItem,
   PromotionBatchReceipt,
 } from '@/lib/types/academic-years'
-import { DEFAULT_CLASSES } from '@/lib/master-data'
-
-const FALLBACK_CLASSES: ClassRecord[] = DEFAULT_CLASSES.map((c) => ({
-  id: c.id,
-  name: c.name,
-  grade: parseInt(c.name.replace(/\D/g, '') || '0', 10) || 11,
-  section: c.fullName.split(' - ')[1] || c.stream,
-  capacity: c.strength,
-  is_active: true,
-}))
 
 /**
  * Smart Class Promotion Suggester:
@@ -170,15 +160,17 @@ export function CohortPromotionWizard({
   // Academic Cycles & Classes (Strictly Dynamic Database with resilient fallback)
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([])
   const [classes, setClasses] = useState<ClassRecord[]>(() =>
-    initialClasses && initialClasses.length > 0 ? initialClasses : FALLBACK_CLASSES
+    initialClasses && initialClasses.length > 0 ? initialClasses : []
   )
   const [isLoadingMetadata, setIsLoadingMetadata] = useState(false)
 
   // Step 1: Selection State
-  const [sourceYearId, setSourceYearId] = useState<string>('2083')
-  const [targetYearId, setTargetYearId] = useState<string>('2084')
-  const [sourceClassId, setSourceClassId] = useState<string>('12eng')
-  const [targetClassId, setTargetClassId] = useState<string>('12eng')
+  const [sourceYearId, setSourceYearId] = useState<string>(initialSourceYearId || '')
+  const [targetYearId, setTargetYearId] = useState<string>('')
+  const [sourceClassId, setSourceClassId] = useState<string>(
+    initialSourceClassId || (initialClasses && initialClasses.length > 0 ? initialClasses[0].id : '')
+  )
+  const [targetClassId, setTargetClassId] = useState<string>('')
   const [isTerminalGraduation, setIsTerminalGraduation] = useState<boolean>(false)
 
   // Step 2: Staging Grid State
@@ -227,20 +219,23 @@ export function CohortPromotionWizard({
           setAcademicYears(yearRes.value.data)
           const current = yearRes.value.data.find((y) => y.is_current)
           if (current) {
-            setSourceYearId(initialSourceYearId || current.id)
+            setSourceYearId((prev) => prev || initialSourceYearId || current.id)
             const nextYear = yearRes.value.data.find((y) => y.id !== current.id)
-            if (nextYear) setTargetYearId(nextYear.id)
+            if (nextYear) setTargetYearId((prev) => prev || nextYear.id)
+          } else if (yearRes.value.data.length > 0) {
+            setSourceYearId((prev) => prev || yearRes.value.data[0].id)
+            if (yearRes.value.data[1]) setTargetYearId((prev) => prev || yearRes.value.data[1].id)
           }
         }
         if (classRes.status === 'fulfilled' && classRes.value.success && classRes.value.data) {
           setClasses(classRes.value.data)
           if (classRes.value.data.length > 0) {
             const initialClass = initialSourceClassId || classRes.value.data[0].id
-            setSourceClassId(initialClass)
+            setSourceClassId((prev) => prev || initialClass)
             const suggestion = suggestTargetClass(initialClass, classRes.value.data)
             setIsTerminalGraduation(suggestion.isTerminal)
             if (!suggestion.isTerminal && suggestion.targetClassId) {
-              setTargetClassId(suggestion.targetClassId)
+              setTargetClassId((prev) => prev || suggestion.targetClassId || '')
             }
           }
         }
@@ -297,6 +292,28 @@ export function CohortPromotionWizard({
     setExecutionError(null)
     setIsLoadingStudents(true)
     try {
+      // Waterfall Dependency Guard:
+      // If promoting sourceClassId -> targetClassId (e.g. 11sci -> 12sci),
+      // ensure targetClassId does NOT have active students in sourceYearId (e.g. 12sci in 2083).
+      // If it does, those senior students must be graduated or processed first.
+      if (!isTerminalGraduation && targetClassId) {
+        const targetInSourceRes = await getStudentsByClass({
+          classId: targetClassId,
+          academicYearId: sourceYearId,
+          statusFilter: 'active',
+        })
+
+        if (targetInSourceRes.success && targetInSourceRes.data && targetInSourceRes.data.length > 0) {
+          const tgtClassName = classes.find((c) => c.id === targetClassId)?.name || targetClassId
+          const srcYearName = academicYears.find((y) => y.id === sourceYearId)?.name || sourceYearId
+          setExecutionError(
+            `Waterfall Rollover Lock: ${tgtClassName} (${srcYearName}) still has ${targetInSourceRes.data.length} active students awaiting graduation or rollover evaluation. Institutional policy requires graduating senior classes first to prevent duplicate roll number collisions when repeaters enter ${tgtClassName}.`
+          )
+          setIsLoadingStudents(false)
+          return
+        }
+      }
+
       const [sourceRes, targetRes] = await Promise.all([
         getStudentsByClass({
           classId: sourceClassId,
@@ -778,34 +795,34 @@ export function CohortPromotionWizard({
   const targetYearName = academicYears.find((y) => y.id === targetYearId)?.name || targetYearId
 
   return (
-    <div className="space-y-6 font-sans text-slate-100 animate-in fade-in duration-200">
+    <div className="space-y-6 font-sans text-zinc-900 dark:text-slate-100 animate-in fade-in duration-200">
       
       {/* Header Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl border border-white/[0.08] bg-[#101726] shadow-sm">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] shadow-sm">
         <div className="flex items-center gap-3.5">
-          <div className="h-10 w-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center">
+          <div className="h-10 w-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
             <GraduationCap className="h-5 w-5" />
           </div>
           <div>
-            <h2 className="text-base font-bold font-heading text-white flex items-center gap-2">
+            <h2 className="text-base font-bold font-heading text-zinc-900 dark:text-white flex items-center gap-2">
               <span>Cohort Promotion & Lifecycle Wizard</span>
-              <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+              <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-600 dark:text-indigo-300 border border-indigo-500/30">
                 Multi-Grade SIS
               </span>
             </h2>
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-zinc-500 dark:text-slate-400">
               Advance student cohorts across academic years with exception triage, A-Z roll allocation, and 24-hour disaster recovery.
             </p>
           </div>
         </div>
 
         {/* Wizard Steps Indicator */}
-        <div className="flex items-center gap-2 bg-[#151E32] p-1.5 rounded-xl border border-white/[0.08] text-xs">
+        <div className="flex items-center gap-2 bg-zinc-100 dark:bg-[#151E32] p-1.5 rounded-xl border border-zinc-200 dark:border-white/[0.08] text-xs">
           <span
             className={`px-3 py-1 rounded-lg font-semibold transition ${
               currentStep === 1
                 ? 'bg-indigo-600 text-white'
-                : 'text-slate-400 hover:text-white cursor-pointer'
+                : 'text-zinc-600 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white cursor-pointer'
             }`}
             onClick={() => {
               if (currentStep > 1 && !executionReceipt) setCurrentStep(1)
@@ -817,7 +834,7 @@ export function CohortPromotionWizard({
             className={`px-3 py-1 rounded-lg font-semibold transition ${
               currentStep === 2
                 ? 'bg-indigo-600 text-white'
-                : 'text-slate-400 hover:text-white cursor-pointer'
+                : 'text-zinc-600 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white cursor-pointer'
             }`}
             onClick={() => {
               if (stagedStudents.length > 0 && !executionReceipt) setCurrentStep(2)
@@ -829,7 +846,7 @@ export function CohortPromotionWizard({
             className={`px-3 py-1 rounded-lg font-semibold transition ${
               currentStep === 3
                 ? 'bg-indigo-600 text-white'
-                : 'text-slate-400 hover:text-white cursor-pointer'
+                : 'text-zinc-600 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white cursor-pointer'
             }`}
             onClick={() => {
               if (stagedStudents.length > 0 && !executionReceipt) setCurrentStep(3)
@@ -841,7 +858,7 @@ export function CohortPromotionWizard({
       </div>
 
       {executionError && (
-        <div className="p-4 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-300 text-xs flex items-center gap-2.5">
+        <div className="p-4 rounded-xl border border-rose-300 dark:border-rose-500/30 bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2.5">
           <AlertTriangle className="h-4 w-4 shrink-0" />
           <span>{executionError}</span>
         </div>
@@ -854,122 +871,138 @@ export function CohortPromotionWizard({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           
           {/* Source Cohort Card */}
-          <div className="p-5 rounded-2xl border border-white/[0.08] bg-[#101726] space-y-4">
-            <div className="flex items-center gap-2.5 text-xs font-bold font-heading text-indigo-400 uppercase tracking-wider">
+          <div className="p-5 rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] space-y-4">
+            <div className="flex items-center gap-2.5 text-xs font-bold font-heading text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
               <Calendar className="h-4 w-4" />
               <span>Source Cohort (Current)</span>
             </div>
 
             <div className="space-y-3 text-xs">
               <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-slate-400 mb-1.5">
                   Academic Year
                 </label>
                 <select
                   value={sourceYearId}
                   onChange={(e) => setSourceYearId(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-white/[0.08] bg-[#151E32] text-white focus:outline-none focus:border-indigo-500/50 cursor-pointer"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-zinc-300 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] text-zinc-900 dark:text-white focus:outline-none focus:border-indigo-500/50 cursor-pointer"
                 >
-                  {academicYears.map((y) => (
-                    <option key={y.id} value={y.id}>
-                      {y.name} {y.is_current ? '(Current Active)' : ''}
-                    </option>
-                  ))}
+                  {academicYears.length > 0 ? (
+                    academicYears.map((y) => (
+                      <option key={y.id} value={y.id}>
+                        {y.name} {y.is_current ? '(Current Active)' : ''}
+                      </option>
+                    ))
+                  ) : (
+                    <option value="" disabled>Loading academic cycles...</option>
+                  )}
                 </select>
               </div>
 
               <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-slate-400 mb-1.5">
                   Source Class
                 </label>
                 <select
                   value={sourceClassId}
                   onChange={(e) => handleSourceClassChange(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-white/[0.08] bg-[#151E32] text-white focus:outline-none focus:border-indigo-500/50 cursor-pointer"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-zinc-300 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] text-zinc-900 dark:text-white focus:outline-none focus:border-indigo-500/50 cursor-pointer"
                 >
-                  {classes.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} {c.section ? `(${c.section})` : ''}
-                    </option>
-                  ))}
+                  {classes.length > 0 ? (
+                    classes.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} {c.section ? `(${c.section})` : ''}
+                      </option>
+                    ))
+                  ) : (
+                    <option value="" disabled>Loading classes...</option>
+                  )}
                 </select>
               </div>
             </div>
           </div>
 
           {/* Destination Cohort Card */}
-          <div className="p-5 rounded-2xl border border-white/[0.08] bg-[#101726] space-y-4 flex flex-col justify-between">
+          <div className="p-5 rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] space-y-4 flex flex-col justify-between">
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2.5 text-xs font-bold font-heading text-emerald-400 uppercase tracking-wider">
+                <div className="flex items-center gap-2.5 text-xs font-bold font-heading text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
                   <ArrowRight className="h-4 w-4" />
                   <span>Destination Target (Upcoming)</span>
                 </div>
 
                 {/* Class 12 Terminal Graduation Toggle */}
-                <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                <label className="flex items-center gap-2 text-xs text-zinc-700 dark:text-slate-300 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={isTerminalGraduation}
                     onChange={(e) => setIsTerminalGraduation(e.target.checked)}
-                    className="h-4 w-4 rounded text-indigo-600 focus:ring-indigo-500 border-white/20 bg-[#151E32]"
+                    className="h-4 w-4 rounded text-indigo-600 focus:ring-indigo-500 border-zinc-300 dark:border-white/20 bg-zinc-50 dark:bg-[#151E32]"
                   />
                   <span className="font-semibold text-[11px]">Terminal Graduation</span>
                 </label>
               </div>
 
               {isTerminalGraduation ? (
-                <div className="p-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-xs space-y-2">
+                <div className="p-4 rounded-xl border border-emerald-300 dark:border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 text-xs space-y-2">
                   <div className="font-bold flex items-center gap-1.5">
                     <CheckCircle2 className="h-4 w-4" />
                     <span>Terminal Class Graduation Workflow</span>
                   </div>
-                  <p className="text-[11px] text-emerald-200/80 leading-relaxed">
+                  <p className="text-[11px] text-emerald-700 dark:text-emerald-200/80 leading-relaxed">
                     Students will be transitioned to <span className="font-bold">Graduated</span> status and archived. No destination class is required for terminal cohorts.
                   </p>
                 </div>
               ) : (
                 <div className="space-y-3 text-xs">
                   <div>
-                    <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-slate-400 mb-1.5">
                       Target Academic Year
                     </label>
                     <select
                       value={targetYearId}
                       onChange={(e) => setTargetYearId(e.target.value)}
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-white/[0.08] bg-[#151E32] text-white focus:outline-none focus:border-indigo-500/50 cursor-pointer"
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-zinc-300 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] text-zinc-900 dark:text-white focus:outline-none focus:border-indigo-500/50 cursor-pointer"
                     >
-                      {academicYears.map((y) => (
-                        <option key={y.id} value={y.id}>
-                          {y.name}
-                        </option>
-                      ))}
+                      {academicYears.length > 0 ? (
+                        academicYears.map((y) => (
+                          <option key={y.id} value={y.id}>
+                            {y.name}
+                          </option>
+                        ))
+                      ) : (
+                        <option value="" disabled>Loading academic cycles...</option>
+                      )}
                     </select>
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-slate-400 mb-1.5">
                       Target Class
                     </label>
                     <select
                       value={targetClassId}
                       onChange={(e) => setTargetClassId(e.target.value)}
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-white/[0.08] bg-[#151E32] text-white focus:outline-none focus:border-indigo-500/50 cursor-pointer"
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-zinc-300 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] text-zinc-900 dark:text-white focus:outline-none focus:border-indigo-500/50 cursor-pointer"
                     >
-                      {classes
-                        .filter((c) => c.id !== sourceClassId)
-                        .map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name} {c.section ? `(${c.section})` : ''}
-                          </option>
-                        ))}
+                      {classes.filter((c) => c.id !== sourceClassId).length > 0 ? (
+                        classes
+                          .filter((c) => c.id !== sourceClassId)
+                          .map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name} {c.section ? `(${c.section})` : ''}
+                            </option>
+                          ))
+                      ) : (
+                        <option value="" disabled>No eligible target classes</option>
+                      )}
                     </select>
                   </div>
                 </div>
               )}
             </div>
 
-            <div className="pt-4 border-t border-white/[0.08] flex justify-end">
+            <div className="pt-4 border-t border-zinc-200 dark:border-white/[0.08] flex justify-end">
               <button
                 type="button"
                 onClick={handleProceedToStaging}
@@ -995,24 +1028,24 @@ export function CohortPromotionWizard({
         <div className="space-y-4">
           
           {/* Action Toolbar */}
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 p-4 rounded-2xl border border-white/[0.08] bg-[#101726]">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 p-4 rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726]">
             
             {/* Left: Summary Metrics */}
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs font-bold font-heading text-white px-2 py-1 rounded-lg bg-[#151E32] border border-white/[0.08]">
+              <span className="text-xs font-bold font-heading text-zinc-900 dark:text-white px-2 py-1 rounded-lg bg-zinc-100 dark:bg-[#151E32] border border-zinc-200 dark:border-white/[0.08]">
                 {sourceClassName} &rarr; {isTerminalGraduation ? 'Graduation' : targetClassName}
               </span>
-              <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">
+              <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/20">
                 Promoted: {summaryCounts.promoted}
               </span>
-              <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-300 border border-amber-500/20">
+              <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-500/20">
                 Repeaters: {summaryCounts.repeaters}
               </span>
-              <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-300 border border-rose-500/20">
+              <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-500/20">
                 Left: {summaryCounts.transferred}
               </span>
               {summaryCounts.newcomers > 0 && (
-                <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+                <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/20">
                   Newcomers: {summaryCounts.newcomers}
                 </span>
               )}
@@ -1023,13 +1056,13 @@ export function CohortPromotionWizard({
               
               {/* Search */}
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-400 dark:text-slate-400" />
                 <input
                   type="text"
                   placeholder="Filter student..."
                   value={searchFilter}
                   onChange={(e) => setSearchFilter(e.target.value)}
-                  className="pl-8 pr-3 py-1.5 text-xs rounded-xl border border-white/[0.08] bg-[#151E32] text-white focus:outline-none focus:border-indigo-500/50"
+                  className="pl-8 pr-3 py-1.5 text-xs rounded-xl border border-zinc-300 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] text-zinc-900 dark:text-white placeholder:text-zinc-400 focus:outline-none focus:border-indigo-500/50"
                 />
               </div>
 
@@ -1037,10 +1070,10 @@ export function CohortPromotionWizard({
               <button
                 type="button"
                 onClick={handleSortAlphabetically}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/[0.08] bg-[#151E32] hover:bg-white/[0.06] text-slate-200 font-semibold cursor-pointer transition"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-zinc-100 hover:bg-zinc-200 dark:bg-[#151E32] dark:hover:bg-white/[0.06] text-zinc-800 dark:text-slate-200 font-semibold cursor-pointer transition"
                 title="Sort all students A-Z by full name and resequence rolls 1, 2, 3..."
               >
-                <ArrowDownAZ className="h-3.5 w-3.5 text-indigo-400" />
+                <ArrowDownAZ className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
                 <span>Sort Rolls (A–Z)</span>
               </button>
 
@@ -1048,10 +1081,10 @@ export function CohortPromotionWizard({
               <button
                 type="button"
                 onClick={() => setIsBulkNewcomerModalOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/[0.08] bg-[#151E32] hover:bg-white/[0.06] text-slate-200 font-semibold cursor-pointer transition"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-zinc-100 hover:bg-zinc-200 dark:bg-[#151E32] dark:hover:bg-white/[0.06] text-zinc-800 dark:text-slate-200 font-semibold cursor-pointer transition"
                 title="Bulk import transfer / newcomer students from Excel (.xlsx) or CSV"
               >
-                <FileSpreadsheet className="h-3.5 w-3.5 text-indigo-400" />
+                <FileSpreadsheet className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
                 <span>Import Newcomers (Excel)</span>
               </button>
 
@@ -1059,9 +1092,9 @@ export function CohortPromotionWizard({
               <button
                 type="button"
                 onClick={() => setIsNewcomerModalOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/[0.08] bg-[#151E32] hover:bg-white/[0.06] text-slate-200 font-semibold cursor-pointer transition"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-zinc-100 hover:bg-zinc-200 dark:bg-[#151E32] dark:hover:bg-white/[0.06] text-zinc-800 dark:text-slate-200 font-semibold cursor-pointer transition"
               >
-                <UserPlus className="h-3.5 w-3.5 text-emerald-400" />
+                <UserPlus className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
                 <span>Add Lateral Student</span>
               </button>
 
@@ -1072,10 +1105,10 @@ export function CohortPromotionWizard({
                   if (val) handleBulkAction(val)
                 }}
                 defaultValue=""
-                className="px-3 py-1.5 rounded-xl border border-white/[0.08] bg-[#151E32] text-slate-300 font-semibold cursor-pointer focus:outline-none"
+                className="px-3 py-1.5 rounded-xl border border-zinc-300 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] text-zinc-800 dark:text-slate-300 font-semibold cursor-pointer focus:outline-none"
               >
                 <option value="" disabled>Bulk Action...</option>
-                <option value="promote">Mark All Promote</option>
+                {!isTerminalGraduation && <option value="promote">Mark All Promote</option>}
                 <option value="repeat">Mark All Repeat</option>
                 <option value="transferred">Mark All Left</option>
                 {isTerminalGraduation && <option value="graduated">Mark All Graduated</option>}
@@ -1094,17 +1127,17 @@ export function CohortPromotionWizard({
 
           {/* Destination Class Cohort Awareness Banner */}
           {existingTargetCohort.length > 0 && (
-            <div className="p-3.5 rounded-2xl border border-indigo-500/20 bg-indigo-500/10 text-indigo-200 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="p-3.5 rounded-2xl border border-indigo-200 dark:border-indigo-500/20 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-900 dark:text-indigo-200 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center gap-2.5">
-                <Info className="h-4 w-4 text-indigo-400 shrink-0" />
+                <Info className="h-4 w-4 text-indigo-500 dark:text-indigo-400 shrink-0" />
                 <div>
-                  <span className="font-semibold text-white">Target Class Roster: </span>
+                  <span className="font-semibold text-zinc-900 dark:text-white">Target Class Roster: </span>
                   <span>
                     <strong>{targetClassName} ({targetYearName})</strong> already had <strong>{existingTargetCohort.length} enrolled repeater student(s)</strong>, automatically merged into this staging roster. Click <strong>Sort Rolls (A–Z)</strong> anytime to sequence rolls across all students.
                   </span>
                 </div>
               </div>
-              <span className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 shrink-0">
+              <span className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-indigo-100 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/30 shrink-0">
                 {existingTargetCohort.length} Repeaters Merged
               </span>
             </div>
@@ -1112,11 +1145,11 @@ export function CohortPromotionWizard({
 
           {/* Roll Collisions Alert Banner */}
           {rollCollisions.length > 0 && (
-            <div className="p-3.5 rounded-2xl border border-rose-500/30 bg-rose-500/10 text-rose-300 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="p-3.5 rounded-2xl border border-rose-300 dark:border-rose-500/30 bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center gap-2.5">
-                <AlertTriangle className="h-4 w-4 text-rose-400 shrink-0" />
+                <AlertTriangle className="h-4 w-4 text-rose-600 dark:text-rose-400 shrink-0" />
                 <div>
-                  <span className="font-bold text-white">Roll Collision Warning: </span>
+                  <span className="font-bold text-zinc-900 dark:text-white">Roll Collision Warning: </span>
                   <span>
                     {rollCollisions.map((c, i) => (
                       <span key={i}>
@@ -1139,10 +1172,10 @@ export function CohortPromotionWizard({
           )}
 
           {/* Interactive Staging Table */}
-          <div className="rounded-2xl border border-white/[0.08] bg-[#101726] overflow-hidden">
+          <div className="rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] overflow-hidden">
             <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
               <table className="w-full text-left text-xs border-collapse">
-                <thead className="sticky top-0 z-10 bg-[#151E32] text-[11px] font-bold uppercase tracking-wider text-slate-400 border-b border-white/[0.08]">
+                <thead className="sticky top-0 z-10 bg-zinc-100 dark:bg-[#151E32] text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-slate-400 border-b border-zinc-200 dark:border-white/[0.08]">
                   <tr>
                     <th className="py-3 px-4">Current Roll</th>
                     <th className="py-3 px-4">Student Name & Admission / RFID</th>
@@ -1152,7 +1185,7 @@ export function CohortPromotionWizard({
                     <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-white/[0.05]">
+                <tbody className="divide-y divide-zinc-200 dark:divide-white/[0.05]">
                   {filteredStagedStudents.map((student) => {
                     const isPromote = student.action === 'promote'
                     const isRepeat = student.action === 'repeat'
@@ -1160,16 +1193,16 @@ export function CohortPromotionWizard({
                     const isGrad = student.action === 'graduated'
 
                     return (
-                      <tr key={student.studentId} className="hover:bg-white/[0.02] transition">
+                      <tr key={student.studentId} className="hover:bg-zinc-50 dark:hover:bg-white/[0.02] transition">
                         
                         {/* Current Roll */}
-                        <td className="py-2.5 px-4 font-mono tabular-nums text-slate-400">
+                        <td className="py-2.5 px-4 font-mono tabular-nums text-zinc-500 dark:text-slate-400">
                           {student.isLateral ? (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-sans font-bold">
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 font-sans font-bold">
                               NEW
                             </span>
                           ) : student.isExistingTarget ? (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono font-bold">
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-700 dark:text-amber-300 font-mono font-bold">
                               REP #{student.currentRollNumber}
                             </span>
                           ) : (
@@ -1179,26 +1212,26 @@ export function CohortPromotionWizard({
 
                         {/* Name & Admission */}
                         <td className="py-2.5 px-4">
-                          <div className="font-semibold text-white flex items-center gap-2">
+                          <div className="font-semibold text-zinc-900 dark:text-white flex items-center gap-2">
                             <span>{student.fullName}</span>
                             {student.isExistingTarget && (
-                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-sans font-bold">
+                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-500/30 font-sans font-bold">
                                 Target Repeater
                               </span>
                             )}
                             {student.isLateral && (
-                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-sans font-bold">
+                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-500/30 font-sans font-bold">
                                 Newcomer
                               </span>
                             )}
                           </div>
-                          <div className="text-[10px] font-mono text-slate-400">
+                          <div className="text-[10px] font-mono text-zinc-500 dark:text-slate-400">
                             {student.admissionNo}
                           </div>
                         </td>
 
                         {/* Gender */}
-                        <td className="py-2.5 px-4 text-slate-400 uppercase text-[10px] font-mono">
+                        <td className="py-2.5 px-4 text-zinc-500 dark:text-slate-400 uppercase text-[10px] font-mono">
                           {student.gender}
                         </td>
 
@@ -1214,24 +1247,26 @@ export function CohortPromotionWizard({
                             }
                             className={`px-2.5 py-1 rounded-lg text-xs font-semibold border cursor-pointer focus:outline-none ${
                               isPromote
-                                ? 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30'
+                                ? 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-500/10 dark:text-indigo-300 dark:border-indigo-500/30'
                                 : isRepeat
-                                ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                                ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:border-amber-500/30'
                                 : isLeft
-                                ? 'bg-rose-500/10 text-rose-300 border-rose-500/30'
-                                : 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                                ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:border-rose-500/30'
+                                : 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:border-emerald-500/30'
                             }`}
                           >
-                            <option value="promote" className="bg-[#151E32] text-white">
-                              {student.isExistingTarget ? `Retain in ${targetClassName}` : `Promote to ${targetClassName}`}
-                            </option>
-                            <option value="repeat" className="bg-[#151E32] text-white">
+                            {!isTerminalGraduation && (
+                              <option value="promote">
+                                {student.isExistingTarget ? `Retain in ${targetClassName}` : `Promote to ${targetClassName}`}
+                              </option>
+                            )}
+                            <option value="repeat">
                               Repeat in {sourceClassName}
                             </option>
-                            <option value="transferred" className="bg-[#151E32] text-white">
+                            <option value="transferred">
                               Transferred / Left School
                             </option>
-                            <option value="graduated" className="bg-[#151E32] text-white">
+                            <option value="graduated">
                               Mark as Graduated
                             </option>
                           </select>
@@ -1240,7 +1275,7 @@ export function CohortPromotionWizard({
                         {/* Target Roll Number (Interactive input) */}
                         <td className="py-2.5 px-4">
                           {isLeft || isGrad ? (
-                            <span className="text-slate-500 font-mono text-xs">—</span>
+                            <span className="text-zinc-400 dark:text-slate-500 font-mono text-xs">—</span>
                           ) : (
                             <div className="flex items-center gap-1.5">
                               <input
@@ -1262,11 +1297,11 @@ export function CohortPromotionWizard({
                                       c.roll === student.targetRollNumber &&
                                       c.names.length > 1
                                   )
-                                    ? 'border border-rose-500 bg-rose-500/20 text-rose-200 focus:ring-1 focus:ring-rose-400'
-                                    : 'border border-white/[0.08] bg-[#151E32] text-white focus:border-indigo-500/50'
+                                    ? 'border border-rose-500 bg-rose-50 dark:bg-rose-500/20 text-rose-700 dark:text-rose-200 focus:ring-1 focus:ring-rose-400'
+                                    : 'border border-zinc-300 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] text-zinc-900 dark:text-white focus:border-indigo-500/50'
                                 }`}
                               />
-                              <span className="text-[10px] text-slate-500 font-mono">Draft</span>
+                              <span className="text-[10px] text-zinc-400 dark:text-slate-500 font-mono">Draft</span>
                             </div>
                           )}
                         </td>
@@ -1277,7 +1312,7 @@ export function CohortPromotionWizard({
                             <button
                               type="button"
                               onClick={() => handleRemoveLateralStudent(student.studentId)}
-                              className="p-1 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
+                              className="p-1 rounded-lg text-zinc-400 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition cursor-pointer"
                               title="Remove lateral entry"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
@@ -1302,60 +1337,60 @@ export function CohortPromotionWizard({
           
           {/* Summary KPI Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-            <div className="p-3.5 rounded-xl border border-indigo-500/20 bg-indigo-500/5 text-center">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Promoted</span>
-              <div className="text-xl font-extrabold font-heading text-indigo-400 tabular-nums">
+            <div className="p-3.5 rounded-xl border border-indigo-200 dark:border-indigo-500/20 bg-indigo-50 dark:bg-indigo-500/5 text-center">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-slate-400">Promoted</span>
+              <div className="text-xl font-extrabold font-heading text-indigo-600 dark:text-indigo-400 tabular-nums">
                 {summaryCounts.promoted}
               </div>
             </div>
 
-            <div className="p-3.5 rounded-xl border border-amber-500/20 bg-amber-500/5 text-center">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Repeaters</span>
-              <div className="text-xl font-extrabold font-heading text-amber-400 tabular-nums">
+            <div className="p-3.5 rounded-xl border border-amber-200 dark:border-amber-500/20 bg-amber-50 dark:bg-amber-500/5 text-center">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-slate-400">Repeaters</span>
+              <div className="text-xl font-extrabold font-heading text-amber-600 dark:text-amber-400 tabular-nums">
                 {summaryCounts.repeaters}
               </div>
             </div>
 
-            <div className="p-3.5 rounded-xl border border-rose-500/20 bg-rose-500/5 text-center">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Left/Transfer</span>
-              <div className="text-xl font-extrabold font-heading text-rose-400 tabular-nums">
+            <div className="p-3.5 rounded-xl border border-rose-200 dark:border-rose-500/20 bg-rose-50 dark:bg-rose-500/5 text-center">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-slate-400">Left/Transfer</span>
+              <div className="text-xl font-extrabold font-heading text-rose-600 dark:text-rose-400 tabular-nums">
                 {summaryCounts.transferred}
               </div>
             </div>
 
-            <div className="p-3.5 rounded-xl border border-emerald-500/20 bg-emerald-500/5 text-center">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Graduated</span>
-              <div className="text-xl font-extrabold font-heading text-emerald-400 tabular-nums">
+            <div className="p-3.5 rounded-xl border border-emerald-200 dark:border-emerald-500/20 bg-emerald-50 dark:bg-emerald-500/5 text-center">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-slate-400">Graduated</span>
+              <div className="text-xl font-extrabold font-heading text-emerald-600 dark:text-emerald-400 tabular-nums">
                 {summaryCounts.graduated}
               </div>
             </div>
 
-            <div className="p-3.5 rounded-xl border border-cyan-500/20 bg-cyan-500/5 text-center">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Newcomers</span>
-              <div className="text-xl font-extrabold font-heading text-cyan-400 tabular-nums">
+            <div className="p-3.5 rounded-xl border border-cyan-200 dark:border-cyan-500/20 bg-cyan-50 dark:bg-cyan-500/5 text-center">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-slate-400">Newcomers</span>
+              <div className="text-xl font-extrabold font-heading text-cyan-600 dark:text-cyan-400 tabular-nums">
                 {summaryCounts.newcomers}
               </div>
             </div>
           </div>
 
           {/* Audit Verification Details */}
-          <div className="p-5 rounded-2xl border border-white/[0.08] bg-[#101726] space-y-4 text-xs">
-            <h3 className="text-sm font-bold font-heading text-white flex items-center gap-2">
-              <Info className="h-4 w-4 text-indigo-400" />
+          <div className="p-5 rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] space-y-4 text-xs">
+            <h3 className="text-sm font-bold font-heading text-zinc-900 dark:text-white flex items-center gap-2">
+              <Info className="h-4 w-4 text-indigo-500 dark:text-indigo-400" />
               <span>Pre-Flight Confirmation Ledger</span>
             </h3>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-slate-300">
-              <div className="p-3.5 rounded-xl bg-[#151E32] border border-white/[0.06] space-y-1">
-                <span className="text-[10px] font-bold uppercase text-slate-400">Source Cohort</span>
-                <p className="font-semibold text-white">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-zinc-700 dark:text-slate-300">
+              <div className="p-3.5 rounded-xl bg-zinc-50 dark:bg-[#151E32] border border-zinc-200 dark:border-white/[0.06] space-y-1">
+                <span className="text-[10px] font-bold uppercase text-zinc-500 dark:text-slate-400">Source Cohort</span>
+                <p className="font-semibold text-zinc-900 dark:text-white">
                   {sourceClassName} &bull; Academic Year {sourceYearName}
                 </p>
               </div>
 
-              <div className="p-3.5 rounded-xl bg-[#151E32] border border-white/[0.06] space-y-1">
-                <span className="text-[10px] font-bold uppercase text-slate-400">Target Cohort</span>
-                <p className="font-semibold text-white">
+              <div className="p-3.5 rounded-xl bg-zinc-50 dark:bg-[#151E32] border border-zinc-200 dark:border-white/[0.06] space-y-1">
+                <span className="text-[10px] font-bold uppercase text-zinc-500 dark:text-slate-400">Target Cohort</span>
+                <p className="font-semibold text-zinc-900 dark:text-white">
                   {isTerminalGraduation ? 'Class 12 Graduation (Terminal)' : `${targetClassName} • Academic Year ${targetYearName}`}
                 </p>
               </div>
@@ -1363,7 +1398,7 @@ export function CohortPromotionWizard({
 
             {/* Optional Notes */}
             <div>
-              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-slate-400 mb-1.5">
                 Promotion Audit Notes (Optional)
               </label>
               <textarea
@@ -1371,14 +1406,14 @@ export function CohortPromotionWizard({
                 placeholder="e.g. End of Term Board Result Promotion 2083/84..."
                 value={stagedNotes}
                 onChange={(e) => setStagedNotes(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-white/[0.08] bg-[#151E32] text-white focus:outline-none focus:border-indigo-500/50"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-zinc-300 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] text-zinc-900 dark:text-white focus:outline-none focus:border-indigo-500/50"
               />
             </div>
 
             {/* Repeaters Allocation Preview */}
             {summaryCounts.repeaters > 0 && (
-              <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs">
-                <div className="font-bold text-amber-300 mb-1.5 flex items-center gap-1.5">
+              <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-xs">
+                <div className="font-bold text-amber-800 dark:text-amber-300 mb-1.5 flex items-center gap-1.5">
                   <RotateCcw className="h-3.5 w-3.5" />
                   <span>{summaryCounts.repeaters} Student(s) Repeating in {sourceClassName} ({targetYearName}):</span>
                 </div>
@@ -1386,7 +1421,7 @@ export function CohortPromotionWizard({
                   {stagedStudents
                     .filter((s) => s.action === 'repeat')
                     .map((s) => (
-                      <span key={s.studentId} className="px-2.5 py-1 rounded-lg bg-[#151E32] border border-amber-500/30 font-mono text-[11px] text-amber-300">
+                      <span key={s.studentId} className="px-2.5 py-1 rounded-lg bg-white dark:bg-[#151E32] border border-amber-300 dark:border-amber-500/30 font-mono text-[11px] text-amber-800 dark:text-amber-300">
                         {s.fullName} &bull; Target Roll #{s.targetRollNumber}
                       </span>
                     ))}
@@ -1396,11 +1431,11 @@ export function CohortPromotionWizard({
 
             {/* Roll Collisions Blocker */}
             {rollCollisions.length > 0 && (
-              <div className="p-4 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-300 flex items-center gap-3">
-                <AlertTriangle className="h-5 w-5 shrink-0 text-rose-400" />
+              <div className="p-4 rounded-xl border border-rose-300 dark:border-rose-500/30 bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 flex items-center gap-3">
+                <AlertTriangle className="h-5 w-5 shrink-0 text-rose-600 dark:text-rose-400" />
                 <div>
-                  <div className="font-bold">⚠️ Cannot Execute: Roll Number Collision</div>
-                  <div className="text-[11px] text-rose-200/80">
+                  <div className="font-bold text-zinc-900 dark:text-white">⚠️ Cannot Execute: Roll Number Collision</div>
+                  <div className="text-[11px] text-rose-700 dark:text-rose-200/80">
                     Duplicate or invalid roll numbers detected ({rollCollisions.map((c) => `Roll #${c.roll} [${c.names.join(', ')}]`).join('; ')}). Please return to Staging to resolve collisions or click 'Sort Rolls (A–Z)'.
                   </div>
                 </div>
@@ -1409,22 +1444,22 @@ export function CohortPromotionWizard({
 
             {/* Safety Lock Warning */}
             {!isEditModeUnlocked && (
-              <div className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-300 flex items-center gap-3">
-                <ShieldAlert className="h-5 w-5 shrink-0" />
+              <div className="p-4 rounded-xl border border-amber-300 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-300 flex items-center gap-3">
+                <ShieldAlert className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
                 <div>
-                  <div className="font-bold">🔒 Precaution Mode Active</div>
-                  <div className="text-[11px] text-amber-200/80">
+                  <div className="font-bold text-zinc-900 dark:text-white">🔒 Precaution Mode Active</div>
+                  <div className="text-[11px] text-amber-700 dark:text-amber-200/80">
                     To execute this promotion batch, you must unlock the "Admin Edit Mode" safety toggle at the top of the Admin dashboard.
                   </div>
                 </div>
               </div>
             )}
 
-            <div className="flex items-center justify-between pt-4 border-t border-white/[0.08]">
+            <div className="flex items-center justify-between pt-4 border-t border-zinc-200 dark:border-white/[0.08]">
               <button
                 type="button"
                 onClick={() => setCurrentStep(2)}
-                className="px-4 py-2 text-xs font-semibold rounded-xl text-slate-400 hover:text-white transition"
+                className="px-4 py-2 text-xs font-semibold rounded-xl text-zinc-600 hover:text-zinc-900 dark:text-slate-400 dark:hover:text-white transition"
               >
                 Back to Staging
               </button>
@@ -1451,28 +1486,28 @@ export function CohortPromotionWizard({
       {/* EXECUTION SUCCESS RECEIPT                                     */}
       {/* ───────────────────────────────────────────────────────────── */}
       {executionReceipt && (
-        <div className="p-6 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 text-center space-y-4">
-          <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto">
+        <div className="p-6 rounded-2xl border border-emerald-300 dark:border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/10 text-center space-y-4">
+          <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto">
             <CheckCircle2 className="h-6 w-6" />
           </div>
           <div>
-            <h3 className="text-base font-bold font-heading text-white">Cohort Successfully Promoted!</h3>
-            <p className="text-xs text-emerald-200/80 max-w-md mx-auto mt-1">
-              Batch <span className="font-mono font-bold text-white">{executionReceipt.batchId}</span> was committed to PostgreSQL. Historical records are preserved.
+            <h3 className="text-base font-bold font-heading text-emerald-950 dark:text-white">Cohort Successfully Promoted!</h3>
+            <p className="text-xs text-emerald-800 dark:text-emerald-200/80 max-w-md mx-auto mt-1">
+              Batch <span className="font-mono font-bold text-emerald-950 dark:text-white">{executionReceipt.batchId}</span> was committed to PostgreSQL. Historical records are preserved.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
-            <span className="px-3 py-1 rounded-lg bg-white/10 text-xs font-semibold">
+            <span className="px-3 py-1 rounded-lg bg-emerald-100/80 dark:bg-white/10 text-xs font-semibold text-emerald-900 dark:text-white">
               Promoted: {executionReceipt.promotedCount}
             </span>
-            <span className="px-3 py-1 rounded-lg bg-white/10 text-xs font-semibold">
+            <span className="px-3 py-1 rounded-lg bg-emerald-100/80 dark:bg-white/10 text-xs font-semibold text-emerald-900 dark:text-white">
               Repeaters: {executionReceipt.retainedCount}
             </span>
-            <span className="px-3 py-1 rounded-lg bg-white/10 text-xs font-semibold">
+            <span className="px-3 py-1 rounded-lg bg-emerald-100/80 dark:bg-white/10 text-xs font-semibold text-emerald-900 dark:text-white">
               Left: {executionReceipt.transferredCount}
             </span>
-            <span className="px-3 py-1 rounded-lg bg-white/10 text-xs font-semibold">
+            <span className="px-3 py-1 rounded-lg bg-emerald-100/80 dark:bg-white/10 text-xs font-semibold text-emerald-900 dark:text-white">
               Graduated: {executionReceipt.graduatedCount}
             </span>
           </div>
@@ -1484,7 +1519,7 @@ export function CohortPromotionWizard({
                 setExecutionReceipt(null)
                 setCurrentStep(1)
               }}
-              className="px-5 py-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.12] text-white text-xs font-semibold transition"
+              className="px-5 py-2 rounded-xl bg-white dark:bg-white/[0.08] hover:bg-zinc-100 dark:hover:bg-white/[0.12] text-zinc-900 dark:text-white border border-zinc-200 dark:border-transparent text-xs font-semibold transition"
             >
               Promote Another Cohort
             </button>
@@ -1495,13 +1530,13 @@ export function CohortPromotionWizard({
       {/* ───────────────────────────────────────────────────────────── */}
       {/* 24-HOUR DISASTER ROLLBACK CARD                                */}
       {/* ───────────────────────────────────────────────────────────── */}
-      <div className="p-5 rounded-2xl border border-white/[0.08] bg-[#101726] space-y-4">
+      <div className="p-5 rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] space-y-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5 text-xs font-bold font-heading text-white">
-            <History className="h-4 w-4 text-indigo-400" />
+          <div className="flex items-center gap-2.5 text-xs font-bold font-heading text-zinc-900 dark:text-white">
+            <History className="h-4 w-4 text-indigo-500 dark:text-indigo-400" />
             <span>Recent Promotions & 24-Hour Rollback Drawer</span>
           </div>
-          <span className="text-[11px] text-slate-400">
+          <span className="text-[11px] text-zinc-500 dark:text-slate-400">
             Allows 1-click reversal of accidental promotions within 48 hours
           </span>
         </div>
@@ -1510,8 +1545,8 @@ export function CohortPromotionWizard({
           <div
             className={`p-3 rounded-xl border text-xs ${
               rollbackFeedback.isError
-                ? 'border-rose-500/30 bg-rose-500/10 text-rose-300'
-                : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                ? 'border-rose-300 dark:border-rose-500/30 bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300'
+                : 'border-emerald-300 dark:border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
             }`}
           >
             {rollbackFeedback.text}
@@ -1519,26 +1554,26 @@ export function CohortPromotionWizard({
         )}
 
         {isLoadingBatches ? (
-          <div className="p-6 text-center text-xs text-slate-500 flex items-center justify-center gap-2">
-            <Loader2 className="h-4 w-4 animate-spin text-indigo-400" />
+          <div className="p-6 text-center text-xs text-zinc-500 flex items-center justify-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin text-indigo-500 dark:text-indigo-400" />
             <span>Loading recent promotion batches...</span>
           </div>
         ) : recentBatches.length === 0 ? (
-          <div className="p-6 text-center text-xs text-slate-500">
+          <div className="p-6 text-center text-xs text-zinc-500">
             No promotion batches executed in the last 48 hours.
           </div>
         ) : (
-          <div className="divide-y divide-white/[0.05] text-xs">
+          <div className="divide-y divide-zinc-200 dark:divide-white/[0.05] text-xs">
             {recentBatches.map((batch) => (
               <div key={batch.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="space-y-1">
-                  <div className="font-semibold text-white flex items-center gap-2">
+                  <div className="font-semibold text-zinc-900 dark:text-white flex items-center gap-2">
                     <span>{batch.entityLabel}</span>
-                    <span className="font-mono text-[10px] text-slate-400 px-1.5 py-0.5 rounded bg-white/[0.06]">
+                    <span className="font-mono text-[10px] text-zinc-600 dark:text-slate-400 px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-white/[0.06]">
                       {batch.batchId}
                     </span>
                   </div>
-                  <div className="text-[11px] text-slate-400 flex items-center gap-2">
+                  <div className="text-[11px] text-zinc-500 dark:text-slate-400 flex items-center gap-2">
                     <span>By {batch.actorName}</span>
                     <span>&bull;</span>
                     <span>{new Date(batch.createdAt).toLocaleString()}</span>
@@ -1546,14 +1581,14 @@ export function CohortPromotionWizard({
                 </div>
 
                 <div className="flex items-center gap-3">
-                  <div className="text-right text-[11px] text-slate-300 font-mono tabular-nums">
+                  <div className="text-right text-[11px] text-zinc-600 dark:text-slate-300 font-mono tabular-nums">
                     {batch.metadata.promotedCount} promoted, {batch.metadata.retainedCount} retained
                   </div>
 
                   <button
                     type="button"
                     onClick={() => setRollbackTargetBatch(batch)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 font-semibold cursor-pointer transition"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose-300 dark:border-rose-500/30 bg-rose-50 hover:bg-rose-100 dark:bg-rose-500/10 dark:hover:bg-rose-500/20 text-rose-700 dark:text-rose-300 font-semibold cursor-pointer transition"
                   >
                     <RotateCcw className="h-3.5 w-3.5" />
                     <span>Revert Batch</span>
@@ -1569,19 +1604,19 @@ export function CohortPromotionWizard({
       {/* MODAL: ADD LATERAL NEWCOMER                                   */}
       {/* ───────────────────────────────────────────────────────────── */}
       {isNewcomerModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-150">
-          <div className="w-full max-w-md rounded-2xl border border-white/[0.1] bg-[#101726] shadow-2xl p-6 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="w-full max-w-md rounded-2xl border border-zinc-200 dark:border-white/[0.1] bg-white dark:bg-[#101726] shadow-2xl p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-200 dark:border-white/[0.08]">
               <div className="flex items-center gap-2">
-                <UserPlus className="h-4 w-4 text-emerald-400" />
-                <h3 className="text-sm font-bold font-heading text-white">
+                <UserPlus className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                <h3 className="text-sm font-bold font-heading text-zinc-900 dark:text-white">
                   Add Lateral Student (Newcomer)
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setIsNewcomerModalOpen(false)}
-                className="text-slate-400 hover:text-white"
+                className="text-zinc-400 hover:text-zinc-700 dark:text-slate-400 dark:hover:text-white"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -1589,7 +1624,7 @@ export function CohortPromotionWizard({
 
             <form onSubmit={handleAddLateralStudent} className="space-y-3 text-xs">
               <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-slate-400 mb-1">
                   Student Full Name *
                 </label>
                 <input
@@ -1598,12 +1633,12 @@ export function CohortPromotionWizard({
                   placeholder="e.g. Bipin Adhikari"
                   value={newcomerName}
                   onChange={(e) => setNewcomerName(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-white/[0.08] bg-[#151E32] text-white focus:outline-none focus:border-indigo-500/50"
+                  className="w-full px-3 py-2 rounded-xl border border-zinc-300 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] text-zinc-900 dark:text-white focus:outline-none focus:border-indigo-500/50"
                 />
               </div>
 
               <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-slate-400 mb-1">
                   Admission Number (Optional)
                 </label>
                 <input
@@ -1611,19 +1646,19 @@ export function CohortPromotionWizard({
                   placeholder="e.g. 1641052469 (RFID) or ADM-10042"
                   value={newcomerAdmNo}
                   onChange={(e) => setNewcomerAdmNo(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-white/[0.08] bg-[#151E32] text-white focus:outline-none focus:border-indigo-500/50"
+                  className="w-full px-3 py-2 rounded-xl border border-zinc-300 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] text-zinc-900 dark:text-white focus:outline-none focus:border-indigo-500/50"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-slate-400 mb-1">
                     Gender
                   </label>
                   <select
                     value={newcomerGender}
                     onChange={(e) => setNewcomerGender(e.target.value as any)}
-                    className="w-full px-3 py-2 rounded-xl border border-white/[0.08] bg-[#151E32] text-white focus:outline-none focus:border-indigo-500/50 cursor-pointer"
+                    className="w-full px-3 py-2 rounded-xl border border-zinc-300 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] text-zinc-900 dark:text-white focus:outline-none focus:border-indigo-500/50 cursor-pointer"
                   >
                     <option value="male">Male</option>
                     <option value="female">Female</option>
@@ -1632,7 +1667,7 @@ export function CohortPromotionWizard({
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-slate-400 mb-1">
                     Target Roll #
                   </label>
                   <input
@@ -1641,16 +1676,16 @@ export function CohortPromotionWizard({
                     placeholder="Auto-assigned if blank"
                     value={newcomerRoll}
                     onChange={(e) => setNewcomerRoll(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-white/[0.08] bg-[#151E32] text-white font-mono text-center focus:outline-none focus:border-indigo-500/50"
+                    className="w-full px-3 py-2 rounded-xl border border-zinc-300 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] text-zinc-900 dark:text-white font-mono text-center focus:outline-none focus:border-indigo-500/50"
                   />
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-white/[0.08]">
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-200 dark:border-white/[0.08]">
                 <button
                   type="button"
                   onClick={() => setIsNewcomerModalOpen(false)}
-                  className="px-4 py-2 text-xs font-semibold rounded-xl text-slate-400 hover:text-white"
+                  className="px-4 py-2 text-xs font-semibold rounded-xl text-zinc-600 hover:text-zinc-900 dark:text-slate-400 dark:hover:text-white"
                 >
                   Cancel
                 </button>
@@ -1671,19 +1706,19 @@ export function CohortPromotionWizard({
       {/* MODAL: BULK IMPORT NEWCOMERS VIA SPREADSHEET                   */}
       {/* ───────────────────────────────────────────────────────────── */}
       {isBulkNewcomerModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-150">
-          <div className="w-full max-w-lg rounded-2xl border border-white/[0.1] bg-[#101726] shadow-2xl p-6 space-y-5">
-            <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="w-full max-w-lg rounded-2xl border border-zinc-200 dark:border-white/[0.1] bg-white dark:bg-[#101726] shadow-2xl p-6 space-y-5">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-200 dark:border-white/[0.08]">
               <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
                   <FileSpreadsheet className="h-5 w-5" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold font-heading text-white">
+                  <h3 className="text-sm font-bold font-heading text-zinc-900 dark:text-white">
                     Bulk Import Newcomers (Excel / CSV)
                   </h3>
-                  <p className="text-[11px] text-slate-400">
-                    Target Class: <strong className="text-white">{targetClassName}</strong> ({targetYearName})
+                  <p className="text-[11px] text-zinc-500 dark:text-slate-400">
+                    Target Class: <strong className="text-zinc-900 dark:text-white">{targetClassName}</strong> ({targetYearName})
                   </p>
                 </div>
               </div>
@@ -1694,34 +1729,34 @@ export function CohortPromotionWizard({
                   setBulkNewcomerError(null)
                   setBulkNewcomerSuccessMsg(null)
                 }}
-                className="text-slate-400 hover:text-white cursor-pointer p-1"
+                className="text-zinc-400 hover:text-zinc-700 dark:text-slate-400 dark:hover:text-white cursor-pointer p-1"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
             {bulkNewcomerError && (
-              <div className="p-3.5 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-300 text-xs flex items-center gap-2">
+              <div className="p-3.5 rounded-xl border border-rose-300 dark:border-rose-500/30 bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
                 <AlertTriangle className="h-4 w-4 shrink-0" />
                 <span>{bulkNewcomerError}</span>
               </div>
             )}
 
             {bulkNewcomerSuccessMsg && (
-              <div className="p-3.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-xs flex items-center gap-2">
+              <div className="p-3.5 rounded-xl border border-emerald-300 dark:border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 text-xs flex items-center gap-2">
                 <CheckCircle2 className="h-4 w-4 shrink-0" />
                 <span>{bulkNewcomerSuccessMsg}</span>
               </div>
             )}
 
-            <div className="p-4 rounded-xl bg-[#151E32] border border-white/[0.06] space-y-2 text-xs text-slate-300">
-              <div className="font-semibold text-white flex items-center justify-between">
+            <div className="p-4 rounded-xl bg-zinc-50 dark:bg-[#151E32] border border-zinc-200 dark:border-white/[0.06] space-y-2 text-xs text-zinc-700 dark:text-slate-300">
+              <div className="font-semibold text-zinc-900 dark:text-white flex items-center justify-between">
                 <span>Spreadsheet Column Headers</span>
                 <button
                   type="button"
                   onClick={handleDownloadNewcomerTemplate}
                   disabled={isDownloadingNewcomerTemplate}
-                  className="inline-flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 font-semibold cursor-pointer disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300 font-semibold cursor-pointer disabled:opacity-50"
                 >
                   {isDownloadingNewcomerTemplate ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1731,18 +1766,18 @@ export function CohortPromotionWizard({
                   <span>Download Blank Template</span>
                 </button>
               </div>
-              <p className="text-[11px] text-slate-400 leading-relaxed">
-                Accepted columns: <code className="text-indigo-300 font-mono">Full Name *</code>, <code className="text-indigo-300 font-mono">RFID / Admission No</code>, <code className="text-indigo-300 font-mono">Gender</code>, <code className="text-indigo-300 font-mono">Contact</code>, <code className="text-indigo-300 font-mono">Registration No</code>.
+              <p className="text-[11px] text-zinc-500 dark:text-slate-400 leading-relaxed">
+                Accepted columns: <code className="text-indigo-600 dark:text-indigo-300 font-mono">Full Name *</code>, <code className="text-indigo-600 dark:text-indigo-300 font-mono">RFID / Admission No</code>, <code className="text-indigo-600 dark:text-indigo-300 font-mono">Gender</code>, <code className="text-indigo-600 dark:text-indigo-300 font-mono">Contact</code>, <code className="text-indigo-600 dark:text-indigo-300 font-mono">Registration No</code>.
               </p>
-              <p className="text-[10px] text-slate-400">
-                • <strong>RFID smart card numbers</strong> (e.g. 10-digit <span className="font-mono text-slate-200">1641052469</span>) are preserved in full without alteration.
+              <p className="text-[10px] text-zinc-500 dark:text-slate-400">
+                • <strong>RFID smart card numbers</strong> (e.g. 10-digit <span className="font-mono text-zinc-700 dark:text-slate-200">1641052469</span>) are preserved in full without alteration.
               </p>
             </div>
 
             {/* Drag & Drop Upload Well */}
             <div
               onClick={() => bulkFileInputRef.current?.click()}
-              className="p-6 rounded-2xl border-2 border-dashed border-white/[0.12] hover:border-indigo-500/50 bg-[#151E32]/60 hover:bg-[#151E32] transition cursor-pointer text-center space-y-2 group"
+              className="p-6 rounded-2xl border-2 border-dashed border-zinc-300 dark:border-white/[0.12] hover:border-indigo-500/50 bg-zinc-50/60 hover:bg-zinc-100 dark:bg-[#151E32]/60 dark:hover:bg-[#151E32] transition cursor-pointer text-center space-y-2 group"
             >
               <input
                 ref={bulkFileInputRef}
@@ -1751,22 +1786,22 @@ export function CohortPromotionWizard({
                 onChange={handleBulkNewcomerFileChange}
                 className="hidden"
               />
-              <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 flex items-center justify-center mx-auto group-hover:scale-105 transition">
+              <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 flex items-center justify-center mx-auto group-hover:scale-105 transition">
                 {isUploadingBulkNewcomers ? (
                   <Loader2 className="h-5 w-5 animate-spin" />
                 ) : (
                   <Upload className="h-5 w-5" />
                 )}
               </div>
-              <div className="text-xs font-semibold text-white">
+              <div className="text-xs font-semibold text-zinc-900 dark:text-white">
                 {isUploadingBulkNewcomers ? 'Parsing spreadsheet rows...' : 'Click to select Excel (.xlsx) or CSV file'}
               </div>
-              <p className="text-[11px] text-slate-400">
+              <p className="text-[11px] text-zinc-500 dark:text-slate-400">
                 Newcomers will be added directly into the Step 2 staging roster.
               </p>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/[0.08]">
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-200 dark:border-white/[0.08]">
               <button
                 type="button"
                 onClick={() => {
@@ -1774,7 +1809,7 @@ export function CohortPromotionWizard({
                   setBulkNewcomerError(null)
                   setBulkNewcomerSuccessMsg(null)
                 }}
-                className="px-4 py-2 text-xs font-semibold rounded-xl text-slate-400 hover:text-white cursor-pointer"
+                className="px-4 py-2 text-xs font-semibold rounded-xl text-zinc-600 hover:text-zinc-900 dark:text-slate-400 dark:hover:text-white cursor-pointer"
               >
                 Close
               </button>
@@ -1787,30 +1822,30 @@ export function CohortPromotionWizard({
       {/* MODAL: ROLLBACK CONFIRMATION                                  */}
       {/* ───────────────────────────────────────────────────────────── */}
       {rollbackTargetBatch && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-150">
-          <div className="w-full max-w-md rounded-2xl border border-rose-500/30 bg-[#101726] shadow-2xl p-6 space-y-4">
-            <div className="flex items-center gap-2.5 text-rose-400">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="w-full max-w-md rounded-2xl border border-rose-300 dark:border-rose-500/30 bg-white dark:bg-[#101726] shadow-2xl p-6 space-y-4">
+            <div className="flex items-center gap-2.5 text-rose-600 dark:text-rose-400">
               <AlertTriangle className="h-5 w-5" />
-              <h3 className="text-sm font-bold font-heading text-white">
+              <h3 className="text-sm font-bold font-heading text-zinc-900 dark:text-white">
                 Confirm Promotion Reversal
               </h3>
             </div>
 
-            <p className="text-xs text-slate-300 leading-relaxed">
+            <p className="text-xs text-zinc-600 dark:text-slate-300 leading-relaxed">
               Are you sure you want to revert promotion batch{' '}
-              <span className="font-mono font-bold text-white">{rollbackTargetBatch.batchId}</span>?
-              This will remove all target enrollments created during this batch and restore previous student enrollments back to <span className="font-semibold text-emerald-300">Active</span> status.
+              <span className="font-mono font-bold text-zinc-900 dark:text-white">{rollbackTargetBatch.batchId}</span>?
+              This will remove all target enrollments created during this batch and restore previous student enrollments back to <span className="font-semibold text-emerald-700 dark:text-emerald-300">Active</span> status.
             </p>
 
-            <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-200 text-xs">
+            <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 text-rose-800 dark:text-rose-200 text-xs">
               Batch: <span className="font-semibold">{rollbackTargetBatch.entityLabel}</span>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-white/[0.08]">
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-200 dark:border-white/[0.08]">
               <button
                 type="button"
                 onClick={() => setRollbackTargetBatch(null)}
-                className="px-4 py-2 text-xs font-semibold rounded-xl text-slate-400 hover:text-white"
+                className="px-4 py-2 text-xs font-semibold rounded-xl text-zinc-600 hover:text-zinc-900 dark:text-slate-400 dark:hover:text-white"
               >
                 Cancel
               </button>

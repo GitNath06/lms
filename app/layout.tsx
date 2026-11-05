@@ -1,10 +1,28 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import './globals.css'
 import Providers from '@/app/providers'
+
+export const viewport: Viewport = {
+  themeColor: '#09090b',
+  viewportFit: 'cover',
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+}
 
 export const metadata: Metadata = {
   title: 'Lab Management System | LabSync LIMS',
   description: 'Institutional Laboratory Operations, Practical Scheduling & Maintenance Terminal',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'LabSync',
+  },
+  icons: {
+    icon: '/icons/icon-192x192.png',
+    apple: '/icons/apple-touch-icon.png',
+  },
 }
 
 export default function RootLayout({

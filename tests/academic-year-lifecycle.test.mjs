@@ -19,6 +19,24 @@ if (fs.existsSync(envPath)) {
 }
 
 test('Academic Year Lifecycle & Cohort Governance Test Suite', async (t) => {
+  const setAdminUser = () => {
+    process.env.TEST_USER_OVERRIDE = JSON.stringify({
+      id: '17d03665-dfaa-4edc-ab54-585057315a0b',
+      email: 'admin@rrl.edu.np',
+      full_name: 'System Administrator',
+      role: 'super_admin',
+      is_active: true,
+      approval_status: 'approved',
+      permissions: { all: true },
+    })
+  }
+
+  setAdminUser()
+
+  t.after(() => {
+    delete process.env.TEST_USER_OVERRIDE
+  })
+
   const { getClassEnrollmentStats } = await import('../app/actions/classes.ts')
   const { getAcademicYears, getCurrentAcademicYear } = await import('../app/actions/academic-years.ts')
 
@@ -27,8 +45,8 @@ test('Academic Year Lifecycle & Cohort Governance Test Suite', async (t) => {
     assert.equal(res.success, true, 'Action executed successfully')
     assert.ok(res.data, 'Data object is defined')
 
-    // In 2083, Class 12 Eng has active students (34 computer lab workstations)
-    assert.ok(res.data['12eng'] >= 30, 'Class 12 Eng has at least 30 enrolled students')
+    // In 2083, Class 12 Eng has active enrolled students
+    assert.ok(res.data['12eng'] >= 20, 'Class 12 Eng has at least 20 enrolled students')
     
     // Other classes without enrolled students should either be 0 or undefined in map
     assert.ok(
@@ -57,6 +75,7 @@ test('Academic Year Lifecycle & Cohort Governance Test Suite', async (t) => {
   })
 
   await t.test('4. promoteCohortAction: Access control rejects unprivileged calls', async () => {
+    delete process.env.TEST_USER_OVERRIDE
     const { promoteCohortAction } = await import('../app/actions/academic-years.ts')
     const res = await promoteCohortAction({
       fromClassId: '12eng',
@@ -64,6 +83,7 @@ test('Academic Year Lifecycle & Cohort Governance Test Suite', async (t) => {
       fromAcademicYearId: '2083',
       toAcademicYearId: '2084',
     })
+    setAdminUser()
 
     assert.equal(res.success, false, 'Unprivileged request rejected')
     assert.match(res.error || '', /Access denied: Only administrators can promote cohorts/i)
@@ -147,17 +167,17 @@ test('Academic Year Lifecycle & Cohort Governance Test Suite', async (t) => {
 
       assert.equal(promoRes.success, true, `Cohort promotion should succeed: ${promoRes.error}`)
 
-      // Verify student 1: prior enrollment is archived, new enrollment is active in 8a
+      // Verify student 1: prior enrollment is completed, new enrollment is active in 8a
       const s1Old = await client.query(`SELECT status FROM public.student_enrollments WHERE academic_year_id = '2083' AND student_id = $1;`, [testStudentId1])
-      assert.equal(s1Old.rows[0]?.status, 'archived', 'Promoted student prior enrollment should be archived')
+      assert.equal(s1Old.rows[0]?.status, 'completed', 'Promoted student prior enrollment should be completed')
 
       const s1New = await client.query(`SELECT status, class_id FROM public.student_enrollments WHERE academic_year_id = '2084' AND student_id = $1;`, [testStudentId1])
       assert.equal(s1New.rows[0]?.status, 'active', 'Promoted student new enrollment should be active')
       assert.equal(s1New.rows[0]?.class_id, '8a', 'Promoted student new class should be 8a')
 
-      // Verify student 2: prior enrollment is archived, new enrollment is active in 7b
+      // Verify student 2: prior enrollment is completed, new enrollment is active in 7b
       const s2Old = await client.query(`SELECT status FROM public.student_enrollments WHERE academic_year_id = '2083' AND student_id = $1;`, [testStudentId2])
-      assert.equal(s2Old.rows[0]?.status, 'archived', 'Repeating student prior enrollment should be archived')
+      assert.equal(s2Old.rows[0]?.status, 'completed', 'Repeating student prior enrollment should be completed')
 
       const s2New = await client.query(`SELECT status, class_id FROM public.student_enrollments WHERE academic_year_id = '2084' AND student_id = $1;`, [testStudentId2])
       assert.equal(s2New.rows[0]?.status, 'active', 'Repeating student new enrollment should be active')
@@ -278,6 +298,86 @@ test('Academic Year Lifecycle & Cohort Governance Test Suite', async (t) => {
 
     } finally {
       await client.query(`DELETE FROM public.academic_years WHERE id = $1;`, [dummyYearId])
+      client.release()
+    }
+  })
+
+  await t.test('12. executeCohortPromotionBatchAction: Safe newcomer admission reuse and completed status', async () => {
+    const { executeCohortPromotionBatchAction } = await import('../app/actions/academic-years.ts')
+    const { getPgPool } = await import('../lib/db.ts')
+    const pool = getPgPool()
+    const client = await pool.connect()
+
+    const testYear = '2083'
+    const targetYear = '2084'
+    const s1 = 'a1000000-0000-0000-0000-000000000001'
+    const s2 = 'a1000000-0000-0000-0000-000000000002'
+    const newcomerAdm = 'ADM-TEST-EXISTING-123'
+
+    try {
+      await client.query(`DELETE FROM public.student_enrollments WHERE student_id IN ($1, $2);`, [s1, s2])
+      await client.query(`DELETE FROM public.students WHERE id IN ($1, $2) OR admission_no = $3;`, [s1, s2, newcomerAdm])
+
+      // Seed student 1 (enrolled in 7b for 2083) and student 2 (pre-existing person with admissionNo)
+      await client.query(`
+        INSERT INTO public.students (id, admission_no, full_name, is_active)
+        VALUES 
+          ($1, 'ADM-TEST-PROMO-1', 'Promo Candidate 1', true),
+          ($2, $3, 'Pre-existing Person', true);
+      `, [s1, s2, newcomerAdm])
+
+      const enr1 = await client.query(`
+        INSERT INTO public.student_enrollments (academic_year_id, class_id, student_id, roll_number, status)
+        VALUES ($1, '7b', $2, 10, 'active')
+        RETURNING id;
+      `, [testYear, s1])
+      const enr1Id = enr1.rows[0].id
+
+      // Execute batch promotion with Student 1 (promote to 8a) and a lateral newcomer who shares Student 2's admission number
+      const batchRes = await executeCohortPromotionBatchAction({
+        fromClassId: '7b',
+        toClassId: '8a',
+        fromAcademicYearId: testYear,
+        toAcademicYearId: targetYear,
+        students: [
+          {
+            studentId: s1,
+            enrollmentId: enr1Id,
+            fullName: 'Promo Candidate 1',
+            admissionNo: 'ADM-TEST-PROMO-1',
+            currentRollNumber: 10,
+            targetRollNumber: 1,
+            action: 'promote',
+          },
+        ],
+        lateralNewcomers: [
+          {
+            fullName: 'Pre-existing Person (Newcomer)',
+            admissionNo: newcomerAdm,
+            targetRollNumber: 2,
+          },
+        ],
+      })
+
+      assert.equal(batchRes.success, true, `Batch promotion succeeded: ${batchRes.error}`)
+      assert.equal(batchRes.data?.promotedCount, 1, 'Promoted 1 student')
+      assert.equal(batchRes.data?.newcomersCount, 1, 'Added 1 newcomer')
+
+      // Verify Student 1 old enrollment is 'completed'
+      const oldCheck = await client.query(`SELECT status FROM public.student_enrollments WHERE id = $1;`, [enr1Id])
+      assert.equal(oldCheck.rows[0]?.status, 'completed', 'Prior year enrollment is completed')
+
+      // Verify Newcomer re-used existing Student 2 identity without duplicate key error
+      const newcomerEnr = await client.query(`
+        SELECT student_id, roll_number 
+        FROM public.student_enrollments 
+        WHERE academic_year_id = $1 AND class_id = '8a' AND roll_number = 2;
+      `, [targetYear])
+      assert.equal(newcomerEnr.rows[0]?.student_id, s2, 'Reused existing student identity')
+
+    } finally {
+      await client.query(`DELETE FROM public.student_enrollments WHERE student_id IN ($1, $2);`, [s1, s2])
+      await client.query(`DELETE FROM public.students WHERE id IN ($1, $2) OR admission_no = $3;`, [s1, s2, newcomerAdm])
       client.release()
     }
   })

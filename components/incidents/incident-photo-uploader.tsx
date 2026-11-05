@@ -130,7 +130,7 @@ export function IncidentPhotoUploader({
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/jpeg,image/png,image/webp"
+        accept="image/*"
         multiple
         className="sr-only"
         disabled={disabled || isProcessing || photos.length >= maxPhotos}
@@ -145,14 +145,14 @@ export function IncidentPhotoUploader({
             type="button"
             disabled={disabled || isProcessing}
             onClick={() => cameraInputRef.current?.click()}
-            className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-indigo-400/50 dark:border-indigo-500/40 bg-indigo-50/60 dark:bg-indigo-950/30 p-2.5 sm:p-3 text-xs font-semibold text-indigo-700 dark:text-indigo-300 transition-all hover:bg-indigo-100/70 dark:hover:bg-indigo-900/40 hover:border-indigo-500 active:scale-[0.98] disabled:opacity-50 cursor-pointer shadow-2xs"
+            className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-indigo-400/50 dark:border-indigo-500/40 bg-indigo-50/60 dark:bg-indigo-950/30 min-h-[44px] p-2.5 sm:p-3 text-xs sm:text-sm font-semibold text-indigo-700 dark:text-indigo-300 transition-all hover:bg-indigo-100/70 dark:hover:bg-indigo-900/40 hover:border-indigo-500 active:scale-[0.98] disabled:opacity-50 cursor-pointer shadow-2xs"
           >
             {isProcessing ? (
               <Loader2 className="h-4 w-4 animate-spin text-indigo-600 dark:text-indigo-400" />
             ) : (
-              <Camera className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+              <Camera className="h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
             )}
-            <span>Quick Snap Camera</span>
+            <span>Take Photo</span>
           </button>
 
           {/* 2. Photo Gallery / File Picker */}
@@ -160,10 +160,10 @@ export function IncidentPhotoUploader({
             type="button"
             disabled={disabled || isProcessing}
             onClick={() => fileInputRef.current?.click()}
-            className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900/60 p-2.5 sm:p-3 text-xs font-semibold text-zinc-700 dark:text-zinc-300 transition-all hover:bg-zinc-100 dark:hover:bg-zinc-800/80 hover:border-zinc-400 active:scale-[0.98] disabled:opacity-50 cursor-pointer shadow-2xs"
+            className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900/60 min-h-[44px] p-2.5 sm:p-3 text-xs sm:text-sm font-semibold text-zinc-700 dark:text-zinc-300 transition-all hover:bg-zinc-100 dark:hover:bg-zinc-800/80 hover:border-zinc-400 active:scale-[0.98] disabled:opacity-50 cursor-pointer shadow-2xs"
           >
-            <ImageIcon className="h-4 w-4 text-zinc-500 dark:text-zinc-400" />
-            <span>Upload Photo</span>
+            <ImageIcon className="h-4 w-4 text-zinc-500 dark:text-zinc-400 shrink-0" />
+            <span>Choose from Gallery</span>
           </button>
         </div>
       )}

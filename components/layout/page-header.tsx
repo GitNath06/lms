@@ -94,14 +94,14 @@ export default function PageHeader({
 
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-xl sm:text-2xl font-extrabold font-heading text-zinc-950 dark:text-white tracking-tight truncate">
+              <h1 className="text-xl sm:text-2xl font-extrabold font-heading text-zinc-950 dark:text-white tracking-tight line-clamp-2 sm:truncate">
                 {title}
               </h1>
               {badge}
             </div>
 
             {subtitle && (
-              <p className="text-xs sm:text-sm text-zinc-500 dark:text-slate-400 font-sans mt-0.5 leading-normal truncate">
+              <p className="text-xs sm:text-sm text-zinc-500 dark:text-slate-400 font-sans mt-0.5 leading-normal line-clamp-2 sm:truncate">
                 {subtitle}
               </p>
             )}

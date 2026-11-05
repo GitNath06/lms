@@ -1,11 +1,9 @@
 import type { AuditLogItem } from '../types/audit'
 
 const KNOWN_LAB_ROOMS = [
-  { id: 'comp', name: 'Computer Engineering Lab 01', code: 'LAB-COMP-01' },
-  { id: 'phys', name: 'Physics Laboratory', code: 'LAB-PHYS-01' },
-  { id: 'chem', name: 'Chemistry Laboratory', code: 'LAB-CHEM-01' },
-  { id: 'bio', name: 'Biology & Life Sciences Lab', code: 'LAB-BIO-01' },
-  { id: 'elec', name: 'Electronics & Hardware Lab', code: 'LAB-ELEC-01' },
+  { id: 'comp', name: 'Computer Lab', code: 'COMP' },
+  { id: 'phys', name: 'Physics Lab', code: 'PHYS' },
+  { id: 'chem', name: 'Chemistry Lab', code: 'CHEM' },
 ]
 
 /**

@@ -18,6 +18,9 @@ import {
   Wrench,
   Radio,
   SlidersHorizontal,
+  Calendar,
+  User,
+  Trash2,
 } from 'lucide-react'
 import { useIncidentState, LabIncidentRecord, LabNotificationRecord } from '@/hooks/use-incident-state'
 import IncidentDrawer from '@/components/dashboard/incident-drawer'
@@ -83,10 +86,10 @@ export default function NotificationBell({
   currentUserRole = 'teacher',
   currentUserName,
 }: NotificationBellProps) {
-  const { notifications, unreadCount, markAsRead, markAllAsRead, incidents } = useIncidentState()
+  const { notifications, unreadCount, markAsRead, markAllAsRead, clearReadNotifications, incidents } = useIncidentState()
   const [isOpen, setIsOpen] = useState<boolean>(false)
   const [mounted, setMounted] = useState<boolean>(false)
-  const [activeTab, setActiveTab] = useState<'all' | 'unread' | 'critical'>('all')
+  const [activeTab, setActiveTab] = useState<'all' | 'unread' | 'critical'>('unread')
 
   // Toast banner for newly broadcast incident
   const [liveToast, setLiveToast] = useState<{
@@ -137,6 +140,9 @@ export default function NotificationBell({
     }
   }, [])
 
+  // Track previous notification IDs to trigger live chime & toast on incoming real-time notifications
+  const prevNotifIdsRef = useRef<Set<string> | null>(null)
+
   // 🎯 Logically filter notifications based on the user's role and identity
   const userNotifications = useMemo(() => {
     const role = currentUserRole || 'teacher'
@@ -150,38 +156,67 @@ export default function NotificationBell({
       seen.add(notif.id)
       seen.add(dedupKey)
 
-      if (role === 'super_admin') return true
+      if (role === 'super_admin') {
+        return notif.target_role === 'super_admin' || notif.target_role === 'all'
+      }
 
       if (role === 'hod') {
-        return notif.target_role === 'hod' || notif.severity === 'critical' || notif.title.includes('HOD')
+        return notif.target_role === 'hod' || notif.target_role === 'all'
       }
 
       if (role === 'lab_incharge') {
-        return (
-          notif.target_role === 'lab_incharge' ||
-          notif.target_role === 'all' ||
-          notif.severity === 'warning' ||
-          notif.severity === 'critical'
-        )
+        return notif.target_role === 'lab_incharge' || notif.target_role === 'all'
       }
 
       if (role === 'teacher') {
-        if (notif.target_role === 'teacher') return true
-        const matchingInc = incidents.find((i) => i.id === notif.incident_id)
-        if (
-          matchingInc &&
-          currentUserName &&
-          (matchingInc.reported_by?.toLowerCase().includes(currentUserName.toLowerCase()) ||
-            matchingInc.subject_teacher_name?.toLowerCase().includes(currentUserName.toLowerCase()))
-        ) {
-          return true
-        }
-        return false
+        return notif.target_role === 'teacher' || notif.target_role === 'all'
       }
 
-      return true
+      return false
     })
-  }, [notifications, currentUserRole, currentUserName, incidents])
+  }, [notifications, currentUserRole])
+
+  // Real-time audio chime and toast for incoming notifications
+  useEffect(() => {
+    if (!mounted) return
+    const currentIds = new Set(userNotifications.map((n) => n.id))
+    if (prevNotifIdsRef.current !== null) {
+      const newItems = userNotifications.filter(
+        (n) => !prevNotifIdsRef.current!.has(n.id) && !n.is_read
+      )
+      if (newItems.length > 0) {
+        const latest = newItems[0]
+        playNotificationChime()
+        const matchingInc = incidents.find((i) => i.id === latest.incident_id)
+        setLiveToast({
+          incident: matchingInc || {
+            id: latest.incident_id || latest.id,
+            title: latest.title,
+            severity: latest.severity === 'critical' ? 'major_critical' : latest.severity === 'warning' ? 'moderate' : 'minor',
+            lab_id: latest.target_lab_id || 'comp',
+            reported_by: 'Lab System',
+            status: latest.severity === 'critical' ? 'escalated_to_hod' : 'reported',
+            incident_type: 'breakage',
+            equipment_name: latest.title,
+            created_at: latest.created_at,
+            date: latest.created_at.split('T')[0],
+            session_label: 'Live Alert',
+            subject_name: 'Practical Lab',
+            subject_teacher_name: 'Staff',
+            batch_name: 'Lab Cohort',
+            circumstances: latest.message,
+            quantity: 1,
+            escalated_to_hod: latest.severity === 'critical',
+          },
+          notif: latest,
+        })
+        setTimeout(() => {
+          setLiveToast(null)
+        }, 8000)
+      }
+    }
+    prevNotifIdsRef.current = currentIds
+  }, [userNotifications, mounted, incidents])
 
   const userUnreadCount = useMemo(() => {
     return userNotifications.filter((n) => !n.is_read).length
@@ -212,11 +247,46 @@ export default function NotificationBell({
     setIsOpen(false)
     setLiveToast(null)
 
-    if (notif.title.includes('Registration') || notif.message.includes('approval') || notif.message.includes('registered')) {
+    // Direct action URL from notification metadata
+    if (notif.metadata?.action_url) {
+      window.location.href = notif.metadata.action_url
+      return
+    }
+
+    // Timetable slot booking requests
+    if (
+      notif.title.includes('Slot') ||
+      notif.title.includes('Booking') ||
+      notif.title.includes('Routine') ||
+      notif.metadata?.schedule_id
+    ) {
+      const schedId = notif.metadata?.schedule_id || notif.incident_id
+      window.location.href = schedId ? `/schedules?focusSlotId=${schedId}` : '/schedules'
+      return
+    }
+
+    // Teacher applicant approvals
+    if (
+      notif.title.includes('Registration') ||
+      notif.message.includes('approval') ||
+      notif.message.includes('registered')
+    ) {
       window.location.href = '/admin'
       return
     }
 
+    // Workstation & Terminal assistance
+    if (
+      notif.title.includes('Assistance') ||
+      notif.title.includes('Workstation') ||
+      notif.message.includes('Terminal') ||
+      notif.message.includes('Station')
+    ) {
+      window.location.href = '/computer-lab'
+      return
+    }
+
+    // Incidents & Damage reports
     const foundInc = incidents.find((i) => i.id === notif.incident_id)
     if (foundInc) {
       setActiveIncidentForReview(foundInc)
@@ -226,30 +296,43 @@ export default function NotificationBell({
     }
   }
 
+  const handleClearRead = async () => {
+    if (clearReadNotifications) {
+      await clearReadNotifications(currentUserRole)
+    }
+  }
+
   return (
     <div className="relative" ref={dropdownRef}>
       {/* 🔔 Header Bell Icon Button */}
       <button
         type="button"
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => {
+          const nextOpen = !isOpen
+          setIsOpen(nextOpen)
+          if (nextOpen) {
+            // Always open to unread tab first (new notifications only)
+            setActiveTab('unread')
+          }
+        }}
         className="relative p-2.5 rounded-xl text-zinc-600 dark:text-zinc-300 hover:text-zinc-950 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all border border-transparent hover:border-zinc-200 dark:hover:border-zinc-700 cursor-pointer shadow-2xs"
         title="Notification Panel"
       >
         <Bell className="h-4.5 w-4.5" />
 
         {mounted && userUnreadCount > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 flex h-4.5 min-w-4.5 px-1 items-center justify-center rounded-full bg-gradient-to-r from-rose-500 to-red-600 text-white font-mono text-[10px] font-bold shadow-md shadow-rose-500/40">
+          <span className="absolute -top-0.5 -right-0.5 flex h-4.5 min-w-4.5 px-1 items-center justify-center rounded-full bg-indigo-600 text-white font-mono text-[10px] font-bold shadow-md shadow-indigo-600/30">
             {hasCriticalUnread && (
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
             )}
-            <span className="relative z-10">{userUnreadCount > 9 ? '9+' : userUnreadCount}</span>
+            <span className="relative z-10">{userUnreadCount > 99 ? '99+' : userUnreadCount}</span>
           </span>
         )}
       </button>
 
       {/* 🚀 Real-time Toast Pop-up Banner for Newly Reported Incident */}
       {liveToast && (
-        <div className="fixed top-20 right-6 z-50 w-96 max-w-[calc(100vw-2rem)] rounded-2xl bg-zinc-950 text-white p-4 shadow-2xl border border-rose-500/50 animate-in slide-in-from-top-4 duration-300 font-sans">
+        <div className="fixed top-20 right-3 sm:right-6 left-3 sm:left-auto z-[100] w-auto sm:w-96 max-w-full sm:max-w-[calc(100vw-2rem)] rounded-2xl bg-zinc-950 text-white p-4 shadow-2xl border border-rose-500/50 animate-in slide-in-from-top-4 duration-300 font-sans">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-2.5">
               <span className="p-2 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/40 shrink-0">
@@ -268,7 +351,7 @@ export default function NotificationBell({
 
             <button
               onClick={() => setLiveToast(null)}
-              className="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-zinc-800 transition-colors"
+              className="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-zinc-800 transition-colors cursor-pointer"
             >
               <X className="h-4 w-4" />
             </button>
@@ -286,7 +369,7 @@ export default function NotificationBell({
             <Button
               size="sm"
               onClick={() => handleReviewAndManage(liveToast.notif)}
-              className="h-8 px-3.5 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-medium text-xs gap-1.5 shadow-md shadow-rose-500/20"
+              className="h-8 px-3.5 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-medium text-xs gap-1.5 shadow-md shadow-rose-500/20 cursor-pointer"
             >
               <span>Review & Manage</span>
               <ChevronRight className="h-3.5 w-3.5" />
@@ -295,236 +378,252 @@ export default function NotificationBell({
         </div>
       )}
 
+      {/* 📬 Mobile Backdrop Overlay (Closes on tap outside on mobile) */}
+      {isOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 backdrop-blur-[2px] z-40 sm:hidden animate-in fade-in duration-200"
+          onClick={() => setIsOpen(false)}
+        />
+      )}
+
       {/* 📬 Premium Notification Feed Drawer / Popover Panel */}
       {isOpen && (
-        <div className="absolute right-0 top-full mt-3 w-88 sm:w-[440px] rounded-3xl bg-white dark:bg-zinc-900 shadow-2xl border border-zinc-200/90 dark:border-zinc-800 z-50 overflow-hidden animate-in fade-in slide-in-from-top-3 duration-200 font-sans">
+        <div className="fixed inset-x-2.5 top-[68px] z-50 sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2.5 sm:w-[420px] w-auto max-w-[calc(100vw-1.25rem)] rounded-2xl bg-white dark:bg-zinc-900 shadow-2xl border border-zinc-200/90 dark:border-zinc-800 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200 font-sans">
           {/* Header */}
-          <div className="p-4 px-5 border-b border-zinc-100 dark:border-zinc-800/80 bg-gradient-to-b from-zinc-50/90 to-white dark:from-zinc-950/80 dark:to-zinc-900 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="h-9 w-9 rounded-xl bg-indigo-500/10 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 flex items-center justify-center">
-                <Bell className="h-4.5 w-4.5" />
+          <div className="p-3 px-4 border-b border-zinc-100 dark:border-zinc-800/80 bg-zinc-50/70 dark:bg-zinc-950/60 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="h-8 w-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200/60 dark:border-indigo-800/60 flex items-center justify-center shrink-0">
+                <Bell className="h-4 w-4" />
               </div>
-              <div>
+              <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-bold text-zinc-950 dark:text-white">
-                    Notification Panel
+                  <h3 className="text-xs font-bold text-zinc-950 dark:text-white truncate">
+                    Notifications
                   </h3>
                   {userUnreadCount > 0 && (
-                    <span className="px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 text-[10px] font-bold">
+                    <span className="px-1.5 py-0.2 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 text-[10px] font-bold shrink-0">
                       {userUnreadCount} New
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-                  Filtered for {currentUserRole.replace('_', ' ').toUpperCase()} role
+                <p className="text-[11px] text-zinc-500 dark:text-zinc-400 truncate">
+                  {currentUserRole.replace('_', ' ').toUpperCase()} console
                 </p>
               </div>
             </div>
 
-            {userUnreadCount > 0 && (
+            <div className="flex items-center gap-2 shrink-0">
+              {userUnreadCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => markAllAsRead(currentUserRole)}
+                  className="flex items-center gap-1 text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 hover:underline cursor-pointer"
+                >
+                  <CheckCheck className="h-3.5 w-3.5" />
+                  <span>Mark all read</span>
+                </button>
+              )}
+
+              {/* Clear read notifications */}
+              {userNotifications.some((n) => n.is_read) && (
+                <button
+                  type="button"
+                  onClick={handleClearRead}
+                  className="flex items-center gap-1 text-[11px] font-medium text-zinc-400 hover:text-rose-500 dark:hover:text-rose-400 p-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+                  title="Clear all read notices"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Clear read</span>
+                </button>
+              )}
+
+              {/* Mobile close button */}
               <button
                 type="button"
-                onClick={() => markAllAsRead()}
-                className="flex items-center gap-1.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 hover:underline cursor-pointer"
+                onClick={() => setIsOpen(false)}
+                className="sm:hidden p-1 rounded-lg text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+                aria-label="Close notifications"
               >
-                <CheckCheck className="h-3.5 w-3.5" />
-                <span>Mark all read</span>
+                <X className="h-4 w-4" />
               </button>
-            )}
+            </div>
           </div>
 
-          {/* 3 Modern Segmented Filter Tabs */}
-          <div className="p-2.5 px-4 border-b border-zinc-100 dark:border-zinc-800/60 bg-zinc-50/50 dark:bg-zinc-900/50 flex items-center gap-2">
+          {/* Clean Segmented Filter Tabs: New (Default) | All | Critical */}
+          <div className="p-1.5 px-3 border-b border-zinc-100 dark:border-zinc-800/60 bg-zinc-50/40 dark:bg-zinc-900/40 flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setActiveTab('unread')}
+              className={`flex-1 justify-center px-2.5 py-1 rounded-lg transition-all text-xs font-semibold flex items-center gap-1.5 cursor-pointer ${
+                activeTab === 'unread'
+                  ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-950 shadow-xs'
+                  : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/50 dark:hover:bg-zinc-800/50'
+              }`}
+            >
+              <span>New</span>
+              {userUnreadCount > 0 ? (
+                <span className="px-1.5 py-0.2 rounded-full bg-indigo-500 text-white text-[10px] font-bold">
+                  {userUnreadCount}
+                </span>
+              ) : (
+                <span className="text-[10px] text-zinc-400">0</span>
+              )}
+            </button>
+
             <button
               type="button"
               onClick={() => setActiveTab('all')}
-              className={`px-3 py-1.5 rounded-xl transition-all text-xs font-semibold flex items-center gap-1.5 cursor-pointer ${
+              className={`flex-1 justify-center px-2.5 py-1 rounded-lg transition-all text-xs font-semibold flex items-center gap-1.5 cursor-pointer ${
                 activeTab === 'all'
                   ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-950 shadow-xs'
-                  : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/60 dark:hover:bg-zinc-800'
+                  : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/50 dark:hover:bg-zinc-800/50'
               }`}
             >
               <span>All</span>
-              <span className="px-1.5 py-0.2 rounded-md bg-zinc-700/30 dark:bg-zinc-200/30 text-[10px] font-mono">
+              <span className="px-1.5 py-0.2 rounded-md bg-zinc-700/20 dark:bg-zinc-300/20 text-[10px] font-mono">
                 {userNotifications.length}
               </span>
             </button>
 
-            <button
-              type="button"
-              onClick={() => setActiveTab('unread')}
-              className={`px-3 py-1.5 rounded-xl transition-all text-xs font-semibold flex items-center gap-1.5 cursor-pointer ${
-                activeTab === 'unread'
-                  ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-950 shadow-xs'
-                  : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/60 dark:hover:bg-zinc-800'
-              }`}
-            >
-              <span>Unread</span>
-              {userUnreadCount > 0 && (
+            {criticalCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('critical')}
+                className={`flex-1 justify-center px-2.5 py-1 rounded-lg transition-all text-xs font-semibold flex items-center gap-1.5 cursor-pointer ${
+                  activeTab === 'critical'
+                    ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-950 shadow-xs'
+                    : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/50 dark:hover:bg-zinc-800/50'
+                }`}
+              >
+                <span>Critical</span>
                 <span className="px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[10px] font-bold">
-                  {userUnreadCount}
-                </span>
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('critical')}
-              className={`px-3 py-1.5 rounded-xl transition-all text-xs font-semibold flex items-center gap-1.5 cursor-pointer ${
-                activeTab === 'critical'
-                  ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-950 shadow-xs'
-                  : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/60 dark:hover:bg-zinc-800'
-              }`}
-            >
-              <span>Critical</span>
-              {criticalCount > 0 && (
-                <span className="px-1.5 py-0.2 rounded-full bg-rose-500/20 text-rose-600 dark:text-rose-400 text-[10px] font-bold border border-rose-500/30">
                   {criticalCount}
                 </span>
-              )}
-            </button>
+              </button>
+            )}
           </div>
 
           {/* Notifications Scroll List */}
-          <div className="max-h-[420px] overflow-y-auto divide-y divide-zinc-100 dark:divide-zinc-800/60 p-2 space-y-2">
+          <div className="max-h-[calc(100dvh-230px)] sm:max-h-[380px] overflow-y-auto p-2 space-y-1.5">
             {filteredNotifications.length === 0 ? (
-              <div className="py-12 px-6 text-center space-y-2">
-                <div className="h-12 w-12 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 mx-auto flex items-center justify-center">
-                  <Check className="h-6 w-6" />
+              <div className="py-10 px-4 text-center space-y-2">
+                <div className="h-10 w-10 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 mx-auto flex items-center justify-center">
+                  <Check className="h-5 w-5" />
                 </div>
-                <h4 className="text-sm font-bold text-zinc-800 dark:text-zinc-200">
+                <h4 className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
                   {activeTab === 'unread'
                     ? 'All Caught Up!'
                     : activeTab === 'critical'
                     ? 'No Critical Notices'
                     : 'No Notifications'}
                 </h4>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400 max-w-xs mx-auto">
+                <p className="text-[11px] text-zinc-500 dark:text-zinc-400 max-w-xs mx-auto">
                   {activeTab === 'unread'
-                    ? 'You have reviewed all notices in your institutional scope.'
-                    : 'All laboratory facilities, registrations, and systems are running smoothly.'}
+                    ? 'You have reviewed all notices in your scope.'
+                    : 'All facilities, registrations, and systems are running smoothly.'}
                 </p>
+                {activeTab === 'unread' && userNotifications.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('all')}
+                    className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline pt-1 cursor-pointer"
+                  >
+                    View All History ({userNotifications.length})
+                  </button>
+                )}
               </div>
             ) : (
               filteredNotifications.map((n) => {
                 const isCritical = n.severity === 'critical'
                 const isWarning = n.severity === 'warning'
-                const isPhys = n.target_lab_id?.includes('phys')
-                const isChem = n.target_lab_id?.includes('chem')
-                const isComp = n.target_lab_id?.includes('comp')
+                const isSlot = n.title.includes('Slot') || n.title.includes('Booking') || Boolean(n.metadata?.schedule_id)
+                const isReg = n.title.includes('Registration') || n.message.includes('registered')
+                const isTerminal = n.title.includes('Assistance') || n.title.includes('Workstation')
+
+                const IconComp = isSlot
+                  ? Calendar
+                  : isReg
+                  ? User
+                  : isTerminal
+                  ? Wrench
+                  : isCritical
+                  ? AlertOctagon
+                  : isWarning
+                  ? AlertTriangle
+                  : Info
+
+                const iconBg = isSlot
+                  ? 'bg-indigo-500/10 border-indigo-500/20'
+                  : isReg
+                  ? 'bg-sky-500/10 border-sky-500/20'
+                  : isTerminal
+                  ? 'bg-amber-500/10 border-amber-500/20'
+                  : isCritical
+                  ? 'bg-rose-500/10 border-rose-500/20'
+                  : isWarning
+                  ? 'bg-amber-500/10 border-amber-500/20'
+                  : 'bg-zinc-500/10 border-zinc-500/20'
+
+                const cleanTitle = n.title.replace(/^(?:🚨|⚠️|⚡|ℹ️)\s*/, '')
+                const cleanMessage = (n.message || '').replace(/,?\s*Department:\s*[^)]+/i, '')
 
                 return (
                   <div
                     key={n.id}
-                    className={`p-3.5 rounded-2xl transition-all border ${
+                    className={`group p-2.5 rounded-xl transition-all border flex items-start gap-2.5 ${
                       !n.is_read
-                        ? 'bg-gradient-to-r from-rose-50/40 via-white to-white dark:from-rose-950/20 dark:via-zinc-900 dark:to-zinc-900 border-rose-200/70 dark:border-rose-900/40 shadow-xs'
-                        : 'bg-white dark:bg-zinc-900/60 border-zinc-100 dark:border-zinc-800/80 hover:border-zinc-200 dark:hover:border-zinc-700'
+                        ? 'bg-indigo-50/30 dark:bg-indigo-950/20 border-indigo-200/60 dark:border-indigo-900/40 shadow-2xs'
+                        : 'bg-white dark:bg-zinc-900/40 border-zinc-100 dark:border-zinc-800/80 hover:border-zinc-200 dark:hover:border-zinc-700'
                     }`}
                   >
-                    {/* Top Row: Badges & Timestamp */}
-                    <div className="flex items-center justify-between gap-2 mb-2">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        {/* Severity Badge */}
-                        <span
-                          className={`px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wider ${
-                            isCritical
-                              ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30'
-                              : isWarning
-                              ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30'
-                              : 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30'
-                          }`}
-                        >
-                          {isCritical ? '🚨 Critical' : isWarning ? '⚠️ Warning' : 'ℹ️ Notice'}
-                        </span>
+                    {/* Left: Compact Category Icon */}
+                    <div className={`h-7 w-7 rounded-lg border flex items-center justify-center shrink-0 mt-0.5 ${iconBg}`}>
+                      <IconComp className="h-4 w-4" />
+                    </div>
 
-                        {/* Facility Badge */}
-                        {n.target_lab_id && (
-                          <span
-                            className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase ${
-                              isChem
-                                ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/40'
-                                : isPhys
-                                ? 'bg-cyan-50 dark:bg-cyan-950/40 text-cyan-600 dark:text-cyan-400 border border-cyan-200 dark:border-cyan-900/40'
-                                : isComp
-                                ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-900/40'
-                                : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400'
-                            }`}
-                          >
-                            {n.target_lab_id.toUpperCase()} Lab
-                          </span>
-                        )}
-
-                        {/* Target Role Pill */}
-                        <span className="px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 text-[10px] font-medium uppercase">
-                          {n.target_role === 'hod'
-                            ? 'HOD'
-                            : n.target_role === 'lab_incharge'
-                            ? 'In-Charge'
-                            : n.target_role === 'teacher'
-                            ? 'Teacher'
-                            : 'Admin'}
+                    {/* Center: Title & Summary */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-1.5">
+                        <h4 className="text-xs font-semibold text-zinc-950 dark:text-zinc-100 truncate">
+                          {cleanTitle}
+                        </h4>
+                        <span className="text-[10px] text-zinc-400 font-mono shrink-0">
+                          {formatTimeAgo(n.created_at)}
                         </span>
                       </div>
 
-                      {/* Time Ago */}
-                      <span className="text-[11px] text-zinc-400 dark:text-zinc-500 shrink-0 flex items-center gap-1">
-                        <Clock className="h-3 w-3" />
-                        {formatTimeAgo(n.created_at)}
-                      </span>
-                    </div>
-
-                    {/* Content */}
-                    <div className="space-y-1 mb-3">
-                      <h4 className="text-xs font-bold text-zinc-950 dark:text-white leading-snug">
-                        {n.title}
-                      </h4>
-                      <p className="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed line-clamp-2">
-                        {n.message}
+                      <p className="text-[11px] text-zinc-500 dark:text-zinc-400 line-clamp-1 leading-snug mt-0.5">
+                        {cleanMessage}
                       </p>
-                    </div>
 
-                    {/* Bottom Action Row */}
-                    <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleReviewAndManage(n)}
-                        className={`h-7 px-3 text-xs font-semibold gap-1.5 cursor-pointer ${
-                          n.title.includes('Registration')
-                            ? 'text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-900/60 hover:bg-indigo-50 dark:hover:bg-indigo-950/40'
-                            : 'text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-900/60 hover:bg-rose-50 dark:hover:bg-rose-950/40'
-                        }`}
-                      >
-                        {n.title.includes('Registration') ? (
-                          <>
-                            <ShieldAlert className="h-3 w-3" />
-                            <span>Review Applicant</span>
-                          </>
-                        ) : (
-                          <>
-                            <Wrench className="h-3 w-3" />
-                            <span>Review & Manage</span>
-                          </>
-                        )}
-                        <ChevronRight className="h-3 w-3" />
-                      </Button>
-
-                      {!n.is_read ? (
+                      {/* Micro Action Row */}
+                      <div className="mt-2 flex items-center justify-between gap-2 pt-1 border-t border-zinc-100 dark:border-zinc-800/60">
                         <button
                           type="button"
-                          onClick={() => markAsRead(n.id)}
-                          className="text-xs text-zinc-500 hover:text-emerald-600 dark:hover:text-emerald-400 flex items-center gap-1 cursor-pointer font-medium p-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
-                          title="Mark this alert as read"
+                          onClick={() => handleReviewAndManage(n)}
+                          className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 flex items-center gap-0.5 cursor-pointer hover:underline"
                         >
-                          <Check className="h-3.5 w-3.5" />
-                          <span>Mark read</span>
+                          <span>{isSlot ? 'Review Slot' : isReg ? 'Review Applicant' : 'Review & Manage'}</span>
+                          <ChevronRight className="h-3 w-3" />
                         </button>
-                      ) : (
-                        <span className="text-[11px] text-zinc-400 font-medium flex items-center gap-1">
-                          <CheckCheck className="h-3.5 w-3.5 text-emerald-500" /> Read
-                        </span>
-                      )}
+
+                        {!n.is_read ? (
+                          <button
+                            type="button"
+                            onClick={() => markAsRead(n.id)}
+                            className="text-[10px] text-zinc-400 hover:text-emerald-600 dark:hover:text-emerald-400 flex items-center gap-1 cursor-pointer transition-colors p-0.5"
+                            title="Mark as read"
+                          >
+                            <Check className="h-3 w-3" />
+                            <span>Mark read</span>
+                          </button>
+                        ) : (
+                          <span className="text-[10px] text-zinc-400 flex items-center gap-0.5">
+                            <CheckCheck className="h-3 w-3 text-emerald-500" />
+                            <span>Read</span>
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )
@@ -533,13 +632,13 @@ export default function NotificationBell({
           </div>
 
           {/* Drawer Footer */}
-          <div className="p-3.5 px-5 border-t border-zinc-100 dark:border-zinc-800 bg-zinc-50/70 dark:bg-zinc-950/60 flex items-center justify-between text-xs">
-            <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 text-xs font-medium">
+          <div className="p-2.5 px-4 border-t border-zinc-100 dark:border-zinc-800 bg-zinc-50/70 dark:bg-zinc-950/60 flex items-center justify-between text-xs gap-2">
+            <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 text-xs font-medium shrink-0">
               <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span>Real-time channel active</span>
+              <span>Real-time Sync</span>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2.5 shrink-0">
               <Link
                 href="/incidents"
                 onClick={() => setIsOpen(false)}
@@ -554,7 +653,7 @@ export default function NotificationBell({
                   onClick={() => setIsOpen(false)}
                   className="text-indigo-600 dark:text-indigo-400 hover:underline font-bold text-xs flex items-center gap-1"
                 >
-                  <span>Admin Console</span>
+                  <span>Admin</span>
                   <ExternalLink className="h-3 w-3" />
                 </Link>
               )}
@@ -572,7 +671,7 @@ export default function NotificationBell({
             setIsIncidentDrawerOpen(false)
             setActiveIncidentForReview(null)
           }}
-          userRole={currentUserRole as any || 'teacher'}
+          userRole={(currentUserRole as any) || 'teacher'}
         />
       )}
     </div>

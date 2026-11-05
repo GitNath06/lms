@@ -5,7 +5,10 @@ import {
   dispatchUpcomingHolidayNotices,
 } from '@/app/actions/notifications'
 
+import { getServerUserScope } from '@/lib/context/server-user-scope'
+
 export const dynamic = 'force-dynamic'
+export const maxDuration = 60
 
 export async function GET(req: NextRequest) {
   return handleCron(req)
@@ -19,9 +22,26 @@ async function handleCron(req: NextRequest) {
   const startTime = Date.now()
 
   // 1. Strict CRON_SECRET authorization check
+  const cronSecret = process.env.CRON_SECRET?.trim()
   const authHeader = req.headers.get('authorization')
-  if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return new Response('Unauthorized', { status: 401 })
+
+  let isAuthorized = false
+  if (cronSecret && authHeader === `Bearer ${cronSecret}`) {
+    isAuthorized = true
+  } else {
+    // Allow manual triggers from authenticated Super Admin session
+    try {
+      const scope = await getServerUserScope()
+      if (!scope.isPending && scope.approvalStatus === 'approved' && scope.role === 'super_admin') {
+        isAuthorized = true
+      }
+    } catch {
+      // Unauthenticated
+    }
+  }
+
+  if (!isAuthorized) {
+    return new Response('Unauthorized: Valid CRON_SECRET or Super Admin session required.', { status: 401 })
   }
 
   // Check if force parameter is provided for manual testing

@@ -16,6 +16,7 @@ import {
 } from '@/types/records'
 import { getIncidentRecords } from '@/app/actions/records'
 import { getActiveLabs } from '@/app/actions/logs'
+import { getCachedData, setCachedData, fetchWithClientCache } from '@/lib/cache/client-query-cache'
 import { filtersToSearchParams, searchParamsToFilters } from '@/lib/report-spec/filter-codec'
 import IncidentSummaryStrip from '@/components/records/incident-summary-strip'
 import IncidentFilterBar from '@/components/records/incident-filter-bar'
@@ -46,7 +47,9 @@ export default function IncidentRecordsPage() {
   const [userId, setUserId] = useState<string>('')
   const [totalCount, setTotalCount] = useState<number>(0)
   const [totalPages, setTotalPages] = useState<number>(1)
-  const [labs, setLabs] = useState<Array<{ id: string; name: string }>>([])
+  const [labs, setLabs] = useState<Array<{ id: string; name: string }>>(() => {
+    return getCachedData<Array<{ id: string; name: string }>>('master:active-labs') || []
+  })
   const [academicYears, setAcademicYears] = useState<Array<{ id: string; name: string; isCurrent: boolean }>>([])
   const [activeAcademicYearId, setActiveAcademicYearId] = useState<string | null>(null)
 
@@ -222,8 +225,12 @@ export default function IncidentRecordsPage() {
   useEffect(() => {
     async function loadMasterData() {
       try {
-        const labsData = await getActiveLabs()
-        setLabs(labsData)
+        const labsData = await fetchWithClientCache(
+          'master:active-labs',
+          () => getActiveLabs(),
+          { staleTimeMs: 300_000 }
+        )
+        if (Array.isArray(labsData)) setLabs(labsData)
       } catch (err) {
         console.error('Error fetching master labs:', err)
       }
@@ -235,7 +242,12 @@ export default function IncidentRecordsPage() {
     startTransition(async () => {
       if (showLoader) setIsLoading(true)
       try {
-        const res = await getIncidentRecords(filters)
+        const cacheKey = `incidents:records:${JSON.stringify(filters)}`
+        const res = await fetchWithClientCache(
+          cacheKey,
+          () => getIncidentRecords(filters),
+          { staleTimeMs: 60_000 }
+        )
         if (res.success) {
           reconcileWithLocalStorage(res.incidents, res.metrics)
           setTotalCount(res.totalCount || res.incidents.length)
@@ -254,14 +266,18 @@ export default function IncidentRecordsPage() {
   }
 
   useEffect(() => {
-    fetchIncidents(true)
+    const handler = setTimeout(() => {
+      fetchIncidents(true)
 
-    // Sync URL search params with current filters without reloading
-    if (typeof window !== 'undefined') {
-      const params = filtersToSearchParams(filters)
-      const newUrl = `${window.location.pathname}?${params.toString()}`
-      window.history.replaceState(null, '', newUrl)
-    }
+      // Sync URL search params with current filters without reloading
+      if (typeof window !== 'undefined') {
+        const params = filtersToSearchParams(filters)
+        const newUrl = `${window.location.pathname}?${params.toString()}`
+        window.history.replaceState(null, '', newUrl)
+      }
+    }, 300)
+
+    return () => clearTimeout(handler)
   }, [filters])
 
   const handleFiltersChange = (newFilters: Partial<IncidentRecordFilters>) => {

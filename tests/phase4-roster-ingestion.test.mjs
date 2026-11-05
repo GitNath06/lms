@@ -521,6 +521,7 @@ Roll Number, Student Name , Admission Number , Registration Number
         email: 'a.karki@rrl.edu.np',
         full_name: 'Er. Anish Karki',
         role: 'teacher',
+        approval_status: 'approved',
         is_active: true,
         permissions: {},
         created_at: new Date().toISOString(),

@@ -15,6 +15,7 @@ export interface WorkstationSeatAssignment {
   roll_number: number
   notes: string | null
   photo_url?: string | null
+  has_photo?: boolean
 }
 
 export interface WorkstationWithAssignment extends WorkstationRow {
@@ -27,11 +28,13 @@ export interface WorkstationWithAssignment extends WorkstationRow {
   } | null
   session_override?: {
     override_id: string
+    student_id?: string
     student_name: string
     roll_number: number
     reason: string | null
     original_workstation_label?: string | null
     photo_url?: string | null
+    has_photo?: boolean
   } | null
 }
 

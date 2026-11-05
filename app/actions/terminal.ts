@@ -7,6 +7,7 @@ import { getPgPool } from '@/lib/db'
 import { getServerUserScope } from '@/lib/context/server-user-scope'
 import { recordAuditEvent } from '@/lib/audit/audit-ledger'
 import { verifyTerminalSessionToken } from '@/lib/security/terminal-token'
+import { getServerEffectiveTime, parseScheduleTimeToMinutes } from '@/lib/server-effective-time'
 import type {
   TerminalContextData,
   SubmitStudentReportInput,
@@ -14,15 +15,33 @@ import type {
 } from '@/lib/types/terminal'
 
 async function getAuthContext() {
-  const scope = await getServerUserScope()
-  const isPrivileged =
-    scope.isPrivileged ||
-    scope.role === 'super_admin' ||
-    scope.role === 'lab_incharge' ||
-    scope.role === 'hod' ||
-    process.env.NODE_ENV === 'development'
+  try {
+    const scope = await getServerUserScope()
+    const isPrivileged =
+      !scope.isPending &&
+      scope.approvalStatus === 'approved' &&
+      (scope.isPrivileged ||
+        scope.role === 'super_admin' ||
+        scope.role === 'lab_incharge' ||
+        scope.role === 'hod')
 
-  return { scope, isPrivileged }
+    return { scope, isPrivileged }
+  } catch {
+    return {
+      scope: {
+        role: 'teacher',
+        userId: '',
+        fullName: 'Guest User',
+        isPending: true,
+        approvalStatus: 'pending',
+        isPrivileged: false,
+        assignedLabs: [],
+        assignedClasses: [],
+        assignedSubjects: [],
+      } as any,
+      isPrivileged: false,
+    }
+  }
 }
 
 /**
@@ -37,7 +56,9 @@ export async function getActiveTerminalSession(): Promise<{
 }> {
   try {
     const cookieStore = await cookies()
-    const sessionCookie = cookieStore.get('labsync_terminal_session')?.value
+    const sessionCookie =
+      cookieStore.get('labsync_terminal_session')?.value ||
+      cookieStore.get('labsync_terminal_auth')?.value
     if (!sessionCookie) {
       return { authenticated: false, error: 'No active terminal session cookie.' }
     }
@@ -64,7 +85,8 @@ export async function getActiveTerminalSession(): Promise<{
 export async function getTerminalContext(
   stationCode: string,
   token?: string,
-  clientIp?: string
+  clientIp?: string,
+  clientSimulatedTimeMs?: number
 ): Promise<{ success: boolean; data?: TerminalContextData; error?: string }> {
   try {
     const trimmedCode = (stationCode || '').trim()
@@ -93,7 +115,17 @@ export async function getTerminalContext(
       WHERE (LOWER(w.label) = LOWER($1) OR w.id::text = $1)
       LIMIT 1
     `
-    const wsRes = await pool.query(wsQuery, [trimmedCode])
+    let wsRes
+    try {
+      wsRes = await pool.query(wsQuery, [trimmedCode])
+    } catch (queryErr: any) {
+      if (queryErr.message?.includes('Connection terminated') || queryErr.code === 'ECONNRESET') {
+        // Immediate 1-time retry on transient PgBouncer socket recycle
+        wsRes = await pool.query(wsQuery, [trimmedCode])
+      } else {
+        throw queryErr
+      }
+    }
     if (wsRes.rows.length === 0) {
       return { success: false, error: `Workstation "${trimmedCode}" not found in laboratory database.` }
     }
@@ -105,8 +137,10 @@ export async function getTerminalContext(
     const storedToken = ws.pairing_token || null
     const isPaired = Boolean(storedToken)
 
-    // 2. Identify active scheduled session (if any)
-    let activeSession = null
+    // 2. Identify active scheduled session (if any) respecting real or simulated time
+    const timeInfo = await getServerEffectiveTime(clientSimulatedTimeMs)
+    const { effectiveDateStr, dayKey, currentMinutes } = timeInfo
+
     const scheduleQuery = `
       SELECT 
         s.id,
@@ -114,25 +148,91 @@ export async function getTerminalContext(
         s.batch_name,
         s.start_time,
         s.end_time,
+        s.status,
+        s.class_subject_id,
+        cs.class_id,
+        cs.academic_year_id,
         p.full_name as teacher_name
       FROM public.schedules s
+      LEFT JOIN public.class_subjects cs ON cs.id = s.class_subject_id
       LEFT JOIN public.profiles p ON p.id = s.teacher_id
       WHERE s.lab_id = $1 
-        AND s.status IN ('in_progress', 'scheduled')
-      ORDER BY s.status = 'in_progress' DESC, s.created_at DESC
-      LIMIT 1
+        AND LOWER(s.day_key) = LOWER($2)
+      ORDER BY s.start_time ASC
     `
-    const schedRes = await pool.query(scheduleQuery, [labId])
-    if (schedRes.rows.length > 0) {
-      const s = schedRes.rows[0]
-      activeSession = {
-        scheduleId: s.id,
-        subjectName: s.subject_name || 'Laboratory Practical',
-        teacherName: s.teacher_name || 'Faculty Instructor',
-        startTime: s.start_time || '',
-        endTime: s.end_time || '',
-        batchName: s.batch_name || '',
+    const schedRes = await pool.query(scheduleQuery, [labId, dayKey])
+    const todaySchedules = schedRes.rows
+
+    let activeSessionRow = null
+    let upcomingSessionRow = null
+
+    for (const row of todaySchedules) {
+      const startMin = parseScheduleTimeToMinutes(row.start_time)
+      const endMin = parseScheduleTimeToMinutes(row.end_time)
+      if (currentMinutes >= startMin && currentMinutes < endMin) {
+        activeSessionRow = row
+        break
       }
+      if (currentMinutes < startMin && !upcomingSessionRow) {
+        upcomingSessionRow = row
+      }
+    }
+
+    const selectedSchedule =
+      activeSessionRow ||
+      todaySchedules.find((s) => s.status === 'in_progress') ||
+      upcomingSessionRow ||
+      todaySchedules[0] ||
+      null
+
+    let activeSession = null
+    let activeClassId: string | null = null
+    let activeYearId: string = '2083'
+
+    if (selectedSchedule) {
+      let remainingMinutes: number | undefined
+      if (selectedSchedule.end_time) {
+        const endMin = parseScheduleTimeToMinutes(selectedSchedule.end_time)
+        const startMin = parseScheduleTimeToMinutes(selectedSchedule.start_time)
+        if (currentMinutes >= startMin && currentMinutes < endMin) {
+          remainingMinutes = Math.max(0, endMin - currentMinutes)
+        }
+      }
+
+      let practicalTitle: string | undefined
+      let topicLearned: string | undefined
+
+      try {
+        const logQuery = `
+          SELECT practical_title, topic_learned
+          FROM public.practical_logs
+          WHERE (schedule_id::text = $1 OR (lab_id = $2 AND date = $3))
+            AND practical_title IS NOT NULL
+          ORDER BY created_at DESC
+          LIMIT 1
+        `
+        const logRes = await pool.query(logQuery, [selectedSchedule.id, labId, effectiveDateStr])
+        if (logRes.rows.length > 0 && logRes.rows[0].practical_title) {
+          practicalTitle = logRes.rows[0].practical_title
+          topicLearned = logRes.rows[0].topic_learned || undefined
+        }
+      } catch {
+        // Graceful fallback
+      }
+
+      activeSession = {
+        scheduleId: selectedSchedule.id,
+        subjectName: selectedSchedule.subject_name || 'Laboratory Practical',
+        teacherName: selectedSchedule.teacher_name || 'Faculty Instructor',
+        startTime: selectedSchedule.start_time || '',
+        endTime: selectedSchedule.end_time || '',
+        batchName: selectedSchedule.batch_name || '',
+        practicalTitle: practicalTitle || 'Standard Laboratory Practical Session',
+        topicLearned,
+        remainingMinutes,
+      }
+      activeClassId = selectedSchedule.class_id || null
+      activeYearId = selectedSchedule.academic_year_id || '2083'
     }
 
     // 3. Identify student assigned to this workstation
@@ -160,11 +260,11 @@ export async function getTerminalContext(
       LEFT JOIN public.workstation_seat_plans orig_sp ON orig_sp.enrollment_id = e.id
       LEFT JOIN public.workstations orig_ws ON orig_ws.id = orig_sp.workstation_id
       WHERE sso.workstation_id = $1
-        AND (sso.session_date = CURRENT_DATE OR ($2::text IS NOT NULL AND sso.schedule_id::text = $2::text))
+        AND (sso.session_date = $2 OR ($3::text IS NOT NULL AND sso.schedule_id::text = $3::text))
       ORDER BY sso.created_at DESC
       LIMIT 1
     `
-    const overrideRes = await pool.query(overrideQuery, [workstationId, schedId])
+    const overrideRes = await pool.query(overrideQuery, [workstationId, effectiveDateStr, schedId])
 
     if (overrideRes.rows.length > 0) {
       const ov = overrideRes.rows[0]
@@ -179,8 +279,8 @@ export async function getTerminalContext(
         isTemporary: true,
         originalWorkstationLabel: ov.original_workstation_label || null,
       }
-    } else {
-      // 3B. No temporary relocation to this station: Check baseline Tier 1 seat plan
+    } else if (activeClassId) {
+      // 3B. No temporary relocation to this station: Check baseline Tier 1 seat plan FOR ACTIVE CLASS
       const seatQuery = `
         SELECT 
           sp.id as seat_plan_id,
@@ -196,10 +296,12 @@ export async function getTerminalContext(
         JOIN public.students st ON st.id = e.student_id
         LEFT JOIN public.classes c ON c.id = e.class_id
         WHERE sp.workstation_id = $1
+          AND sp.class_id = $2
+          AND sp.academic_year_id = $3
         ORDER BY sp.created_at DESC
         LIMIT 1
       `
-      const seatRes = await pool.query(seatQuery, [workstationId])
+      const seatRes = await pool.query(seatQuery, [workstationId, activeClassId, activeYearId])
       if (seatRes.rows.length > 0) {
         const seat = seatRes.rows[0]
 
@@ -208,11 +310,16 @@ export async function getTerminalContext(
           SELECT sso.workstation_id
           FROM public.session_seat_overrides sso
           WHERE sso.enrollment_id = $1
-            AND (sso.session_date = CURRENT_DATE OR ($2::text IS NOT NULL AND sso.schedule_id::text = $2::text))
-            AND sso.workstation_id != $3
+            AND (sso.session_date = $2 OR ($3::text IS NOT NULL AND sso.schedule_id::text = $3::text))
+            AND sso.workstation_id != $4
           LIMIT 1
         `
-        const movedAwayRes = await pool.query(movedAwayQuery, [seat.enrollment_id, schedId, workstationId])
+        const movedAwayRes = await pool.query(movedAwayQuery, [
+          seat.enrollment_id,
+          effectiveDateStr,
+          schedId,
+          workstationId,
+        ])
 
         if (movedAwayRes.rows.length === 0) {
           // Student is still at their nominal baseline station
@@ -452,10 +559,66 @@ export async function submitStudentIssueReport(
 
     const pool = getPgPool()
 
+    // 2A. Anti-Spam Repetitive Blocker: Check if an open ticket for this exact issue already exists on this workstation
+    const duplicateCheck = await pool.query(
+      `SELECT id, title, created_at 
+       FROM public.workstation_issues
+       WHERE workstation_id = $1 
+         AND source = 'student_terminal'
+         AND status = 'open'
+         AND (LOWER(title) = LOWER($2) OR description ILIKE $3)
+       LIMIT 1;`,
+      [workstationId, title.trim(), `%${title.trim()}%`]
+    )
+
+    if (duplicateCheck.rows.length > 0) {
+      return {
+        success: false,
+        error: `A ticket for "${title.trim()}" is already active on workstation ${effectiveStationCode}. Please wait for the instructor to address it.`,
+      }
+    }
+
+    // 2B. Maximum Open Tickets Ceiling: Max 3 concurrent open tickets per workstation
+    const openCountCheck = await pool.query(
+      `SELECT count(*)::int as active_open
+       FROM public.workstation_issues
+       WHERE workstation_id = $1 
+         AND source = 'student_terminal'
+         AND status = 'open';`,
+      [workstationId]
+    )
+
+    const activeOpen = openCountCheck.rows[0]?.active_open || 0
+    if (activeOpen >= 3) {
+      return {
+        success: false,
+        error: `Workstation ${effectiveStationCode} already has 3 active tickets awaiting instructor assistance. Please wait for an existing ticket to be acknowledged.`,
+      }
+    }
+
+    // 2C. Sliding Window Rate Limiter: Max 3 requests every 10 minutes per workstation
+    const windowRateCheck = await pool.query(
+      `SELECT count(*)::int as recent_count
+       FROM public.workstation_issues
+       WHERE workstation_id = $1 
+         AND source = 'student_terminal'
+         AND created_at > NOW() - INTERVAL '10 minutes';`,
+      [workstationId]
+    )
+
+    const recentCount = windowRateCheck.rows[0]?.recent_count || 0
+    if (recentCount >= 3) {
+      return {
+        success: false,
+        error: `Assistance request limit reached (maximum 3 requests every 10 minutes). Anti-spam cooldown active: Please wait before submitting another request.`,
+      }
+    }
+
     // Map severity based on issue tag or default to medium
     let severity: 'low' | 'medium' | 'high' | 'critical' = 'medium'
     if (issueTag === 'app_freeze' || issueTag === 'system_freeze') severity = 'critical'
     else if (issueTag === 'missing_software' || issueTag === 'no_internet') severity = 'high'
+    else if (issueTag === 'display_issue') severity = 'medium'
     else if (issueTag === 'peripherals' || issueTag === 'audio_issue') severity = 'low'
 
     const reporterName = studentName?.trim()
@@ -492,6 +655,36 @@ export async function submitStudentIssueReport(
     ])
 
     const issueId = insertRes.rows[0]?.id
+
+    // Dispatch system notifications for Super Admin and Lab In-Charge
+    const notifSeverity = severity === 'critical' ? 'critical' : severity === 'high' ? 'warning' : 'info'
+    const notifs = [
+      {
+        id: `notif-student-help-${issueId}-admin`,
+        target_role: 'super_admin',
+        target_lab_id: 'comp',
+        title: `🚨 Student Assistance: ${effectiveStationCode}`,
+        message: `${reporterName}: ${title.trim()}${description?.trim() ? ` — ${description.trim()}` : ''}. Terminal assistance requested.`,
+        severity: notifSeverity,
+      },
+      {
+        id: `notif-student-help-${issueId}-incharge`,
+        target_role: 'lab_incharge',
+        target_lab_id: 'comp',
+        title: `Student Assistance: ${effectiveStationCode}`,
+        message: `${reporterName}: ${title.trim()}${description?.trim() ? ` — ${description.trim()}` : ''}. Station requires attention.`,
+        severity: notifSeverity,
+      },
+    ]
+
+    for (const n of notifs) {
+      await pool.query(
+        `INSERT INTO public.lab_notifications (id, target_role, target_lab_id, title, message, severity, is_read, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, false, NOW())
+         ON CONFLICT (id) DO NOTHING;`,
+        [n.id, n.target_role, n.target_lab_id, n.title, n.message, n.severity]
+      )
+    }
 
     // Record audit event
     await recordAuditEvent({
@@ -642,6 +835,10 @@ export async function acknowledgeAssistanceRequest(
       `UPDATE public.workstation_issues SET status = 'acknowledged', updated_at = NOW() WHERE id = $1`,
       [issueId]
     )
+    await pool.query(
+      `UPDATE public.lab_notifications SET is_read = true WHERE id LIKE $1;`,
+      [`%${issueId}%`]
+    )
     revalidatePath('/computer-lab')
     return { success: true }
   } catch (err: any) {
@@ -649,3 +846,50 @@ export async function acknowledgeAssistanceRequest(
     return { success: false, error: err.message }
   }
 }
+
+/**
+ * Allows a student to withdraw/cancel their own active assistance request.
+ */
+export async function cancelStudentAssistanceRequest(
+  stationCode: string,
+  issueId: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const activeSession = await getActiveTerminalSession()
+    const pool = getPgPool()
+
+    let workstationId: string
+    if (activeSession.authenticated && activeSession.stationId) {
+      workstationId = activeSession.stationId
+    } else {
+      const wsRes = await pool.query(`SELECT id FROM public.workstations WHERE LOWER(label) = LOWER($1)`, [stationCode])
+      if (wsRes.rows.length === 0) return { success: false, error: 'Workstation not found.' }
+      workstationId = wsRes.rows[0].id
+    }
+
+    const res = await pool.query(
+      `UPDATE public.workstation_issues
+       SET status = 'resolved',
+           resolved_at = NOW(),
+           resolution_notes = 'Cancelled by student from terminal',
+           updated_at = NOW()
+       WHERE id = $1 AND workstation_id = $2 AND status = 'open'
+       RETURNING id, title;`,
+      [issueId, workstationId]
+    )
+
+    if (res.rows.length === 0) {
+      return { success: false, error: 'Active issue not found or already resolved.' }
+    }
+
+    try {
+      revalidatePath('/computer-lab')
+      revalidatePath(`/terminal/${stationCode}`)
+    } catch {}
+
+    return { success: true }
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Failed to cancel request.' }
+  }
+}
+

@@ -10,7 +10,14 @@ import type {
 } from '@/types/records'
 import type { StudentComplianceReport } from '@/lib/types/institutional-reports'
 import { INSTITUTION_CONFIG } from '../institution'
-import { formatClassCode, sanitizeSubjectTitle } from '@/lib/report-spec/practical-spec'
+import {
+  formatClassCode,
+  sanitizeSubjectTitle,
+  cleanSubjectCode,
+  cleanPracticalTitle,
+  formatFacilityShortCode,
+} from '@/lib/report-spec/practical-spec'
+import { formatToNepaliMiti } from '@/lib/nepali-date'
 
 interface PracticalMeta {
   labName?: string
@@ -51,19 +58,58 @@ interface PracticalXlsxCol {
 }
 
 const ALL_PRACTICAL_XLSX_COLS: PracticalXlsxCol[] = [
-  { id: 'date', header: 'Date', width: 13, align: 'center', getValue: (r) => r.date },
-  { id: 'period', header: 'Period / Slot', width: 16, align: 'center', getValue: (r) => r.period_label || '—' },
-  { id: 'facility', header: 'Laboratory Facility', width: 22, align: 'left', getValue: (r) => r.labs?.name || r.lab_id || '—' },
-  { id: 'class_batch', header: 'Class', width: 14, align: 'left', getValue: (r) => formatClassCode(r.batch_group) },
+  {
+    id: 'date',
+    header: 'Date (मिति)',
+    width: 22,
+    align: 'center',
+    getValue: (r) => {
+      const miti = formatToNepaliMiti(r.date)
+      return miti ? `${miti.bsDateStr} B.S. (${miti.adDateStr})` : r.date
+    },
+  },
+  {
+    id: 'period',
+    header: 'Period',
+    width: 14,
+    align: 'center',
+    getValue: (r) => (r.period_label ? r.period_label.replace(/\s*\([^)]*\)/, '') : '—'),
+  },
+  {
+    id: 'facility',
+    header: 'Facility',
+    width: 14,
+    align: 'left',
+    getValue: (r) => formatFacilityShortCode(r.labs?.name || r.lab_id),
+  },
+  {
+    id: 'class_batch',
+    header: 'Class',
+    width: 14,
+    align: 'left',
+    getValue: (r) => formatClassCode(r.batch_group),
+  },
   {
     id: 'subject',
     header: 'Subject',
-    width: 28,
+    width: 16,
     align: 'left',
-    getValue: (r) => sanitizeSubjectTitle(r.subject_name) + (r.subject_code ? ` (${r.subject_code})` : ''),
+    getValue: (r) => cleanSubjectCode(r.subject_code, r.subject_name),
   },
-  { id: 'experiment', header: 'Practical Experiment Title', width: 36, align: 'left', getValue: (r) => r.practical_title || '—' },
-  { id: 'teacher', header: 'Subject Teacher', width: 24, align: 'left', getValue: (r) => r.profiles?.full_name || 'Assigned Subject Teacher' },
+  {
+    id: 'experiment',
+    header: 'Practicals',
+    width: 38,
+    align: 'left',
+    getValue: (r) => cleanPracticalTitle(r.practical_title),
+  },
+  {
+    id: 'teacher',
+    header: 'Subject Teacher',
+    width: 24,
+    align: 'left',
+    getValue: (r) => r.profiles?.full_name || 'Assigned Subject Teacher',
+  },
   {
     id: 'attendance',
     header: 'Attendance',
@@ -85,8 +131,8 @@ const ALL_PRACTICAL_XLSX_COLS: PracticalXlsxCol[] = [
   },
   {
     id: 'remarks',
-    header: 'Teacher Remarks / Verification Notes',
-    width: 40,
+    header: 'Remark',
+    width: 36,
     align: 'left',
     getValue: (r) => (r.status === 'skipped' ? r.skip_reason || 'Postponed / Holiday' : r.remarks || 'Standard practical routine executed.'),
   },
@@ -274,7 +320,19 @@ interface IncidentXlsxCol {
 }
 
 const ALL_INCIDENT_XLSX_COLS: IncidentXlsxCol[] = [
-  { id: 'date_case', header: 'Date & Case #', width: 18, align: 'center', getValue: (inc) => `${inc.date || inc.created_at?.split('T')[0]} (${inc.id})` },
+  {
+    id: 'date_case',
+    header: 'Date & Case #',
+    width: 24,
+    align: 'center',
+    getValue: (inc) => {
+      const rawDate = inc.date || inc.created_at?.split('T')[0]
+      const miti = formatToNepaliMiti(rawDate)
+      const datePart = miti ? `${miti.bsDateStr} B.S.` : rawDate
+      const caseSuffix = `#${inc.id.slice(-6).toUpperCase()}`
+      return `${datePart} (${caseSuffix})`
+    },
+  },
   { id: 'facility', header: 'Facility Room', width: 22, align: 'left', getValue: (inc) => inc.labs?.name || inc.lab_id || '—' },
   {
     id: 'equipment',

@@ -1,10 +1,12 @@
 'use server'
 
+import crypto from 'node:crypto'
 import pg from 'pg'
 import { sendVerificationOtpEmail, sendPasswordResetOtpEmail } from '@/lib/mailer'
-import { DEFAULT_ROLE_PERMISSIONS, type UserRole } from '@/lib/permissions'
+import { DEFAULT_ROLE_PERMISSIONS, PENDING_ROLE_PERMISSIONS, type UserRole } from '@/lib/permissions'
+import { validatePasswordPolicy } from '@/lib/auth-policy'
 import { dispatchNewUserRegistrationAlert } from '@/app/actions/notifications'
-import { resolveDatabaseUrl } from '@/lib/db'
+import { getPgPool } from '@/lib/db'
 
 /**
  * Executes a background task after response completion if Next.js runtime is present,
@@ -23,19 +25,19 @@ async function runAfterResponse(task: () => Promise<void> | void) {
   task()
 }
 
-function getPgClient() {
-  const connectionString = resolveDatabaseUrl(process.env.DATABASE_URL)
-  if (!connectionString) {
-    throw new Error('DATABASE_URL is not configured.')
+async function getPooledClient() {
+  const pool = getPgPool()
+  try {
+    return await pool.connect()
+  } catch (err: any) {
+    console.warn('[OTP Pool] Connection attempt 1 timed out or dropped, retrying after 350ms:', err.message)
+    await new Promise((r) => setTimeout(r, 350))
+    return await pool.connect()
   }
-  return new pg.Client({
-    connectionString,
-    ssl: { rejectUnauthorized: false },
-  })
 }
 
 function generateNumericOtp(): string {
-  return Math.floor(100000 + Math.random() * 900000).toString()
+  return crypto.randomInt(100000, 999999).toString()
 }
 
 /**
@@ -71,7 +73,7 @@ async function getClientIp(): Promise<string> {
  * Operates on the trusted server pool with RLS enabled and zero client grants.
  */
 async function checkRateLimit(
-  client: pg.Client,
+  db: { query: (q: string, p?: any[]) => Promise<any> },
   ip: string,
   action: 'generate_signup_otp' | 'generate_reset_otp' | 'verify_signup_otp' | 'verify_reset_otp',
   maxAllowed: number,
@@ -81,13 +83,13 @@ async function checkRateLimit(
 
   // 1. Opportunistic inline cleanup of events older than 1 hour to keep table bounded
   try {
-    await client.query(`DELETE FROM public.rate_limit_events WHERE created_at < now() - interval '1 hour'`)
+    await db.query(`DELETE FROM public.rate_limit_events WHERE created_at < now() - interval '1 hour'`)
   } catch {
     // Non-fatal if concurrent cleanup
   }
 
   // 2. Count existing events in the sliding window
-  const countRes = await client.query(
+  const countRes = await db.query(
     `
     SELECT count(*)::int as event_count
     FROM public.rate_limit_events
@@ -103,7 +105,7 @@ async function checkRateLimit(
   }
 
   // 3. Record this event
-  await client.query(
+  await db.query(
     `
     INSERT INTO public.rate_limit_events (key, action, created_at)
     VALUES ($1, $2, now())
@@ -117,12 +119,27 @@ async function checkRateLimit(
 /**
  * 1. Generate & Send OTP for Signup Verification
  */
-export async function generateAndSendSignupOtp(emailRaw: string, fullNameRaw: string) {
+export async function generateAndSendSignupOtp(
+  emailRaw: string,
+  fullNameRaw: string,
+  passwordRaw?: string
+) {
   const email = emailRaw?.trim().toLowerCase()
   const fullName = fullNameRaw?.trim()
 
   if (!email || !fullName) {
     return { error: 'Please provide both your full name and institutional email.' }
+  }
+
+  // Strictly validate password criteria before generating or sending OTP
+  if (!passwordRaw) {
+    return { error: 'Password is required. Please meet all complexity criteria before requesting a verification code.' }
+  }
+  const passVal = validatePasswordPolicy(passwordRaw)
+  if (!passVal.isValid) {
+    return {
+      error: `Password requirement not met: ${passVal.errors.join(', ')}.`,
+    }
   }
 
   // Basic email pattern check
@@ -131,20 +148,17 @@ export async function generateAndSendSignupOtp(emailRaw: string, fullNameRaw: st
     return { error: 'Please provide a valid email address.' }
   }
 
-  const client = getPgClient()
   try {
-    await client.connect()
-
+    const pool = getPgPool()
     // 1. IP Rate Limiting Check: max 10 generation attempts per IP per 10 minutes
     const clientIp = await getClientIp()
-    const rateCheck = await checkRateLimit(client, clientIp, 'generate_signup_otp', 10, 10)
+    const rateCheck = await checkRateLimit(pool, clientIp, 'generate_signup_otp', 10, 10)
     if (!rateCheck.allowed) {
-      await client.end()
       return { error: 'Rate limit exceeded: Too many verification requests from this IP address. Please wait 10 minutes.' }
     }
 
     // 2. Cooldown check: 60-second cooldown on generation for this email + purpose
-    const recentRes = await client.query(
+    const recentRes = await pool.query(
       `
       SELECT created_at
       FROM public.email_otps
@@ -159,28 +173,26 @@ export async function generateAndSendSignupOtp(emailRaw: string, fullNameRaw: st
       const lastCreated = new Date(recentRes.rows[0].created_at).getTime()
       const elapsedSeconds = (Date.now() - lastCreated) / 1000
       if (elapsedSeconds < 60) {
-        await client.end()
         return { error: 'Please wait before requesting another code.' }
       }
     }
 
     // Check if account already exists
-    const existing = await client.query(`SELECT id FROM auth.users WHERE email = $1`, [email])
+    const existing = await pool.query(`SELECT id FROM auth.users WHERE email = $1`, [email])
     if (existing.rows.length > 0) {
-      await client.end()
       return { error: 'An account with this email address already exists. Please sign in instead.' }
     }
 
     const otpCode = generateNumericOtp()
 
     // Invalidate any existing unused signup OTPs for this email
-    await client.query(
+    await pool.query(
       `UPDATE public.email_otps SET is_verified = TRUE WHERE email = $1 AND purpose = 'signup'`,
       [email]
     )
 
     // Insert new OTP with 10-minute validity
-    await client.query(
+    await pool.query(
       `
       INSERT INTO public.email_otps (email, otp_code, purpose, expires_at, created_at)
       VALUES ($1, $2, 'signup', now() + interval '10 minutes', now());
@@ -188,9 +200,7 @@ export async function generateAndSendSignupOtp(emailRaw: string, fullNameRaw: st
       [email, otpCode]
     )
 
-    await client.end()
-
-    // Send email via mailer
+    // Send email via mailer (Zero DB connections held!)
     const mailRes = await sendVerificationOtpEmail(email, fullName, otpCode)
 
     if (!mailRes.success) {
@@ -207,7 +217,6 @@ export async function generateAndSendSignupOtp(emailRaw: string, fullNameRaw: st
     }
   } catch (err: any) {
     console.error('Error generating signup OTP:', err)
-    try { await client.end() } catch {}
     return { error: err.message || 'Failed to dispatch verification code. Please try again.' }
   }
 }
@@ -220,26 +229,25 @@ export async function verifySignupAndCreateAccount(formData: FormData, otpCodeRa
   const password = formData.get('password') as string
   const fullName = (formData.get('full_name') as string)?.trim()
   const phone = (formData.get('phone') as string)?.trim() || null
-  const department = (formData.get('department') as string)?.trim() || 'Science Department'
+  const department = (formData.get('department') as string)?.trim() || null
   const otpCode = otpCodeRaw?.trim()
 
   if (!email || !password || !fullName || !otpCode) {
     return { error: 'All fields including the 6-digit verification code are required.' }
   }
 
-  if (password.length < 6) {
-    return { error: 'Password must be at least 6 characters long.' }
+  const passVal = validatePasswordPolicy(password)
+  if (!passVal.isValid) {
+    return { error: `Password requirement not met: ${passVal.errors.join(', ')}.` }
   }
 
-  const client = getPgClient()
+  let client: any = null
   try {
-    await client.connect()
-
+    client = await getPooledClient()
     // 1. IP Rate Limiting Check: max 20 verify attempts per IP per 10 minutes
     const clientIp = await getClientIp()
     const rateCheck = await checkRateLimit(client, clientIp, 'verify_signup_otp', 20, 10)
     if (!rateCheck.allowed) {
-      await client.end()
       return { error: 'Rate limit exceeded: Too many verification attempts from this IP address. Please wait 10 minutes.' }
     }
 
@@ -275,8 +283,6 @@ export async function verifySignupAndCreateAccount(formData: FormData, otpCodeRa
         [email]
       )
 
-      await client.end()
-
       if (inspectRes.rows.length === 0 || inspectRes.rows[0].is_verified) {
         return { error: 'No active verification code found. Please request a new code.' }
       }
@@ -297,17 +303,12 @@ export async function verifySignupAndCreateAccount(formData: FormData, otpCodeRa
 
     // 4. Compare verification code
     if (record.otp_code !== otpCode) {
-      await client.end()
       return { error: 'Invalid verification code. Please check your email and enter the 6-digit code.' }
     }
 
-    // 5. Mark OTP as verified
-    await client.query(`UPDATE public.email_otps SET is_verified = TRUE WHERE id = $1`, [record.id])
-
-    // Double check email uniqueness
+    // Double check email uniqueness before transaction
     const userCheck = await client.query(`SELECT id FROM auth.users WHERE email = $1`, [email])
     if (userCheck.rows.length > 0) {
-      await client.end()
       return { error: 'This email is already registered. Please sign in.' }
     }
 
@@ -316,7 +317,10 @@ export async function verifySignupAndCreateAccount(formData: FormData, otpCodeRa
 
     await client.query('BEGIN')
 
-    // Create user in auth.users
+    // 5. Mark OTP as verified inside transaction
+    await client.query(`UPDATE public.email_otps SET is_verified = TRUE WHERE id = $1`, [record.id])
+
+    // Create user in auth.users with explicit approval_status = 'pending' in metadata
     const userRes = await client.query(
       `
       INSERT INTO auth.users (
@@ -346,7 +350,7 @@ export async function verifySignupAndCreateAccount(formData: FormData, otpCodeRa
         crypt($2, gen_salt('bf', 10)),
         now(),
         '{"provider": "email", "providers": ["email"]}'::jsonb,
-        jsonb_build_object('full_name', $3::text, 'role', $4::text, 'department', $5::text, 'email_verified', true),
+        jsonb_build_object('full_name', $3::text, 'role', $4::text, 'department', $5::text, 'approval_status', 'pending', 'email_verified', true),
         '',
         '',
         '',
@@ -388,7 +392,7 @@ export async function verifySignupAndCreateAccount(formData: FormData, otpCodeRa
       [userId, email]
     )
 
-    // Insert profile with approval_status = 'pending' and is_active = FALSE
+    // Insert profile with approval_status = 'pending' and is_active = TRUE (read-only preview enabled)
     await client.query(
       `
       INSERT INTO public.profiles (
@@ -409,7 +413,7 @@ export async function verifySignupAndCreateAccount(formData: FormData, otpCodeRa
         $4,
         $5,
         $6,
-        FALSE,
+        TRUE,
         'pending',
         $7::jsonb,
         now()
@@ -417,9 +421,9 @@ export async function verifySignupAndCreateAccount(formData: FormData, otpCodeRa
       ON CONFLICT (id) DO UPDATE SET
         phone = EXCLUDED.phone,
         approval_status = 'pending',
-        is_active = FALSE;
+        is_active = TRUE;
       `,
-      [userId, email, phone, fullName, role, department, JSON.stringify(defaultPerms)]
+      [userId, email, phone, fullName, role, department, JSON.stringify(PENDING_ROLE_PERMISSIONS)]
     )
 
     // Insert notification for super_admin and lab_incharge
@@ -430,21 +434,20 @@ export async function verifySignupAndCreateAccount(formData: FormData, otpCodeRa
       `
       INSERT INTO public.lab_notifications (id, target_role, title, message, severity, is_read, created_at)
       VALUES 
-      ($1, 'super_admin', $2, $3, 'warning', false, now()),
+      ($1, 'super_admin', $2, $3, 'info', false, now()),
       ($4, 'lab_incharge', $5, $6, 'info', false, now());
       `,
       [
         notifAdminId,
         `New Teacher Registration: ${fullName}`,
-        `${fullName} (${email}, Department: ${department}) has verified their email and is awaiting Super Admin approval.`,
+        `${fullName} (${email}) has verified their email and is awaiting Super Admin approval.`,
         notifInchargeId,
         `New Teacher Registration: ${fullName}`,
-        `${fullName} (${email}, Department: ${department}) has registered for laboratory practical access.`,
+        `${fullName} (${email}) has registered for laboratory practical access.`,
       ]
     )
 
     await client.query('COMMIT')
-    await client.end()
 
     // Non-blocking background notification to Super Admins & Lab In-Charges
     runAfterResponse(async () => {
@@ -465,11 +468,14 @@ export async function verifySignupAndCreateAccount(formData: FormData, otpCodeRa
     }
   } catch (err: any) {
     console.error('Error verifying signup OTP:', err)
-    try {
-      await client.query('ROLLBACK')
-      await client.end()
-    } catch {}
+    if (client) {
+      try {
+        await client.query('ROLLBACK')
+      } catch {}
+    }
     return { error: err.message || 'Failed to complete registration.' }
+  } finally {
+    if (client) client.release()
   }
 }
 
@@ -483,20 +489,17 @@ export async function generateAndSendPasswordResetOtp(emailRaw: string) {
     return { error: 'Please enter your institutional email.' }
   }
 
-  const client = getPgClient()
   try {
-    await client.connect()
-
+    const pool = getPgPool()
     // 1. IP Rate Limiting Check: max 10 generation attempts per IP per 10 minutes
     const clientIp = await getClientIp()
-    const rateCheck = await checkRateLimit(client, clientIp, 'generate_reset_otp', 10, 10)
+    const rateCheck = await checkRateLimit(pool, clientIp, 'generate_reset_otp', 10, 10)
     if (!rateCheck.allowed) {
-      await client.end()
       return { error: 'Rate limit exceeded: Too many reset requests from this IP address. Please wait 10 minutes.' }
     }
 
     // 2. Cooldown check: 60-second cooldown on generation for this email + purpose
-    const recentRes = await client.query(
+    const recentRes = await pool.query(
       `
       SELECT created_at
       FROM public.email_otps
@@ -511,13 +514,12 @@ export async function generateAndSendPasswordResetOtp(emailRaw: string) {
       const lastCreated = new Date(recentRes.rows[0].created_at).getTime()
       const elapsedSeconds = (Date.now() - lastCreated) / 1000
       if (elapsedSeconds < 60) {
-        await client.end()
         return { error: 'Please wait before requesting another code.' }
       }
     }
 
     // Verify account exists
-    const userRes = await client.query(
+    const userRes = await pool.query(
       `
       SELECT u.id, p.full_name
       FROM auth.users u
@@ -528,7 +530,6 @@ export async function generateAndSendPasswordResetOtp(emailRaw: string) {
     )
 
     if (userRes.rows.length === 0) {
-      await client.end()
       return { error: 'No institutional account registered with this email address.' }
     }
 
@@ -536,13 +537,13 @@ export async function generateAndSendPasswordResetOtp(emailRaw: string) {
     const otpCode = generateNumericOtp()
 
     // Invalidate old reset OTPs
-    await client.query(
+    await pool.query(
       `UPDATE public.email_otps SET is_verified = TRUE WHERE email = $1 AND purpose = 'reset_password'`,
       [email]
     )
 
     // Insert new OTP
-    await client.query(
+    await pool.query(
       `
       INSERT INTO public.email_otps (email, otp_code, purpose, expires_at, created_at)
       VALUES ($1, $2, 'reset_password', now() + interval '10 minutes', now());
@@ -550,8 +551,7 @@ export async function generateAndSendPasswordResetOtp(emailRaw: string) {
       [email, otpCode]
     )
 
-    await client.end()
-
+    // Send email via mailer (Zero DB connections held!)
     const mailRes = await sendPasswordResetOtpEmail(email, fullName, otpCode)
 
     if (!mailRes.success) {
@@ -568,7 +568,6 @@ export async function generateAndSendPasswordResetOtp(emailRaw: string) {
     }
   } catch (err: any) {
     console.error('Error in sendPasswordResetOtp:', err)
-    try { await client.end() } catch {}
     return { error: err.message || 'Failed to send reset code.' }
   }
 }
@@ -585,19 +584,18 @@ export async function verifyAndResetPassword(emailRaw: string, otpCodeRaw: strin
     return { error: 'Email, verification code, and new password are required.' }
   }
 
-  if (newPassword.length < 6) {
-    return { error: 'New password must be at least 6 characters long.' }
+  const passVal = validatePasswordPolicy(newPassword)
+  if (!passVal.isValid) {
+    return { error: `New password requirement not met: ${passVal.errors.join(', ')}.` }
   }
 
-  const client = getPgClient()
+  let client: any = null
   try {
-    await client.connect()
-
+    client = await getPooledClient()
     // 1. IP Rate Limiting Check: max 20 verify attempts per IP per 10 minutes
     const clientIp = await getClientIp()
     const rateCheck = await checkRateLimit(client, clientIp, 'verify_reset_otp', 20, 10)
     if (!rateCheck.allowed) {
-      await client.end()
       return { error: 'Rate limit exceeded: Too many password recovery attempts from this IP address. Please wait 10 minutes.' }
     }
 
@@ -633,8 +631,6 @@ export async function verifyAndResetPassword(emailRaw: string, otpCodeRaw: strin
         [email]
       )
 
-      await client.end()
-
       if (inspectRes.rows.length === 0 || inspectRes.rows[0].is_verified) {
         return { error: 'No active password recovery request found. Please request a new code.' }
       }
@@ -655,7 +651,6 @@ export async function verifyAndResetPassword(emailRaw: string, otpCodeRaw: strin
 
     // 4. Compare verification code
     if (record.otp_code !== otpCode) {
-      await client.end()
       return { error: 'Invalid verification code.' }
     }
 
@@ -673,15 +668,14 @@ export async function verifyAndResetPassword(emailRaw: string, otpCodeRaw: strin
       [newPassword, email]
     )
 
-    await client.end()
-
     return {
       success: true,
       message: 'Password successfully updated! You can now sign in with your new credentials.',
     }
   } catch (err: any) {
     console.error('Error in verifyAndResetPassword:', err)
-    try { await client.end() } catch {}
     return { error: err.message || 'Failed to reset password.' }
+  } finally {
+    if (client) client.release()
   }
 }

@@ -1,5 +1,7 @@
 'use client'
 
+import { broadcastSync } from '@/lib/sync-bus'
+
 /**
  * ⏱️ LabSync Time Simulator & Dev Time Travel Engine
  * Enables seamless simulation of academic routine periods, weeks, days,
@@ -20,17 +22,28 @@ interface StoredSimTime {
  * so clocks and interval countdowns tick naturally.
  */
 export function getEffectiveDate(): Date {
-  if (typeof window === 'undefined') {
+  // Strict Production Gate: Only simulate time in local development
+  if (process.env.NODE_ENV !== 'development' || typeof window === 'undefined') {
     return new Date()
   }
 
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return new Date()
+    if (!raw) {
+      if (typeof document !== 'undefined' && document.cookie.includes('lmr_simulated_time=')) {
+        document.cookie = 'lmr_simulated_time=; path=/; max-age=0; SameSite=Lax'
+      }
+      return new Date()
+    }
 
     const parsed: StoredSimTime = JSON.parse(raw)
     if (!parsed || !parsed.baseTime || !parsed.setAt) {
       return new Date()
+    }
+
+    // Keep cookie synchronized with localStorage
+    if (typeof document !== 'undefined' && !document.cookie.includes('lmr_simulated_time=')) {
+      document.cookie = `lmr_simulated_time=${encodeURIComponent(JSON.stringify(parsed))}; path=/; max-age=604800; SameSite=Lax`
     }
 
     const elapsed = Date.now() - parsed.setAt
@@ -44,7 +57,7 @@ export function getEffectiveDate(): Date {
  * Checks if the system is currently in simulated time mode.
  */
 export function isSimulatingTime(): boolean {
-  if (typeof window === 'undefined') return false
+  if (process.env.NODE_ENV !== 'development' || typeof window === 'undefined') return false
   try {
     return localStorage.getItem(STORAGE_KEY) !== null
   } catch {
@@ -57,19 +70,24 @@ export function isSimulatingTime(): boolean {
  * Pass `null` to reset back to live real-world system clock.
  */
 export function setSimulatedTime(targetDate: Date | null): void {
-  if (typeof window === 'undefined') return
+  if (process.env.NODE_ENV !== 'development' || typeof window === 'undefined') return
 
   try {
     if (!targetDate) {
       localStorage.removeItem(STORAGE_KEY)
+      document.cookie = 'lmr_simulated_time=; path=/; max-age=0; SameSite=Lax'
     } else {
       const payload: StoredSimTime = {
         baseTime: targetDate.getTime(),
         setAt: Date.now(),
       }
       localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
+      document.cookie = `lmr_simulated_time=${encodeURIComponent(JSON.stringify(payload))}; path=/; max-age=604800; SameSite=Lax`
     }
 
+    // Broadcast across all open browser windows and tabs
+    broadcastSync('schedules', { simulatedTime: targetDate ? targetDate.getTime() : null })
+    broadcastSync('workstations', { reason: 'time-travel' })
     window.dispatchEvent(new CustomEvent(TIME_TRAVEL_EVENT))
   } catch (e) {
     console.error('Failed to set simulated time:', e)

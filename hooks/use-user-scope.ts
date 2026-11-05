@@ -3,54 +3,56 @@
 import { useState, useEffect } from 'react'
 import { type UserScopeContext, resolveUserScope } from '@/lib/context/user-scope'
 import { getCurrentUserProfile, type UserProfile } from '@/app/actions/auth'
+import {
+  getCachedData,
+  setCachedData,
+  fetchWithClientCache,
+  invalidateCacheByPrefix,
+} from '@/lib/cache/client-query-cache'
 
-let cachedProfilePromise: Promise<UserProfile | null> | null = null
-let lastProfileFetch = 0
-let cachedResolvedScope: { profile: UserProfile | null; scope: UserScopeContext } | null = null
-const PROFILE_CLIENT_TTL = 30000 // 30 seconds
+const USER_PROFILE_CACHE_KEY = 'auth:current-user-profile'
+const USER_PROFILE_TTL = 300_000 // 5 minutes
 
 export function clearUserScopeCache() {
-  cachedProfilePromise = null
-  lastProfileFetch = 0
-  cachedResolvedScope = null
+  invalidateCacheByPrefix(USER_PROFILE_CACHE_KEY)
 }
 
-export function useUserScope() {
-  const [scope, setScope] = useState<UserScopeContext | null>(cachedResolvedScope ? cachedResolvedScope.scope : null)
-  const [profile, setProfile] = useState<UserProfile | null>(cachedResolvedScope ? cachedResolvedScope.profile : null)
-  const [loading, setLoading] = useState(!cachedResolvedScope)
+export function useUserScope(initialProfile?: UserProfile | null) {
+  const [profile, setProfile] = useState<UserProfile | null>(() => {
+    return initialProfile || getCachedData<UserProfile>(USER_PROFILE_CACHE_KEY) || null
+  })
+  const [scope, setScope] = useState<UserScopeContext | null>(() => {
+    const base = initialProfile || getCachedData<UserProfile>(USER_PROFILE_CACHE_KEY)
+    return base ? resolveUserScope(base) : null
+  })
+  const [loading, setLoading] = useState<boolean>(() => {
+    return !initialProfile && !getCachedData<UserProfile>(USER_PROFILE_CACHE_KEY)
+  })
 
   useEffect(() => {
     let isMounted = true
-    async function fetchScope() {
+    async function loadScope() {
       try {
-        const now = Date.now()
-        if (!cachedProfilePromise || (now - lastProfileFetch > PROFILE_CLIENT_TTL)) {
-          lastProfileFetch = now
-          cachedProfilePromise = getCurrentUserProfile().catch((err) => {
-            cachedProfilePromise = null
-            throw err
-          })
-        }
-        const userProf = await cachedProfilePromise
+        const userProf = await fetchWithClientCache<UserProfile | null>(
+          USER_PROFILE_CACHE_KEY,
+          () => getCurrentUserProfile(),
+          { staleTimeMs: USER_PROFILE_TTL }
+        )
         if (isMounted) {
           setProfile(userProf)
-          const resolved = resolveUserScope(userProf)
-          setScope(resolved)
-          cachedResolvedScope = { profile: userProf, scope: resolved }
+          setScope(resolveUserScope(userProf))
         }
       } catch (err) {
         console.warn('Failed to resolve client user scope:', err)
         if (isMounted) {
           const fallback = resolveUserScope(null)
           setScope(fallback)
-          cachedResolvedScope = { profile: null, scope: fallback }
         }
       } finally {
         if (isMounted) setLoading(false)
       }
     }
-    fetchScope()
+    loadScope()
     return () => {
       isMounted = false
     }

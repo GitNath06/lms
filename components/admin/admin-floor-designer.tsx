@@ -46,8 +46,10 @@ export default function AdminFloorDesigner({
         getLabFloorElements(selectedLabId),
       ])
       setBoardData(bData)
-      if (fData.success && fData.data) {
+      if (fData.success && Array.isArray(fData.data)) {
         setFloorElements(fData.data)
+      } else {
+        setFloorElements([])
       }
     } catch (err) {
       console.error('Error loading floor designer data:', err)

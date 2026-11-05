@@ -15,6 +15,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { acknowledgeAssistanceRequest } from '@/app/actions/terminal'
+import { broadcastSync } from '@/lib/sync-bus'
 
 export interface LiveAssistanceItem {
   id: string
@@ -49,6 +50,7 @@ export function TerminalAssistanceQueue({
     setAcknowledgingId(null)
     if (res.success) {
       onDismissRequest?.(item.id)
+      broadcastSync('assistance', { stationCode: item.stationLabel })
     }
   }
 

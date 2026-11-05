@@ -97,7 +97,7 @@ export default function IncidentDrawer({
 
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 sm:p-6 bg-black/70 backdrop-blur-md animate-in fade-in duration-200 select-none overflow-y-auto">
-      <div className="relative w-full max-w-2xl bg-white dark:bg-zinc-900 rounded-3xl shadow-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden flex flex-col max-h-[85vh] my-auto">
+      <div className="relative w-full max-w-2xl bg-white dark:bg-zinc-900 rounded-3xl shadow-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden flex flex-col max-h-[calc(100dvh-2rem)] my-auto">
         {/* Header */}
         <div
           className={`p-5 px-6 border-b flex items-center justify-between ${
@@ -192,7 +192,7 @@ export default function IncidentDrawer({
           )}
 
           {/* 4 Metadata Chips */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
             <div className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-800/30 border border-zinc-200/50 dark:border-zinc-800">
               <span className="text-[10px] font-mono text-zinc-400 uppercase">Facility Room</span>
               <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100 uppercase mt-0.5 flex items-center gap-1.5">
@@ -261,17 +261,17 @@ export default function IncidentDrawer({
               </div>
               <div
                 onClick={() => setLightboxUrl(incident.photo_url!)}
-                className="relative rounded-xl overflow-hidden border border-zinc-200 dark:border-zinc-700 bg-zinc-900 cursor-pointer group max-h-56 sm:max-h-64 flex items-center justify-center shadow-2xs"
+                className="relative rounded-xl overflow-hidden border border-zinc-200 dark:border-zinc-700 bg-zinc-900 cursor-pointer group h-44 w-full flex items-center justify-center shadow-2xs"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={incident.photo_url}
                   alt="Incident Evidence"
-                  className="w-full h-auto max-h-56 sm:max-h-64 object-contain group-hover:scale-[1.02] transition-transform duration-200"
+                  className="w-full h-44 max-h-44 object-cover group-hover:scale-[1.02] transition-transform duration-200"
                 />
                 <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 text-white text-xs font-medium">
                   <Maximize2 className="h-4 w-4" />
-                  <span>Click to enlarge photo</span>
+                  <span>Tap to zoom photo</span>
                 </div>
               </div>
             </div>
@@ -360,7 +360,7 @@ export default function IncidentDrawer({
             )}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="w-full sm:w-auto grid grid-cols-2 sm:flex items-center gap-2">
             {canManage && !isResolved ? (
               <>
                 <Button
@@ -368,7 +368,7 @@ export default function IncidentDrawer({
                   variant="outline"
                   disabled={isSubmitting}
                   onClick={() => handleStatusChange('under_repair')}
-                  className="h-8 text-xs font-mono gap-1.5"
+                  className="h-8 text-xs font-mono gap-1.5 w-full sm:w-auto"
                 >
                   <Wrench className="h-3 w-3 text-sky-500" />
                   <span>Mark Under Repair</span>
@@ -379,7 +379,7 @@ export default function IncidentDrawer({
                   variant="outline"
                   disabled={isSubmitting}
                   onClick={() => handleStatusChange('replaced')}
-                  className="h-8 text-xs font-mono gap-1.5"
+                  className="h-8 text-xs font-mono gap-1.5 w-full sm:w-auto"
                 >
                   <RotateCcw className="h-3 w-3 text-indigo-500" />
                   <span>Mark Replaced</span>
@@ -389,7 +389,7 @@ export default function IncidentDrawer({
                   size="sm"
                   disabled={isSubmitting}
                   onClick={() => handleStatusChange('resolved')}
-                  className="h-8 text-xs font-mono bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 font-bold shadow-xs"
+                  className="col-span-2 sm:col-span-1 h-8 text-xs font-mono bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 font-bold shadow-xs w-full sm:w-auto justify-center"
                 >
                   <CheckCircle2 className="h-3.5 w-3.5" />
                   <span>Close as Resolved</span>
@@ -400,7 +400,7 @@ export default function IncidentDrawer({
                 size="sm"
                 variant="outline"
                 onClick={onClose}
-                className="h-8 text-xs font-mono"
+                className="col-span-2 sm:col-span-1 h-8 text-xs font-mono w-full sm:w-auto"
               >
                 Close View
               </Button>

@@ -37,7 +37,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import dynamic from 'next/dynamic'
-import { MASTER_TIME_SLOTS, MasterRoutineItem } from '@/lib/master-data'
+import { MasterRoutineItem } from '@/lib/master-data'
 import { getNepalDateStr } from '@/lib/nepali-date'
 import type { ModalMode } from '@/components/schedules/session-action-modal'
 import { sortSessionsChronologically } from '@/lib/utils'
@@ -128,9 +128,10 @@ export default function DashboardPage() {
   }, [])
 
   const todayDateStr = getNepalDateStr(now)
-  const { getHolidayForDate } = useInfrastructureState()
+  const { getHolidayForDate, periods } = useInfrastructureState()
   const todayHoliday = getHolidayForDate(todayDateStr)
-  const currentSlotIdx = MASTER_TIME_SLOTS.findIndex((s) => s.id === activeSlotId)
+  const activePeriods = periods || []
+  const currentSlotIdx = activePeriods.findIndex((s) => s.id === activeSlotId)
   const currentMinutes = now.getHours() * 60 + now.getMinutes()
   const isBeforeSchool = currentMinutes < 9 * 60 + 15
   const isAfterSchool = currentMinutes >= 16 * 60 + 50
@@ -166,7 +167,7 @@ export default function DashboardPage() {
       return
     }
 
-    const startSlotIdx = MASTER_TIME_SLOTS.findIndex((s) => s.id === session.slotId)
+    const startSlotIdx = activePeriods.findIndex((s) => s.id === session.slotId)
     const span = session.span || 1
     const endSlotIdx = startSlotIdx !== -1 ? startSlotIdx + span - 1 : -1
 
@@ -295,7 +296,7 @@ export default function DashboardPage() {
     <div className="space-y-3.5 sm:space-y-4 w-full animate-in fade-in duration-300 relative select-none overflow-x-clip">
       {/* Toast Feedback */}
       {toastMessage && (
-        <div className="fixed top-20 right-8 z-50 bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 px-4 py-2.5 rounded-xl shadow-2xl text-xs font-medium animate-in slide-in-from-top-2 duration-200 flex items-center gap-2 border border-zinc-700 dark:border-zinc-300">
+        <div className="fixed top-20 right-8 z-[100] bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 px-4 py-2.5 rounded-xl shadow-2xl text-xs font-medium animate-in slide-in-from-top-2 duration-200 flex items-center gap-2 border border-zinc-700 dark:border-zinc-300">
           <Sparkles className="h-4 w-4 text-amber-400 dark:text-amber-600" />
           <span>{toastMessage}</span>
         </div>

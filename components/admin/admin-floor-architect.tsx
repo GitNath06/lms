@@ -18,6 +18,7 @@ import {
   Plus,
   Minus,
   X,
+  Download,
   HelpCircle,
   Bookmark,
   Trash2,
@@ -35,6 +36,7 @@ import { FloorLandmarkNode } from '@/components/maintenance/workstations/floor-l
 import { CanvasControlsHud } from '@/components/computer-lab/canvas-controls-hud'
 import { CanvasMinimapRadar } from '@/components/computer-lab/canvas-minimap-radar'
 import { CadInspectorDrawer } from './cad-inspector-drawer'
+import { AgentDownloadModal } from './agent-download-modal'
 import { useCanvasViewport } from '@/hooks/use-canvas-viewport'
 import {
   getWorkstationBoardData,
@@ -136,7 +138,7 @@ export default function AdminFloorArchitect({
       ])
       setBoardData(bData)
       setLocalWorkstations(bData.workstations)
-      if (fData.success && fData.data) {
+      if (fData.success && Array.isArray(fData.data)) {
         setLocalFloorElements(fData.data)
       } else {
         setLocalFloorElements([])
@@ -203,6 +205,9 @@ export default function AdminFloorArchitect({
   const [newLmType, setNewLmType] = useState('whiteboard')
   const [newLmLabel, setNewLmLabel] = useState('Interactive Whiteboard')
   const [isCreatingLm, setIsCreatingLm] = useState(false)
+
+  // Agent Download Modal
+  const [isAgentDownloadModalOpen, setIsAgentDownloadModalOpen] = useState(false)
 
   // Quick-Find Terminal Selector State
   const [quickFindQuery, setQuickFindQuery] = useState('')
@@ -448,8 +453,8 @@ export default function AdminFloorArchitect({
         // Compute position inside canvas taking zoom and pan into account
         const clientX = moveEvent.clientX - rect.left - viewport.pan.x
         const clientY = moveEvent.clientY - rect.top - viewport.pan.y
-        const rawX = (clientX / (rect.width * viewport.zoom)) * 100
-        const rawY = (clientY / (rect.height * viewport.zoom)) * 100
+        const rawX = (clientX / (1360 * viewport.zoom)) * 100
+        const rawY = (clientY / (780 * viewport.zoom)) * 100
 
         const snappedX = snapCoordinate(rawX, snapGrid)
         const snappedY = snapCoordinate(rawY, snapGrid)
@@ -589,8 +594,8 @@ export default function AdminFloorArchitect({
         const rect = container.getBoundingClientRect()
         const clientX = moveEvent.clientX - rect.left - viewport.pan.x
         const clientY = moveEvent.clientY - rect.top - viewport.pan.y
-        const rawX = (clientX / (rect.width * viewport.zoom)) * 100
-        const rawY = (clientY / (rect.height * viewport.zoom)) * 100
+        const rawX = (clientX / (1360 * viewport.zoom)) * 100
+        const rawY = (clientY / (780 * viewport.zoom)) * 100
 
         const snappedX = snapCoordinate(rawX, snapGrid)
         const snappedY = snapCoordinate(rawY, snapGrid)
@@ -1294,24 +1299,24 @@ export default function AdminFloorArchitect({
       {/* ============================================================== */}
       {/* 1. TOP COMMAND & TOOLS BAR                                     */}
       {/* ============================================================== */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 p-3 sm:p-4 rounded-2xl border border-indigo-500/30 bg-[#0B0F19] text-white shadow-xl">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 p-3 sm:p-4 rounded-2xl border border-zinc-200 dark:border-indigo-500/30 bg-white dark:bg-[#0B0F19] text-zinc-900 dark:text-white shadow-xl">
         {/* Left Title & Status */}
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 shadow-xs">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-500/10 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-500/30 shadow-xs">
             <Monitor className="h-4.5 w-4.5" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="font-heading font-extrabold text-sm text-white">
+              <h3 className="font-heading font-extrabold text-sm text-zinc-900 dark:text-white">
                 CAD Floor Architect
               </h3>
               {hasUnsavedChanges && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 animate-pulse">
                   Unsaved Changes
                 </span>
               )}
             </div>
-            <p className="text-[11px] text-slate-400 mt-0.5">
+            <p className="text-[11px] text-zinc-500 dark:text-slate-400 mt-0.5">
               Spatial CAD design, hardware provisioning &amp; workstation calibration
             </p>
           </div>
@@ -1339,11 +1344,24 @@ export default function AdminFloorArchitect({
             size="sm"
             disabled={!isEditModeUnlocked}
             onClick={() => setIsAddLmModalOpen(true)}
-            className="h-8.5 px-3 text-xs font-semibold rounded-xl border-white/10 text-slate-200 hover:bg-white/5 gap-1.5 cursor-pointer disabled:opacity-40"
+            className="h-8.5 px-3 text-xs font-semibold rounded-xl border-zinc-200 dark:border-white/10 text-zinc-700 dark:text-slate-200 hover:bg-zinc-100 dark:hover:bg-white/5 gap-1.5 cursor-pointer disabled:opacity-40"
             title="Place whiteboards, podiums, doors, or windows"
           >
-            <Plus className="h-3.5 w-3.5 text-indigo-400" />
+            <Plus className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
             <span>Add Landmark</span>
+          </Button>
+
+          {/* Download Lab Agent Script Button (Rule 1: No literal + in text) */}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setIsAgentDownloadModalOpen(true)}
+            className="h-8.5 px-3 text-xs font-semibold rounded-xl border-indigo-200 dark:border-indigo-500/30 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 gap-1.5 cursor-pointer shadow-xs"
+            title="Download Setup-LabTerminal.bat installer for physical computers"
+          >
+            <Download className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
+            <span>Download Lab Agent</span>
           </Button>
 
           {/* Add Row Buttons to Expand Lab Capacity (Rule 1: No literal + in text) */}
@@ -1354,10 +1372,10 @@ export default function AdminFloorArchitect({
               size="sm"
               disabled={!isEditModeUnlocked}
               onClick={() => handleAddExtensionRow('left')}
-              className="h-8.5 px-2.5 text-xs font-semibold rounded-l-xl border-white/10 text-slate-200 hover:bg-white/5 gap-1 cursor-pointer disabled:opacity-40"
+              className="h-8.5 px-2.5 text-xs font-semibold rounded-l-xl border-zinc-200 dark:border-white/10 text-zinc-700 dark:text-slate-200 hover:bg-zinc-100 dark:hover:bg-white/5 gap-1 cursor-pointer disabled:opacity-40"
               title="Expand capacity by adding 4 desk positions to Left Wing"
             >
-              <Plus className="h-3.5 w-3.5 text-indigo-400" />
+              <Plus className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
               <span>Add Row (L)</span>
             </Button>
             <Button
@@ -1366,10 +1384,10 @@ export default function AdminFloorArchitect({
               size="sm"
               disabled={!isEditModeUnlocked}
               onClick={() => handleAddExtensionRow('right')}
-              className="h-8.5 px-2 text-xs font-semibold rounded-r-xl border-l-0 border-white/10 text-slate-200 hover:bg-white/5 gap-1 cursor-pointer disabled:opacity-40"
+              className="h-8.5 px-2 text-xs font-semibold rounded-r-xl border-l-0 border-zinc-200 dark:border-white/10 text-zinc-700 dark:text-slate-200 hover:bg-zinc-100 dark:hover:bg-white/5 gap-1 cursor-pointer disabled:opacity-40"
               title="Expand capacity by adding 4 desk positions to Right Wing"
             >
-              <Plus className="h-3.5 w-3.5 text-indigo-400" />
+              <Plus className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
               <span>(R)</span>
             </Button>
           </div>
@@ -1380,7 +1398,7 @@ export default function AdminFloorArchitect({
             size="sm"
             disabled={!isEditModeUnlocked}
             onClick={() => setIsCustomGridModalOpen(true)}
-            className="h-8.5 px-3 text-xs font-bold rounded-xl bg-indigo-950/80 hover:bg-indigo-900 border border-indigo-500/40 text-indigo-200 gap-1.5 cursor-pointer disabled:opacity-40"
+            className="h-8.5 px-3 text-xs font-bold rounded-xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/80 dark:hover:bg-indigo-900 border border-indigo-200 dark:border-indigo-500/40 text-indigo-700 dark:text-indigo-200 gap-1.5 cursor-pointer disabled:opacity-40"
             title="Generate custom rows, columns, and corridor layout"
           >
             <SlidersHorizontal className="h-3.5 w-3.5" />
@@ -1392,7 +1410,7 @@ export default function AdminFloorArchitect({
             <Select
               value={selectedPreset}
               onChange={(e) => handlePresetChange(e.target.value)}
-              className="h-8.5 text-xs bg-[#151E32] border-white/10 text-white rounded-xl min-w-[190px]"
+              className="h-8.5 text-xs bg-zinc-100 dark:bg-[#151E32] border-zinc-200 dark:border-white/10 text-zinc-800 dark:text-white rounded-xl min-w-[190px]"
             >
               <option value="official_dual_wing">Default Lab Layout (48 PCs)</option>
               {selectedPreset === 'draft_custom' && (
@@ -1418,10 +1436,10 @@ export default function AdminFloorArchitect({
               size="sm"
               disabled={!isEditModeUnlocked}
               onClick={handleApplyDefaultCanonicalLayout}
-              className="h-8.5 px-2.5 text-xs rounded-xl border-white/10 text-slate-300 hover:bg-white/5 cursor-pointer disabled:opacity-40 gap-1.5"
+              className="h-8.5 px-2.5 text-xs rounded-xl border-zinc-200 dark:border-white/10 text-zinc-700 dark:text-slate-300 hover:bg-zinc-100 dark:hover:bg-white/5 cursor-pointer disabled:opacity-40 gap-1.5"
               title="Reset canvas to pristine Default Lab Layout (48 PCs)"
             >
-              <RotateCcw className="h-3 w-3 text-indigo-400" />
+              <RotateCcw className="h-3 w-3 text-indigo-500 dark:text-indigo-400" />
               <span>Reset Default</span>
             </Button>
 
@@ -1432,7 +1450,7 @@ export default function AdminFloorArchitect({
                 size="sm"
                 disabled={!isEditModeUnlocked}
                 onClick={() => handleDeleteCustomTemplate(selectedPreset.replace('tpl_', ''))}
-                className="h-8.5 px-2 text-xs font-semibold rounded-xl border-rose-500/40 text-rose-300 hover:bg-rose-500/10 cursor-pointer disabled:opacity-40"
+                className="h-8.5 px-2 text-xs font-semibold rounded-xl border-rose-300 dark:border-rose-500/40 text-rose-600 dark:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-500/10 cursor-pointer disabled:opacity-40"
                 title="Delete this saved custom preset"
               >
                 <Trash2 className="h-3.5 w-3.5" />
@@ -1447,7 +1465,7 @@ export default function AdminFloorArchitect({
             size="sm"
             disabled={!hasUnsavedChanges || isSaving}
             onClick={handleDiscardChanges}
-            className="h-8.5 px-3 text-xs rounded-xl border-white/10 text-slate-300 hover:bg-white/5 gap-1.5 disabled:opacity-40 cursor-pointer"
+            className="h-8.5 px-3 text-xs rounded-xl border-zinc-200 dark:border-white/10 text-zinc-700 dark:text-slate-300 hover:bg-zinc-100 dark:hover:bg-white/5 gap-1.5 disabled:opacity-40 cursor-pointer"
           >
             <RotateCcw className="h-3 w-3" />
             <span>Discard</span>
@@ -1475,7 +1493,7 @@ export default function AdminFloorArchitect({
             size="sm"
             onClick={handleRefreshData}
             disabled={loading}
-            className="h-8.5 px-2.5 text-xs rounded-xl border-white/10 text-slate-300 hover:bg-white/5 cursor-pointer"
+            className="h-8.5 px-2.5 text-xs rounded-xl border-zinc-200 dark:border-white/10 text-zinc-700 dark:text-slate-300 hover:bg-zinc-100 dark:hover:bg-white/5 cursor-pointer"
             title="Reload from database"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
@@ -1486,7 +1504,7 @@ export default function AdminFloorArchitect({
             <Button
               type="button"
               size="sm"
-              className="h-8.5 px-3 text-xs font-bold rounded-xl bg-[#151E32] hover:bg-[#1E293B] border border-white/10 text-slate-200 gap-1.5 shadow-xs"
+              className="h-8.5 px-3 text-xs font-bold rounded-xl bg-zinc-100 hover:bg-zinc-200 dark:bg-[#151E32] dark:hover:bg-[#1E293B] border border-zinc-200 dark:border-white/10 text-zinc-800 dark:text-slate-200 gap-1.5 shadow-xs"
               title="Navigate to the operational lab workspace"
             >
               <ExternalLink className="h-3.5 w-3.5" />
@@ -1527,35 +1545,35 @@ export default function AdminFloorArchitect({
       )}
 
       {/* 2. TERMINAL QUICK SELECTOR & TRIAGE BAR */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 p-3 rounded-2xl bg-[#101726] border border-white/10 text-xs">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 p-3 rounded-2xl bg-white dark:bg-[#101726] border border-zinc-200 dark:border-white/10 text-xs">
         <div className="flex items-center gap-2.5 flex-wrap flex-1 min-w-0">
-          <span className="font-bold text-slate-300 flex items-center gap-1.5 shrink-0">
-            <Monitor className="h-4 w-4 text-indigo-400" />
+          <span className="font-bold text-zinc-700 dark:text-slate-300 flex items-center gap-1.5 shrink-0">
+            <Monitor className="h-4 w-4 text-indigo-500 dark:text-indigo-400" />
             <span>Select Terminal:</span>
           </span>
 
           {/* Quick-Find Combobox with Search & Organized Groups */}
           <div ref={quickFindRef} className="relative flex-1 max-w-sm min-w-[240px]">
             {selectedWs ? (
-              <div className="flex items-center justify-between h-8 px-2.5 rounded-xl bg-[#0B0F19] border border-indigo-500/40 text-white font-mono text-xs">
+              <div className="flex items-center justify-between h-8 px-2.5 rounded-xl bg-zinc-50 dark:bg-[#0B0F19] border border-indigo-300 dark:border-indigo-500/40 text-zinc-900 dark:text-white font-mono text-xs">
                 <div className="flex items-center gap-2 truncate">
                   <span
                     className={`h-2 w-2 rounded-full shrink-0 ${
                       selectedWs.status === 'under_repair'
-                        ? 'bg-cyan-400'
+                        ? 'bg-cyan-500'
                         : selectedWs.status === 'flagged'
-                        ? 'bg-amber-400'
-                        : 'bg-emerald-400'
+                        ? 'bg-amber-500'
+                        : 'bg-emerald-500'
                     }`}
                   />
-                  <span className="font-extrabold text-indigo-300">{selectedWs.label}</span>
+                  <span className="font-extrabold text-indigo-600 dark:text-indigo-300">{selectedWs.label}</span>
                   {selectedWs.row_label && (
-                    <span className="text-slate-400 font-sans text-[11px] truncate">
+                    <span className="text-zinc-500 dark:text-slate-400 font-sans text-[11px] truncate">
                       ({selectedWs.row_label})
                     </span>
                   )}
                   {(selectedWs as any).position_id && (
-                    <span className="px-1 py-0.2 rounded bg-indigo-500/20 text-indigo-300 text-[10px] font-mono">
+                    <span className="px-1 py-0.2 rounded bg-indigo-50 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300 text-[10px] font-mono">
                       {(selectedWs as any).position_id}
                     </span>
                   )}
@@ -1568,7 +1586,7 @@ export default function AdminFloorArchitect({
                       setQuickFindQuery('')
                       setIsQuickFindOpen(true)
                     }}
-                    className="p-1 text-slate-400 hover:text-white rounded-md transition-colors cursor-pointer"
+                    className="p-1 text-zinc-400 hover:text-zinc-900 dark:text-slate-400 dark:hover:text-white rounded-md transition-colors cursor-pointer"
                     title="Change selected terminal"
                   >
                     <Search className="h-3 w-3" />
@@ -1576,7 +1594,7 @@ export default function AdminFloorArchitect({
                   <button
                     type="button"
                     onClick={() => setSelectedWs(null)}
-                    className="p-1 text-slate-400 hover:text-white rounded-md transition-colors cursor-pointer"
+                    className="p-1 text-zinc-400 hover:text-zinc-900 dark:text-slate-400 dark:hover:text-white rounded-md transition-colors cursor-pointer"
                     title="Clear selection"
                   >
                     <X className="h-3 w-3" />
@@ -1585,7 +1603,7 @@ export default function AdminFloorArchitect({
               </div>
             ) : (
               <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-400 dark:text-slate-400 pointer-events-none" />
                 <input
                   type="text"
                   value={quickFindQuery}
@@ -1595,12 +1613,12 @@ export default function AdminFloorArchitect({
                   }}
                   onFocus={() => setIsQuickFindOpen(true)}
                   placeholder="Quick find terminal (e.g. PC-11, Row C, C1)..."
-                  className="w-full h-8 pl-8 pr-7 rounded-xl bg-[#0B0F19] border border-white/10 text-white font-sans text-xs placeholder:text-slate-500 focus:border-indigo-500 focus:outline-none"
+                  className="w-full h-8 pl-8 pr-7 rounded-xl bg-zinc-50 dark:bg-[#0B0F19] border border-zinc-200 dark:border-white/10 text-zinc-900 dark:text-white font-sans text-xs placeholder:text-zinc-400 dark:placeholder:text-slate-500 focus:border-indigo-500 focus:outline-none"
                 />
                 <button
                   type="button"
                   onClick={() => setIsQuickFindOpen(!isQuickFindOpen)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-slate-400 hover:text-white cursor-pointer"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-zinc-400 hover:text-zinc-900 dark:text-slate-400 dark:hover:text-white cursor-pointer"
                 >
                   <ChevronDown className="h-3.5 w-3.5" />
                 </button>
@@ -1609,11 +1627,11 @@ export default function AdminFloorArchitect({
 
             {/* Quick-Find Autocomplete Popover */}
             {isQuickFindOpen && (
-              <div className="absolute top-full mt-1.5 left-0 w-full sm:w-96 p-2 rounded-2xl bg-[#0B0F19] border border-indigo-500/30 shadow-2xl z-50 max-h-72 overflow-y-auto space-y-2.5 animate-in fade-in duration-150">
+              <div className="absolute top-full mt-1.5 left-0 w-full sm:w-96 p-2 rounded-2xl bg-white dark:bg-[#0B0F19] border border-zinc-200 dark:border-indigo-500/30 shadow-2xl z-50 max-h-72 overflow-y-auto space-y-2.5 animate-in fade-in duration-150">
                 {/* Podium / Teacher Node */}
                 {groupedWorkstations.podium.length > 0 && (
                   <div>
-                    <div className="px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider text-indigo-400 bg-indigo-500/10 rounded-md mb-1">
+                    <div className="px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 rounded-md mb-1">
                       Instructor Console
                     </div>
                     <div className="grid grid-cols-2 gap-1">
@@ -1628,14 +1646,14 @@ export default function AdminFloorArchitect({
                           className={`p-1.5 rounded-lg border text-left flex items-center justify-between cursor-pointer transition-colors ${
                             selectedWs?.id === w.id
                               ? 'bg-indigo-600 text-white border-indigo-500'
-                              : 'bg-[#151E32] text-slate-200 border-white/5 hover:border-indigo-500/40 hover:bg-white/5'
+                              : 'bg-zinc-50 text-zinc-800 border-zinc-200 hover:border-indigo-300 hover:bg-zinc-100 dark:bg-[#151E32] dark:text-slate-200 dark:border-white/5 dark:hover:border-indigo-500/40 dark:hover:bg-white/5'
                           }`}
                         >
                           <div className="flex items-center gap-1.5 truncate">
-                            <Monitor className="h-3 w-3 text-indigo-400 shrink-0" />
+                            <Monitor className="h-3 w-3 text-indigo-500 dark:text-indigo-400 shrink-0" />
                             <span className="font-mono font-bold text-xs truncate">{w.label}</span>
                           </div>
-                          <span className="text-[9px] font-mono text-slate-400">Podium</span>
+                          <span className="text-[9px] font-mono text-zinc-500 dark:text-slate-400">Podium</span>
                         </button>
                       ))}
                     </div>
@@ -1645,9 +1663,9 @@ export default function AdminFloorArchitect({
                 {/* Left Wing */}
                 {groupedWorkstations.leftWing.length > 0 && (
                   <div>
-                    <div className="px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider text-indigo-300 bg-white/5 rounded-md mb-1 flex items-center justify-between">
+                    <div className="px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-700 dark:text-indigo-300 bg-zinc-100 dark:bg-white/5 rounded-md mb-1 flex items-center justify-between">
                       <span>Left Wing (Rows A–F)</span>
-                      <span className="text-slate-400 font-normal">{groupedWorkstations.leftWing.length} PCs</span>
+                      <span className="text-zinc-500 dark:text-slate-400 font-normal">{groupedWorkstations.leftWing.length} PCs</span>
                     </div>
                     <div className="grid grid-cols-3 gap-1">
                       {groupedWorkstations.leftWing.map((w) => {
@@ -1663,24 +1681,24 @@ export default function AdminFloorArchitect({
                             className={`p-1.5 rounded-lg border text-left flex items-center justify-between cursor-pointer transition-colors ${
                               selectedWs?.id === w.id
                                 ? 'bg-indigo-600 text-white border-indigo-500'
-                                : 'bg-[#151E32] text-slate-200 border-white/5 hover:border-indigo-500/40 hover:bg-white/5'
+                                : 'bg-zinc-50 text-zinc-800 border-zinc-200 hover:border-indigo-300 hover:bg-zinc-100 dark:bg-[#151E32] dark:text-slate-200 dark:border-white/5 dark:hover:border-indigo-500/40 dark:hover:bg-white/5'
                             }`}
                           >
                             <div className="truncate">
                               <span className="font-mono font-bold text-xs block leading-tight truncate">
                                 {w.label}
                               </span>
-                              <span className="text-[9px] font-mono text-slate-400 block truncate">
+                              <span className="text-[9px] font-mono text-zinc-500 dark:text-slate-400 block truncate">
                                 {posId || w.row_label?.replace(' (Left)', '') || ''}
                               </span>
                             </div>
                             <span
                               className={`h-1.5 w-1.5 rounded-full shrink-0 ${
                                 w.status === 'under_repair'
-                                  ? 'bg-cyan-400'
+                                  ? 'bg-cyan-500'
                                   : w.status === 'flagged'
-                                  ? 'bg-amber-400'
-                                  : 'bg-emerald-400'
+                                  ? 'bg-amber-500'
+                                  : 'bg-emerald-500'
                               }`}
                             />
                           </button>
@@ -1693,9 +1711,9 @@ export default function AdminFloorArchitect({
                 {/* Right Wing */}
                 {groupedWorkstations.rightWing.length > 0 && (
                   <div>
-                    <div className="px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider text-indigo-300 bg-white/5 rounded-md mb-1 flex items-center justify-between">
+                    <div className="px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-700 dark:text-indigo-300 bg-zinc-100 dark:bg-white/5 rounded-md mb-1 flex items-center justify-between">
                       <span>Right Wing (Rows G–L)</span>
-                      <span className="text-slate-400 font-normal">{groupedWorkstations.rightWing.length} PCs</span>
+                      <span className="text-zinc-500 dark:text-slate-400 font-normal">{groupedWorkstations.rightWing.length} PCs</span>
                     </div>
                     <div className="grid grid-cols-3 gap-1">
                       {groupedWorkstations.rightWing.map((w) => {
@@ -1711,24 +1729,24 @@ export default function AdminFloorArchitect({
                             className={`p-1.5 rounded-lg border text-left flex items-center justify-between cursor-pointer transition-colors ${
                               selectedWs?.id === w.id
                                 ? 'bg-indigo-600 text-white border-indigo-500'
-                                : 'bg-[#151E32] text-slate-200 border-white/5 hover:border-indigo-500/40 hover:bg-white/5'
+                                : 'bg-zinc-50 text-zinc-800 border-zinc-200 hover:border-indigo-300 hover:bg-zinc-100 dark:bg-[#151E32] dark:text-slate-200 dark:border-white/5 dark:hover:border-indigo-500/40 dark:hover:bg-white/5'
                             }`}
                           >
                             <div className="truncate">
                               <span className="font-mono font-bold text-xs block leading-tight truncate">
                                 {w.label}
                               </span>
-                              <span className="text-[9px] font-mono text-slate-400 block truncate">
+                              <span className="text-[9px] font-mono text-zinc-500 dark:text-slate-400 block truncate">
                                 {posId || w.row_label?.replace(' (Right)', '') || ''}
                               </span>
                             </div>
                             <span
                               className={`h-1.5 w-1.5 rounded-full shrink-0 ${
                                 w.status === 'under_repair'
-                                  ? 'bg-cyan-400'
+                                  ? 'bg-cyan-500'
                                   : w.status === 'flagged'
-                                  ? 'bg-amber-400'
-                                  : 'bg-emerald-400'
+                                  ? 'bg-amber-500'
+                                  : 'bg-emerald-500'
                               }`}
                             />
                           </button>
@@ -1739,7 +1757,7 @@ export default function AdminFloorArchitect({
                 )}
 
                 {filteredWorkstations.length === 0 && (
-                  <div className="p-4 text-center text-slate-400 text-xs italic">
+                  <div className="p-4 text-center text-zinc-500 dark:text-slate-400 text-xs italic">
                     No terminals match &ldquo;{quickFindQuery}&rdquo;
                   </div>
                 )}
@@ -1765,7 +1783,7 @@ export default function AdminFloorArchitect({
               size="sm"
               disabled={!isEditModeUnlocked}
               onClick={() => setIsDrawerOpen(true)}
-              className="h-8 px-3 text-xs font-bold rounded-xl border-rose-500/40 text-rose-300 hover:bg-rose-500/10 hover:border-rose-500/60 gap-1 cursor-pointer disabled:opacity-40"
+              className="h-8 px-3 text-xs font-bold rounded-xl border-rose-300 dark:border-rose-500/40 text-rose-600 dark:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-500/10 hover:border-rose-400 dark:hover:border-rose-500/60 gap-1 cursor-pointer disabled:opacity-40"
               title="Remove or decommission this workstation"
             >
               <Trash2 className="h-3 w-3" />
@@ -1773,7 +1791,7 @@ export default function AdminFloorArchitect({
             </Button>
           </div>
         ) : (
-          <span className="text-slate-400 text-[11px] italic shrink-0">
+          <span className="text-zinc-500 dark:text-slate-400 text-[11px] italic shrink-0">
             Click any workstation or empty slot on canvas to view properties
           </span>
         )}
@@ -1784,7 +1802,7 @@ export default function AdminFloorArchitect({
       {/* ============================================================== */}
       <div
         {...viewport.containerProps}
-        className={`relative w-full h-[750px] rounded-2xl border border-indigo-500/20 bg-[#0B0F19] overflow-hidden select-none shadow-inner ${
+        className={`relative w-full h-[750px] rounded-2xl border border-zinc-200 dark:border-indigo-500/20 bg-slate-100 dark:bg-[#0B0F19] overflow-hidden select-none shadow-inner ${
           viewport.isPanning ? 'cursor-grabbing' : viewport.isPanToolActive ? 'cursor-grab' : 'cursor-default'
         }`}
       >
@@ -1822,26 +1840,23 @@ export default function AdminFloorArchitect({
 
         {/* Blueprint Grid Lines & Dots Layer */}
         <div
-          className="absolute inset-0 pointer-events-none opacity-25"
-          style={{
-            backgroundImage: `radial-gradient(circle, #6366F1 1px, transparent 1px)`,
-            backgroundSize: `${(snapGrid || 2) * 16}px ${(snapGrid || 2) * 16}px`,
-          }}
+          className="absolute inset-0 pointer-events-none cad-canvas-grid opacity-75 dark:opacity-25"
         />
 
         {/* Viewport Transform Container */}
         <div
           style={{
-            ...viewport.canvasTransformStyle,
-            width: '100%',
-            height: '100%',
+            width: '1360px',
+            height: '780px',
             position: 'absolute',
-            inset: 0,
+            left: 0,
+            top: 0,
+            ...viewport.canvasTransformStyle,
           }}
         >
           {loading ? (
             <div className="h-full w-full flex items-center justify-center">
-              <div className="flex items-center gap-2 text-xs text-indigo-400">
+              <div className="flex items-center gap-2 text-xs text-indigo-600 dark:text-indigo-400">
                 <Loader2 className="h-5 w-5 animate-spin" />
                 <span>Calibrating laboratory topology...</span>
               </div>
@@ -1849,7 +1864,7 @@ export default function AdminFloorArchitect({
           ) : (
             <>
               {/* Floor Landmarks (Whiteboards, Doors, Podiums) */}
-              {localFloorElements.map((el) => (
+              {(Array.isArray(localFloorElements) ? localFloorElements : []).map((el) => (
                 <FloorLandmarkNode
                   key={el.id}
                   element={el}
@@ -1879,16 +1894,16 @@ export default function AdminFloorArchitect({
                   <button
                     type="button"
                     onClick={() => handleGhostSlotClick(slot)}
-                    className="w-[136px] sm:w-[144px] md:w-[150px] h-[74px] sm:h-[80px] md:h-[84px] rounded-xl border-2 border-dashed border-indigo-400/30 hover:border-indigo-400 hover:scale-[1.03] bg-indigo-500/[0.04] hover:bg-indigo-500/15 backdrop-blur-2xs flex flex-col items-center justify-center p-2 text-center transition-all cursor-pointer shadow-xs hover:shadow-indigo-500/25"
+                    className="w-[114px] sm:w-[122px] xl:w-[130px] h-[62px] sm:h-[66px] xl:h-[70px] rounded-xl border-2 border-dashed border-indigo-300 dark:border-indigo-400/30 hover:border-indigo-500 dark:hover:border-indigo-400 hover:scale-[1.03] bg-white/70 dark:bg-indigo-500/[0.04] hover:bg-white dark:hover:bg-indigo-500/15 backdrop-blur-2xs flex flex-col items-center justify-center p-1.5 sm:p-2 text-center transition-all cursor-pointer shadow-xs hover:shadow-indigo-500/25"
                     title={`Click to provision PC at ${slot.positionId} (${slot.rowLabel})`}
                   >
-                    <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-500/20 text-indigo-400 group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-xs">
-                      <Plus className="h-4 w-4" />
+                    <div className="flex h-5 w-5 sm:h-6 sm:w-6 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400 group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-xs">
+                      <Plus className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
                     </div>
-                    <span className="font-mono text-[10.5px] font-bold text-indigo-300/80 group-hover:text-white mt-1 transition-colors">
+                    <span className="font-mono text-[9.5px] sm:text-[10px] font-bold text-indigo-700 dark:text-indigo-300/80 group-hover:text-indigo-900 dark:group-hover:text-white mt-0.5 transition-colors truncate max-w-full">
                       {slot.suggestedHardwareLabel || slot.positionId}
                     </span>
-                    <span className="text-[8.5px] text-slate-400/80 group-hover:text-slate-300 font-sans leading-tight">
+                    <span className="text-[7.5px] sm:text-[8px] text-zinc-500 dark:text-slate-400/80 group-hover:text-zinc-700 dark:group-hover:text-slate-300 font-sans leading-tight truncate max-w-full">
                       {slot.positionId} • {slot.rowLabel.replace(' (Left)', '').replace(' (Right)', '')}
                     </span>
                   </button>
@@ -1936,18 +1951,18 @@ export default function AdminFloorArchitect({
       {/* 4. ADD WORKSTATION MODAL                                       */}
       {/* ============================================================== */}
       {isAddWsModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="relative w-full max-w-md rounded-2xl border border-indigo-500/30 bg-[#101726] p-5 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-white/10">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="relative w-full max-w-md rounded-2xl border border-zinc-200 dark:border-indigo-500/30 bg-white dark:bg-[#101726] p-5 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-200 dark:border-white/10">
               <div className="flex items-center gap-2.5">
-                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-50 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-500/30">
                   <Monitor className="h-4 w-4" />
                 </div>
                 <div>
-                  <h3 className="font-heading font-extrabold text-sm text-white">
+                  <h3 className="font-heading font-extrabold text-sm text-zinc-900 dark:text-white">
                     Provision New Workstation
                   </h3>
-                  <p className="text-[11px] text-slate-400">
+                  <p className="text-[11px] text-zinc-500 dark:text-slate-400">
                     Add a physical computing terminal to {LAB_OPTIONS.find((l) => l.id === selectedLabId)?.name}
                   </p>
                 </div>
@@ -1955,27 +1970,27 @@ export default function AdminFloorArchitect({
               <button
                 type="button"
                 onClick={() => setIsAddWsModalOpen(false)}
-                className="p-1 text-slate-400 hover:text-white"
+                className="p-1 text-zinc-400 hover:text-zinc-900 dark:text-slate-400 dark:hover:text-white"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
-            <div className="space-y-3 text-xs text-slate-300">
+            <div className="space-y-3 text-xs text-zinc-700 dark:text-slate-300">
               <div>
-                <label className="block font-semibold mb-1">Terminal Hardware Label</label>
+                <label className="block font-semibold mb-1 text-zinc-800 dark:text-slate-200">Terminal Hardware Label</label>
                 <input
                   type="text"
                   value={newWsLabel}
                   onChange={(e) => setNewWsLabel(e.target.value)}
-                  className="w-full h-8.5 rounded-xl border border-white/10 bg-[#0B0F19] px-3 font-mono font-bold text-white focus:border-indigo-500 focus:outline-none"
+                  className="w-full h-8.5 rounded-xl border border-zinc-200 dark:border-white/10 bg-zinc-50 dark:bg-[#0B0F19] px-3 font-mono font-bold text-zinc-900 dark:text-white focus:border-indigo-500 focus:outline-none"
                   placeholder="e.g. PC-09"
                 />
               </div>
 
               {/* Target Grid Location Selector */}
               <div>
-                <label className="block font-semibold mb-1">Target Grid Location</label>
+                <label className="block font-semibold mb-1 text-zinc-800 dark:text-slate-200">Target Grid Location</label>
                 <Select
                   value={selectedSlotKey}
                   onChange={(e) => {
@@ -1997,7 +2012,7 @@ export default function AdminFloorArchitect({
                       }
                     }
                   }}
-                  className="w-full h-8.5 bg-[#0B0F19] border-white/10 text-white rounded-xl text-xs"
+                  className="w-full h-8.5 bg-zinc-50 dark:bg-[#0B0F19] border-zinc-200 dark:border-white/10 text-zinc-900 dark:text-white rounded-xl text-xs"
                 >
                   {emptyGridSlots.map((slot) => (
                     <option key={slot.positionId} value={slot.positionId}>
@@ -2011,22 +2026,22 @@ export default function AdminFloorArchitect({
               {/* Row Assignment & Desk Position ID */}
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block font-semibold mb-1">Row Assignment</label>
+                  <label className="block font-semibold mb-1 text-zinc-800 dark:text-slate-200">Row Assignment</label>
                   <input
                     type="text"
                     value={newWsRow}
                     onChange={(e) => setNewWsRow(e.target.value.replace(/\b\w/g, (c) => c.toUpperCase()))}
-                    className="w-full h-8.5 rounded-xl border border-white/10 bg-[#0B0F19] px-3 text-slate-200 focus:border-indigo-500 focus:outline-none"
+                    className="w-full h-8.5 rounded-xl border border-zinc-200 dark:border-white/10 bg-zinc-50 dark:bg-[#0B0F19] px-3 text-zinc-900 dark:text-slate-200 focus:border-indigo-500 focus:outline-none"
                     placeholder="e.g. Row C (Left)"
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold mb-1">Desk Position ID</label>
+                  <label className="block font-semibold mb-1 text-zinc-800 dark:text-slate-200">Desk Position ID</label>
                   <input
                     type="text"
                     value={newWsPositionId}
                     onChange={(e) => setNewWsPositionId(e.target.value.toUpperCase())}
-                    className="w-full h-8.5 rounded-xl border border-white/10 bg-[#0B0F19] px-3 font-mono uppercase text-slate-200 focus:border-indigo-500 focus:outline-none"
+                    className="w-full h-8.5 rounded-xl border border-zinc-200 dark:border-white/10 bg-zinc-50 dark:bg-[#0B0F19] px-3 font-mono uppercase text-zinc-900 dark:text-slate-200 focus:border-indigo-500 focus:outline-none"
                     placeholder="e.g. C1, F4"
                   />
                 </div>
@@ -2035,7 +2050,7 @@ export default function AdminFloorArchitect({
               {/* CAD Canvas Coordinates */}
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block font-semibold mb-1">X Coordinate (%)</label>
+                  <label className="block font-semibold mb-1 text-zinc-800 dark:text-slate-200">X Coordinate (%)</label>
                   <input
                     type="number"
                     min={2}
@@ -2045,11 +2060,11 @@ export default function AdminFloorArchitect({
                     onChange={(e) =>
                       setNewWsPos((prev) => ({ ...prev, x: parseFloat(e.target.value) || 0 }))
                     }
-                    className="w-full h-8.5 rounded-xl border border-white/10 bg-[#0B0F19] px-3 font-mono text-slate-200 focus:border-indigo-500 focus:outline-none"
+                    className="w-full h-8.5 rounded-xl border border-zinc-200 dark:border-white/10 bg-zinc-50 dark:bg-[#0B0F19] px-3 font-mono text-zinc-900 dark:text-slate-200 focus:border-indigo-500 focus:outline-none"
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold mb-1">Y Coordinate (%)</label>
+                  <label className="block font-semibold mb-1 text-zinc-800 dark:text-slate-200">Y Coordinate (%)</label>
                   <input
                     type="number"
                     min={2}
@@ -2059,17 +2074,17 @@ export default function AdminFloorArchitect({
                     onChange={(e) =>
                       setNewWsPos((prev) => ({ ...prev, y: parseFloat(e.target.value) || 0 }))
                     }
-                    className="w-full h-8.5 rounded-xl border border-white/10 bg-[#0B0F19] px-3 font-mono text-slate-200 focus:border-indigo-500 focus:outline-none"
+                    className="w-full h-8.5 rounded-xl border border-zinc-200 dark:border-white/10 bg-zinc-50 dark:bg-[#0B0F19] px-3 font-mono text-zinc-900 dark:text-slate-200 focus:border-indigo-500 focus:outline-none"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block font-semibold mb-1">Device Form Factor</label>
+                <label className="block font-semibold mb-1 text-zinc-800 dark:text-slate-200">Device Form Factor</label>
                 <Select
                   value={newWsDeviceType}
                   onChange={(e) => setNewWsDeviceType(e.target.value as any)}
-                  className="w-full h-8.5 bg-[#0B0F19] border-white/10 text-white rounded-xl text-xs"
+                  className="w-full h-8.5 bg-zinc-50 dark:bg-[#0B0F19] border-zinc-200 dark:border-white/10 text-zinc-900 dark:text-white rounded-xl text-xs"
                 >
                   <option value="desktop">Desktop Workstation (Tower + Display)</option>
                   <option value="aio">All-In-One Terminal</option>
@@ -2078,7 +2093,7 @@ export default function AdminFloorArchitect({
                 </Select>
               </div>
 
-              <div className="p-2.5 rounded-xl border border-indigo-500/20 bg-indigo-500/5 text-[11px] text-indigo-300">
+              <div className="p-2.5 rounded-xl border border-indigo-200 dark:border-indigo-500/20 bg-indigo-50/60 dark:bg-indigo-500/5 text-[11px] text-indigo-700 dark:text-indigo-300">
                 Will be placed at coordinates ({newWsPos.x}%, {newWsPos.y}%) in {newWsRow || 'unassigned row'}.
               </div>
             </div>
@@ -2089,7 +2104,7 @@ export default function AdminFloorArchitect({
                 variant="outline"
                 size="sm"
                 onClick={() => setIsAddWsModalOpen(false)}
-                className="flex-1 h-8.5 rounded-xl border-white/10 text-slate-300"
+                className="flex-1 h-8.5 rounded-xl border-zinc-200 dark:border-white/10 text-zinc-700 dark:text-slate-300 hover:bg-zinc-100 dark:hover:bg-white/5"
               >
                 Cancel
               </Button>
@@ -2116,18 +2131,18 @@ export default function AdminFloorArchitect({
       {/* 5. ADD LANDMARK MODAL                                          */}
       {/* ============================================================== */}
       {isAddLmModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="relative w-full max-w-md rounded-2xl border border-indigo-500/30 bg-[#101726] p-5 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-white/10">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="relative w-full max-w-md rounded-2xl border border-zinc-200 dark:border-indigo-500/30 bg-white dark:bg-[#101726] p-5 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-200 dark:border-white/10">
               <div className="flex items-center gap-2.5">
-                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-50 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-500/30">
                   <Building2 className="h-4 w-4" />
                 </div>
                 <div>
-                  <h3 className="font-heading font-extrabold text-sm text-white">
+                  <h3 className="font-heading font-extrabold text-sm text-zinc-900 dark:text-white">
                     Place Architectural Landmark
                   </h3>
-                  <p className="text-[11px] text-slate-400">
+                  <p className="text-[11px] text-zinc-500 dark:text-slate-400">
                     Add teaching podiums, interactive whiteboards, doors, or pillars
                   </p>
                 </div>
@@ -2135,15 +2150,15 @@ export default function AdminFloorArchitect({
               <button
                 type="button"
                 onClick={() => setIsAddLmModalOpen(false)}
-                className="p-1 text-slate-400 hover:text-white"
+                className="p-1 text-zinc-400 hover:text-zinc-900 dark:text-slate-400 dark:hover:text-white"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
-            <div className="space-y-3 text-xs text-slate-300">
+            <div className="space-y-3 text-xs text-zinc-700 dark:text-slate-300">
               <div>
-                <label className="block font-semibold mb-1">Landmark Type</label>
+                <label className="block font-semibold mb-1 text-zinc-800 dark:text-slate-200">Landmark Type</label>
                 <Select
                   value={newLmType}
                   onChange={(e) => {
@@ -2152,7 +2167,7 @@ export default function AdminFloorArchitect({
                     const meta = FLOOR_ELEMENT_CATALOG[val]
                     if (meta) setNewLmLabel(meta.label)
                   }}
-                  className="w-full h-8.5 bg-[#0B0F19] border-white/10 text-white rounded-xl text-xs"
+                  className="w-full h-8.5 bg-zinc-50 dark:bg-[#0B0F19] border-zinc-200 dark:border-white/10 text-zinc-900 dark:text-white rounded-xl text-xs"
                 >
                   {Object.entries(FLOOR_ELEMENT_CATALOG).map(([key, meta]) => (
                     <option key={key} value={key}>
@@ -2163,12 +2178,12 @@ export default function AdminFloorArchitect({
               </div>
 
               <div>
-                <label className="block font-semibold mb-1">Display Label</label>
+                <label className="block font-semibold mb-1 text-zinc-800 dark:text-slate-200">Display Label</label>
                 <input
                   type="text"
                   value={newLmLabel}
                   onChange={(e) => setNewLmLabel(e.target.value)}
-                  className="w-full h-8.5 rounded-xl border border-white/10 bg-[#0B0F19] px-3 text-white focus:border-indigo-500 focus:outline-none"
+                  className="w-full h-8.5 rounded-xl border border-zinc-200 dark:border-white/10 bg-zinc-50 dark:bg-[#0B0F19] px-3 text-zinc-900 dark:text-white focus:border-indigo-500 focus:outline-none"
                   placeholder="e.g. Interactive Whiteboard"
                 />
               </div>
@@ -2180,7 +2195,7 @@ export default function AdminFloorArchitect({
                 variant="outline"
                 size="sm"
                 onClick={() => setIsAddLmModalOpen(false)}
-                className="flex-1 h-8.5 rounded-xl border-white/10 text-slate-300"
+                className="flex-1 h-8.5 rounded-xl border-zinc-200 dark:border-white/10 text-zinc-700 dark:text-slate-300 hover:bg-zinc-100 dark:hover:bg-white/5"
               >
                 Cancel
               </Button>
@@ -2207,18 +2222,18 @@ export default function AdminFloorArchitect({
       {/* 6. SAVE CUSTOM LAYOUT MODAL (Default Immutability Guard)        */}
       {/* ============================================================== */}
       {isSaveLayoutModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="relative w-full max-w-md rounded-2xl border border-indigo-500/30 bg-[#101726] p-5 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-white/10">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="relative w-full max-w-md rounded-2xl border border-zinc-200 dark:border-indigo-500/30 bg-white dark:bg-[#101726] p-5 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-200 dark:border-white/10">
               <div className="flex items-center gap-2.5">
-                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-50 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-500/30">
                   <Bookmark className="h-4 w-4" />
                 </div>
                 <div>
-                  <h3 className="font-heading font-extrabold text-sm text-white">
+                  <h3 className="font-heading font-extrabold text-sm text-zinc-900 dark:text-white">
                     {saveLayoutMode === 'default_or_new' ? 'Save as Custom Layout or Default' : 'Save Layout Modifications'}
                   </h3>
-                  <p className="text-[11px] text-slate-400">
+                  <p className="text-[11px] text-zinc-500 dark:text-slate-400">
                     {saveLayoutMode === 'default_or_new'
                       ? 'Update the institutional default baseline or save as a custom layout preset.'
                       : 'Choose whether to update your existing preset, create a new one, or promote to default.'}
@@ -2228,28 +2243,28 @@ export default function AdminFloorArchitect({
               <button
                 type="button"
                 onClick={() => setIsSaveLayoutModalOpen(false)}
-                className="p-1 text-slate-400 hover:text-white"
+                className="p-1 text-zinc-400 hover:text-zinc-900 dark:text-slate-400 dark:hover:text-white"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
             {saveLayoutMode === 'default_or_new' ? (
-              <div className="space-y-4 text-xs text-slate-300">
+              <div className="space-y-4 text-xs text-zinc-700 dark:text-slate-300">
                 {/* Option 1: Update Institutional Default Layout */}
-                <div className="p-3.5 rounded-xl border border-amber-500/40 bg-amber-500/10 space-y-3">
+                <div className="p-3.5 rounded-xl border border-amber-300 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-500/10 space-y-3">
                   <div className="flex items-start gap-2.5">
-                    <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+                    <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="font-bold text-amber-300 text-xs">
+                        <span className="font-bold text-amber-800 dark:text-amber-300 text-xs">
                           Option 1: Update Institutional Default Layout
                         </span>
-                        <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-300 bg-amber-500/20 px-1.5 py-0 font-mono">
+                        <Badge variant="outline" className="text-[10px] border-amber-300 dark:border-amber-500/40 text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-500/20 px-1.5 py-0 font-mono">
                           Permanent Baseline
                         </Badge>
                       </div>
-                      <p className="text-[11px] text-amber-200/90 mt-1 leading-relaxed">
+                      <p className="text-[11px] text-amber-900/80 dark:text-amber-200/90 mt-1 leading-relaxed">
                         Warning: This will modify the official default layout in the database. All live lab sessions, student seating plans, and default layout resets will reflect these updated workstation coordinates.
                       </p>
                     </div>
@@ -2272,21 +2287,21 @@ export default function AdminFloorArchitect({
                 </div>
 
                 {/* Option 2: Save as Custom Preset */}
-                <div className="p-3.5 rounded-xl border border-white/10 bg-[#151E32] space-y-2.5">
+                <div className="p-3.5 rounded-xl border border-zinc-200 dark:border-white/10 bg-zinc-50 dark:bg-[#151E32] space-y-2.5">
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-white text-xs">Option 2: Save as Custom Layout</span>
-                    <span className="text-[10.5px] font-mono text-emerald-400">New Preset</span>
+                    <span className="font-bold text-zinc-900 dark:text-white text-xs">Option 2: Save as Custom Layout</span>
+                    <span className="text-[10.5px] font-mono text-emerald-600 dark:text-emerald-400">New Preset</span>
                   </div>
-                  <p className="text-[11px] text-slate-400">
+                  <p className="text-[11px] text-zinc-500 dark:text-slate-400">
                     Preserves the default baseline untouched and saves your current layout as a custom preset.
                   </p>
                   <div>
-                    <label className="block font-semibold mb-1 text-slate-200 text-[11px]">Preset Name</label>
+                    <label className="block font-semibold mb-1 text-zinc-800 dark:text-slate-200 text-[11px]">Preset Name</label>
                     <input
                       type="text"
                       value={customPresetName}
                       onChange={(e) => setCustomPresetName(e.target.value)}
-                      className="w-full h-8.5 rounded-xl border border-white/10 bg-[#0B0F19] px-3 text-white focus:border-indigo-500 focus:outline-none"
+                      className="w-full h-8.5 rounded-xl border border-zinc-200 dark:border-white/10 bg-white dark:bg-[#0B0F19] px-3 text-zinc-900 dark:text-white focus:border-indigo-500 focus:outline-none"
                       placeholder="e.g. Custom 1"
                     />
                   </div>
@@ -2312,21 +2327,21 @@ export default function AdminFloorArchitect({
                     variant="outline"
                     size="sm"
                     onClick={() => setIsSaveLayoutModalOpen(false)}
-                    className="w-full h-8.5 rounded-xl border-white/10 text-slate-300"
+                    className="w-full h-8.5 rounded-xl border-zinc-200 dark:border-white/10 text-zinc-700 dark:text-slate-300 hover:bg-zinc-100 dark:hover:bg-white/5"
                   >
                     Cancel
                   </Button>
                 </div>
               </div>
             ) : (
-              <div className="space-y-4 text-xs text-slate-300">
+              <div className="space-y-4 text-xs text-zinc-700 dark:text-slate-300">
                 {/* Option 1: Update Existing Preset in Place */}
-                <div className="p-3 rounded-xl border border-white/10 bg-[#151E32] space-y-2">
+                <div className="p-3 rounded-xl border border-zinc-200 dark:border-white/10 bg-zinc-50 dark:bg-[#151E32] space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-white">Option 1: Update Current Preset</span>
-                    <span className="text-[10.5px] font-mono text-indigo-400">Overwrite</span>
+                    <span className="font-bold text-zinc-900 dark:text-white">Option 1: Update Current Preset</span>
+                    <span className="text-[10.5px] font-mono text-indigo-600 dark:text-indigo-400">Overwrite</span>
                   </div>
-                  <p className="text-[11px] text-slate-400">
+                  <p className="text-[11px] text-zinc-500 dark:text-slate-400">
                     Saves current positions directly into &ldquo;{savedTemplates.find((t) => t.id === selectedPreset.replace('tpl_', ''))?.name || 'Current Preset'}&rdquo;.
                   </p>
                   <Button
@@ -2342,21 +2357,21 @@ export default function AdminFloorArchitect({
                 </div>
 
                 {/* Option 2: Save as New Layout */}
-                <div className="p-3 rounded-xl border border-white/10 bg-[#151E32] space-y-2">
+                <div className="p-3 rounded-xl border border-zinc-200 dark:border-white/10 bg-zinc-50 dark:bg-[#151E32] space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-white">Option 2: Save as New Layout</span>
-                    <span className="text-[10.5px] font-mono text-emerald-400">New Preset</span>
+                    <span className="font-bold text-zinc-900 dark:text-white">Option 2: Save as New Layout</span>
+                    <span className="text-[10.5px] font-mono text-emerald-600 dark:text-emerald-400">New Preset</span>
                   </div>
-                  <p className="text-[11px] text-slate-400">
+                  <p className="text-[11px] text-zinc-500 dark:text-slate-400">
                     Keeps the current preset unchanged and creates an additional preset.
                   </p>
                   <div>
-                    <label className="block font-semibold mb-1 text-slate-200">New Preset Name</label>
+                    <label className="block font-semibold mb-1 text-zinc-800 dark:text-slate-200">New Preset Name</label>
                     <input
                       type="text"
                       value={customPresetName}
                       onChange={(e) => setCustomPresetName(e.target.value)}
-                      className="w-full h-8.5 rounded-xl border border-white/10 bg-[#0B0F19] px-3 text-white focus:border-indigo-500 focus:outline-none"
+                      className="w-full h-8.5 rounded-xl border border-zinc-200 dark:border-white/10 bg-white dark:bg-[#0B0F19] px-3 text-zinc-900 dark:text-white focus:border-indigo-500 focus:outline-none"
                       placeholder="e.g. Custom 2"
                     />
                   </div>
@@ -2373,12 +2388,12 @@ export default function AdminFloorArchitect({
                 </div>
 
                 {/* Option 3: Promote to Institutional Default */}
-                <div className="p-3 rounded-xl border border-amber-500/40 bg-amber-500/10 space-y-2">
+                <div className="p-3 rounded-xl border border-amber-300 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-500/10 space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-amber-300">Option 3: Set as Institutional Default</span>
-                    <span className="text-[10.5px] font-mono text-amber-400">Set Default</span>
+                    <span className="font-bold text-amber-800 dark:text-amber-300">Option 3: Set as Institutional Default</span>
+                    <span className="text-[10.5px] font-mono text-amber-600 dark:text-amber-400">Set Default</span>
                   </div>
-                  <p className="text-[11px] text-amber-200/90 leading-relaxed">
+                  <p className="text-[11px] text-amber-900/80 dark:text-amber-200/90 leading-relaxed">
                     Warning: Promotes this layout to be the institutional default baseline in the database for all future classes and resets.
                   </p>
                   <Button
@@ -2399,7 +2414,7 @@ export default function AdminFloorArchitect({
                     variant="outline"
                     size="sm"
                     onClick={() => setIsSaveLayoutModalOpen(false)}
-                    className="w-full h-8.5 rounded-xl border-white/10 text-slate-300"
+                    className="w-full h-8.5 rounded-xl border-zinc-200 dark:border-white/10 text-zinc-700 dark:text-slate-300 hover:bg-zinc-100 dark:hover:bg-white/5"
                   >
                     Cancel
                   </Button>
@@ -2414,18 +2429,18 @@ export default function AdminFloorArchitect({
       {/* 7. CUSTOM ROOM GRID BUILDER MODAL (Decluttered & Streamlined)   */}
       {/* ============================================================== */}
       {isCustomGridModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="relative w-full max-w-md rounded-2xl border border-indigo-500/30 bg-[#101726] p-5 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-white/10">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="relative w-full max-w-md rounded-2xl border border-zinc-200 dark:border-indigo-500/30 bg-white dark:bg-[#101726] p-5 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-200 dark:border-white/10">
               <div className="flex items-center gap-2.5">
-                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-50 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-500/30">
                   <SlidersHorizontal className="h-4 w-4" />
                 </span>
                 <div>
-                  <h3 className="font-heading font-extrabold text-sm text-white">
+                  <h3 className="font-heading font-extrabold text-sm text-zinc-900 dark:text-white">
                     Custom Room Grid Generator
                   </h3>
-                  <p className="text-[11px] text-slate-400">
+                  <p className="text-[11px] text-zinc-500 dark:text-slate-400">
                     Quickly configure room corridor wings, rows, and desk counts
                   </p>
                 </div>
@@ -2433,17 +2448,17 @@ export default function AdminFloorArchitect({
               <button
                 type="button"
                 onClick={() => setIsCustomGridModalOpen(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-white"
+                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-900 dark:text-slate-400 dark:hover:text-white"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
             {/* Grid Configuration Controls */}
-            <div className="space-y-4 text-xs text-slate-300">
+            <div className="space-y-4 text-xs text-zinc-700 dark:text-slate-300">
               {/* Corridor Layout */}
               <div>
-                <label className="block font-semibold mb-1.5 text-slate-200">Room Corridor Structure</label>
+                <label className="block font-semibold mb-1.5 text-zinc-800 dark:text-slate-200">Room Corridor Structure</label>
                 <div className="grid grid-cols-2 gap-2">
                   {[
                     { s: 2 as const, title: '2 Sides (Dual Wings)', desc: 'Center walking aisle (standard)' },
@@ -2455,15 +2470,15 @@ export default function AdminFloorArchitect({
                       onClick={() => setCustomSides(opt.s)}
                       className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
                         customSides === opt.s
-                          ? 'border-indigo-500 bg-indigo-500/10 text-white ring-1 ring-indigo-500'
-                          : 'border-white/10 bg-[#151E32] text-slate-300 hover:border-white/20'
+                          ? 'border-indigo-500 bg-indigo-50/80 dark:bg-indigo-500/10 text-indigo-900 dark:text-white ring-1 ring-indigo-500'
+                          : 'border-zinc-200 dark:border-white/10 bg-zinc-50 dark:bg-[#151E32] text-zinc-700 dark:text-slate-300 hover:border-zinc-300 dark:hover:border-white/20'
                       }`}
                     >
                       <div className="font-bold flex items-center justify-between">
                         <span>{opt.title}</span>
-                        {customSides === opt.s && <span className="h-2 w-2 rounded-full bg-indigo-400" />}
+                        {customSides === opt.s && <span className="h-2 w-2 rounded-full bg-indigo-500" />}
                       </div>
-                      <span className="text-[10px] text-slate-400 block mt-0.5 leading-tight">{opt.desc}</span>
+                      <span className="text-[10px] text-zinc-500 dark:text-slate-400 block mt-0.5 leading-tight">{opt.desc}</span>
                     </button>
                   ))}
                 </div>
@@ -2472,8 +2487,8 @@ export default function AdminFloorArchitect({
               {/* Rows */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <label className="block font-semibold text-slate-200">Number of Rows</label>
-                  <span className="text-[11px] font-mono font-bold text-indigo-400">{customRows} Rows</span>
+                  <label className="block font-semibold text-zinc-800 dark:text-slate-200">Number of Rows</label>
+                  <span className="text-[11px] font-mono font-bold text-indigo-600 dark:text-indigo-400">{customRows} Rows</span>
                 </div>
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {[2, 3, 4, 5, 6, 7, 8].map((r) => (
@@ -2484,7 +2499,7 @@ export default function AdminFloorArchitect({
                       className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all cursor-pointer ${
                         customRows === r
                           ? 'bg-indigo-600 text-white'
-                          : 'bg-[#151E32] text-slate-400 border border-white/5 hover:text-white'
+                          : 'bg-zinc-100 dark:bg-[#151E32] text-zinc-600 dark:text-slate-400 border border-zinc-200 dark:border-white/5 hover:text-zinc-900 dark:hover:text-white'
                       }`}
                     >
                       {r}R
@@ -2496,10 +2511,10 @@ export default function AdminFloorArchitect({
               {/* Columns */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <label className="block font-semibold text-slate-200">
+                  <label className="block font-semibold text-zinc-800 dark:text-slate-200">
                     {customSides === 2 ? 'Desks per Row (per Side)' : 'Desks per Row'}
                   </label>
-                  <span className="text-[11px] font-mono font-bold text-indigo-400">{customCols} Desks</span>
+                  <span className="text-[11px] font-mono font-bold text-indigo-600 dark:text-indigo-400">{customCols} Desks</span>
                 </div>
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {[2, 3, 4, 5, 6].map((c) => (
@@ -2510,7 +2525,7 @@ export default function AdminFloorArchitect({
                       className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all cursor-pointer ${
                         customCols === c
                           ? 'bg-indigo-600 text-white'
-                          : 'bg-[#151E32] text-slate-400 border border-white/5 hover:text-white'
+                          : 'bg-zinc-100 dark:bg-[#151E32] text-zinc-600 dark:text-slate-400 border border-zinc-200 dark:border-white/5 hover:text-zinc-900 dark:hover:text-white'
                       }`}
                     >
                       {c} Desks
@@ -2520,32 +2535,32 @@ export default function AdminFloorArchitect({
               </div>
 
               {/* Capacity Calculation */}
-              <div className="p-3 rounded-xl border border-indigo-500/25 bg-indigo-500/10 flex items-center justify-between text-xs text-indigo-300">
+              <div className="p-3 rounded-xl border border-indigo-200 dark:border-indigo-500/25 bg-indigo-50/60 dark:bg-indigo-500/10 flex items-center justify-between text-xs text-indigo-800 dark:text-indigo-300">
                 <div className="flex items-center gap-2">
-                  <Sparkles className="h-4 w-4 text-indigo-400 shrink-0" />
+                  <Sparkles className="h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
                   <span>
-                    Total Capacity: <strong className="text-white font-mono text-sm">{customSides * customRows * customCols} Desks</strong>
-                    <span className="text-[10px] text-indigo-400/80 block">
+                    Total Capacity: <strong className="text-zinc-900 dark:text-white font-mono text-sm">{customSides * customRows * customCols} Desks</strong>
+                    <span className="text-[10px] text-indigo-600/80 dark:text-indigo-400/80 block">
                       ({customSides} {customSides === 1 ? 'block' : 'sides'} &times; {customRows} rows &times; {customCols} desks)
                     </span>
                   </span>
                 </div>
-                <Badge className="bg-indigo-500/20 text-indigo-300 text-[10px] font-mono">
+                <Badge className="bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300 text-[10px] font-mono">
                   {localWorkstations.length} PCs active
                 </Badge>
               </div>
 
               {/* Save as Named Layout Preset */}
-              <div className="pt-2 border-t border-white/10 space-y-1.5">
-                <label className="block font-semibold text-slate-200">Save as Named Preset (Optional)</label>
+              <div className="pt-2 border-t border-zinc-200 dark:border-white/10 space-y-1.5">
+                <label className="block font-semibold text-zinc-800 dark:text-slate-200">Save as Named Preset (Optional)</label>
                 <input
                   type="text"
                   value={templateName}
                   onChange={(e) => setTemplateName(e.target.value)}
                   placeholder="e.g. Exam Setup or 36-Desk Layout"
-                  className="w-full h-8.5 rounded-xl border border-white/10 bg-[#0B0F19] px-3 text-white placeholder:text-slate-500 text-xs focus:border-indigo-500 focus:outline-none"
+                  className="w-full h-8.5 rounded-xl border border-zinc-200 dark:border-white/10 bg-zinc-50 dark:bg-[#0B0F19] px-3 text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-slate-500 text-xs focus:border-indigo-500 focus:outline-none"
                 />
-                <p className="text-[10.5px] text-slate-400">
+                <p className="text-[10.5px] text-zinc-500 dark:text-slate-400">
                   If entered, this layout is automatically saved to your Presets dropdown.
                 </p>
               </div>
@@ -2558,7 +2573,7 @@ export default function AdminFloorArchitect({
                 variant="outline"
                 size="sm"
                 onClick={() => setIsCustomGridModalOpen(false)}
-                className="flex-1 h-8.5 rounded-xl border-white/10 text-slate-300"
+                className="flex-1 h-8.5 rounded-xl border-zinc-200 dark:border-white/10 text-zinc-700 dark:text-slate-300 hover:bg-zinc-100 dark:hover:bg-white/5"
               >
                 Cancel
               </Button>
@@ -2575,6 +2590,13 @@ export default function AdminFloorArchitect({
           </div>
         </div>
       )}
+
+      {/* Agent Download Modal */}
+      <AgentDownloadModal
+        isOpen={isAgentDownloadModalOpen}
+        onClose={() => setIsAgentDownloadModalOpen(false)}
+        defaultLabId={selectedLabId}
+      />
     </div>
   )
 }

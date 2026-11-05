@@ -104,7 +104,7 @@ export function WorkstationPhotoCapture({
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/jpeg,image/png,image/webp"
+        accept="image/*"
         multiple
         className="hidden"
         disabled={disabled || compressing || photos.length >= maxPhotos}
@@ -119,14 +119,14 @@ export function WorkstationPhotoCapture({
             type="button"
             disabled={disabled || compressing}
             onClick={() => cameraInputRef.current?.click()}
-            className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-indigo-500/40 bg-indigo-500/5 px-3 py-2.5 text-xs font-medium text-indigo-300 transition-colors hover:border-indigo-500/80 hover:bg-indigo-500/10 active:scale-[0.98] disabled:opacity-50"
+            className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-indigo-500/40 bg-indigo-500/5 min-h-[44px] px-3 py-2.5 text-xs font-medium text-indigo-300 transition-colors hover:border-indigo-500/80 hover:bg-indigo-500/10 active:scale-[0.98] disabled:opacity-50 cursor-pointer"
           >
             {compressing ? (
               <Loader2 className="h-4 w-4 animate-spin text-indigo-400" />
             ) : (
-              <Camera className="h-4 w-4 text-indigo-400" />
+              <Camera className="h-4 w-4 text-indigo-400 shrink-0" />
             )}
-            <span>Snap Camera</span>
+            <span>Take Photo</span>
           </button>
 
           {/* Gallery / File Picker */}
@@ -134,10 +134,10 @@ export function WorkstationPhotoCapture({
             type="button"
             disabled={disabled || compressing}
             onClick={() => fileInputRef.current?.click()}
-            className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-slate-700 bg-slate-900/60 px-3 py-2.5 text-xs font-medium text-slate-300 transition-colors hover:border-slate-500 hover:bg-slate-800 active:scale-[0.98] disabled:opacity-50"
+            className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-slate-700 bg-slate-900/60 min-h-[44px] px-3 py-2.5 text-xs font-medium text-slate-300 transition-colors hover:border-slate-500 hover:bg-slate-800 active:scale-[0.98] disabled:opacity-50 cursor-pointer"
           >
-            <ImageIcon className="h-4 w-4 text-slate-400" />
-            <span>Upload File</span>
+            <ImageIcon className="h-4 w-4 text-slate-400 shrink-0" />
+            <span>Choose from Gallery</span>
           </button>
         </div>
       )}

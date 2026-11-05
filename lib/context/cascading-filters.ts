@@ -1,10 +1,5 @@
-import { LAB_ROOMS, DEFAULT_CLASSES, DEFAULT_SUBJECTS } from '@/lib/master-data'
-import {
-  INSTITUTIONAL_TEACHERS,
-  getTeacherAssignments,
-  matchesGrade,
-} from '@/lib/context/institutional-relationships'
-import { UserScopeContext } from '@/lib/context/user-scope'
+import { matchesGrade } from '@/lib/master-data'
+import type { UserScopeContext } from '@/lib/context/user-scope'
 
 export interface CascadingSelections {
   labId?: string
@@ -29,6 +24,7 @@ export interface CascadingCustomData {
 
 /**
  * Pure calculation of dynamic cascading options based on current user scope and active selections.
+ * For privileged users (super_admin, hod, lab_incharge), allows all rows returned from PostgreSQL directly.
  */
 export function getCascadingOptions(
   scope: UserScopeContext,
@@ -37,15 +33,19 @@ export function getCascadingOptions(
 ): CascadingOptions {
   const { labId, classBatch, subjectCode, teacherId } = selections
 
-  // 1. Initial base set based on user role and customData
+  // 1. Initial base set based on user role and live PostgreSQL customData
   let baseTeachers = customData?.teachers && customData.teachers.length > 0
     ? customData.teachers.map((t) => ({ id: t.id, name: t.name || t.full_name || 'Faculty', email: t.email || '' }))
     : scope.isPrivileged
-    ? INSTITUTIONAL_TEACHERS.map((t) => ({ id: t.teacherId, name: t.name, email: t.email }))
+    ? []
     : [{ id: scope.userId || 'self', name: scope.fullName, email: scope.email }]
 
-  let rawLabs = (customData?.labs && customData.labs.length > 0) ? customData.labs : LAB_ROOMS
-  let baseLabs = rawLabs.filter((l) => scope.isPrivileged || scope.assignedLabIds.includes(l.id))
+  let rawLabs = (customData?.labs && customData.labs.length > 0)
+    ? customData.labs
+    : (!scope.isPrivileged && scope.assignedLabIds && scope.assignedLabIds.length > 0)
+    ? scope.assignedLabIds.map((id) => ({ id, name: id.toUpperCase() }))
+    : []
+  let baseLabs = scope.isPrivileged ? rawLabs : rawLabs.filter((l) => scope.assignedLabIds.includes(l.id))
 
   let rawClasses = (customData?.classes && customData.classes.length > 0)
     ? customData.classes.map((c) => ({
@@ -53,38 +53,47 @@ export function getCascadingOptions(
         name: c.name,
         fullName: c.stream ? `${c.name} (${c.stream})` : c.name,
       }))
-    : DEFAULT_CLASSES.map((c) => ({ id: c.id, name: c.name, fullName: c.fullName }))
-  let baseClasses = rawClasses.filter((c) => scope.isPrivileged || scope.assignedClasses.includes(c.name))
+    : (!scope.isPrivileged && scope.assignedClasses && scope.assignedClasses.length > 0)
+    ? scope.assignedClasses.map((clsName) => ({
+        id: clsName.toLowerCase().replace(/[^a-z0-9]/g, ''),
+        name: clsName,
+        fullName: clsName,
+      }))
+    : []
+  let baseClasses = scope.isPrivileged ? rawClasses : rawClasses.filter((c) => scope.assignedClasses.includes(c.name))
 
   let rawSubjects = (customData?.subjects && customData.subjects.length > 0)
-    ? customData.subjects.map((s) => ({
+    ? customData.subjects.map((s: any) => ({
         code: s.code,
-        title: s.title,
+        title: s.title || s.name || s.code,
         grade: s.grade,
         labId: s.labId || 'comp',
         labName: s.lab || 'Laboratory',
       }))
-    : DEFAULT_SUBJECTS.map((s) => ({
-        code: s.code,
-        title: s.title,
-        grade: s.grade,
-        labId: s.labId,
-        labName: s.lab,
-      }))
-  let baseSubjects = scope.isPrivileged ? rawSubjects : scope.assignedSubjects
+    : (!scope.isPrivileged && scope.assignedSubjects && scope.assignedSubjects.length > 0)
+    ? scope.assignedSubjects
+    : []
+  let baseSubjects = scope.isPrivileged ? rawSubjects : (scope.assignedSubjects.length > 0 ? scope.assignedSubjects : rawSubjects)
 
   // 2. Cascade by teacher selection
   const activeTeacherId = (!scope.isPrivileged ? scope.fullName : teacherId) || ''
   if (activeTeacherId && activeTeacherId !== 'all') {
-    const teacherData = getTeacherAssignments(activeTeacherId)
-    if (teacherData) {
-      baseClasses = baseClasses.filter((c) =>
-        teacherData.assignedClasses.some((ac) => matchesGrade(ac, c.name))
+    if (customData?.subjects && customData.subjects.length > 0) {
+      const teacherSubs = customData.subjects.filter(
+        (s: any) => s.teacherId === activeTeacherId || s.teacherName === activeTeacherId
       )
-      baseSubjects = baseSubjects.filter((s) =>
-        teacherData.assignedSubjects.some((ts) => ts.code.toLowerCase() === s.code.toLowerCase())
-      )
-      baseLabs = baseLabs.filter((l) => teacherData.assignedLabIds.includes(l.id))
+      if (teacherSubs.length > 0) {
+        baseSubjects = teacherSubs.map((s: any) => ({
+          code: s.code,
+          title: s.title || s.name || s.code,
+          grade: s.grade,
+          labId: s.labId || 'comp',
+          labName: s.lab || 'Laboratory',
+        }))
+        baseClasses = baseClasses.filter((c) =>
+          teacherSubs.some((ts: any) => matchesGrade(ts.grade, c.name))
+        )
+      }
     }
   }
 
@@ -112,17 +121,42 @@ export function getCascadingOptions(
   // 5. Cascade by Subject selection
   if (subjectCode && subjectCode !== 'all') {
     const cleanSubCode = subjectCode.split(/[\s-—]/)[0].toUpperCase()
-    const targetSub = baseSubjects.find((s) => s.code.toUpperCase().startsWith(cleanSubCode))
-    if (targetSub) {
-      baseLabs = baseLabs.filter((l) => l.id === targetSub.labId)
-      baseClasses = baseClasses.filter((c) => matchesGrade(c.name, targetSub.grade))
+    const matchingSubs = baseSubjects.filter((s) => s.code.toUpperCase().startsWith(cleanSubCode))
+    if (matchingSubs.length > 0) {
+      const validLabIds = new Set(matchingSubs.map((s) => s.labId))
+      baseLabs = baseLabs.filter((l) => validLabIds.has(l.id))
+      baseClasses = baseClasses.filter((c) =>
+        matchingSubs.some((ms) => matchesGrade(c.name, ms.grade))
+      )
+    }
+  }
+
+  // Deduplicate validSubjects by subject code so cascading options and React keys are strictly unique
+  const seenSubjectCodes = new Set<string>()
+  const uniqueSubjects: typeof baseSubjects = []
+  for (const s of baseSubjects) {
+    const code = s.code.trim().toUpperCase()
+    if (!seenSubjectCodes.has(code)) {
+      seenSubjectCodes.add(code)
+      uniqueSubjects.push(s)
+    }
+  }
+
+  // Deduplicate validClasses by unique identifier
+  const seenClassKeys = new Set<string>()
+  const uniqueClasses: typeof baseClasses = []
+  for (const c of baseClasses) {
+    const key = (c.id || c.name).trim().toLowerCase()
+    if (!seenClassKeys.has(key)) {
+      seenClassKeys.add(key)
+      uniqueClasses.push(c)
     }
   }
 
   return {
     validLabs: baseLabs.map((l) => ({ id: l.id, name: l.name })),
-    validClasses: baseClasses,
-    validSubjects: baseSubjects,
+    validClasses: uniqueClasses,
+    validSubjects: uniqueSubjects,
     validTeachers: baseTeachers,
   }
 }

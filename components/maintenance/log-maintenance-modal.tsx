@@ -18,6 +18,7 @@ import {
   Grid,
   FileText,
   AlertTriangle,
+  Loader2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -182,8 +183,8 @@ export default function LogMaintenanceModal({
       if (!res.success) {
         setErrorMsg(res.error || 'Failed to record maintenance.')
       } else {
-        onSuccess()
         onClose()
+        onSuccess()
       }
     } catch (err: any) {
       setErrorMsg(err.message || 'An unexpected error occurred while saving maintenance.')
@@ -198,7 +199,7 @@ export default function LogMaintenanceModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="w-full max-w-2xl bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 font-sans flex flex-col max-h-[90vh]">
+      <div className="w-full max-w-2xl bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 font-sans flex flex-col max-h-[calc(100dvh-2rem)]">
         {/* Header */}
         <div className="p-4 sm:p-5 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between bg-zinc-50/50 dark:bg-zinc-900/50">
           <div className="flex items-center gap-3">
@@ -548,8 +549,17 @@ export default function LogMaintenanceModal({
               disabled={isSubmitting}
               className="h-9 px-4 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold gap-1.5 cursor-pointer shadow-xs"
             >
-              <CheckCircle2 className="h-4 w-4" />
-              <span>{isSubmitting ? 'Saving...' : 'Save & Schedule Next Cycle'}</span>
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>Saving...</span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="h-4 w-4" />
+                  <span>Save & Schedule Next Cycle</span>
+                </>
+              )}
             </Button>
           </div>
         </form>

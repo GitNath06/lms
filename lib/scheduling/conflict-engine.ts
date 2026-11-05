@@ -1,6 +1,6 @@
 import { getPgPool } from '@/lib/db'
 
-export const SLOT_ORDER = ['t1', 't2', 't3', 't4', 't5', 't6', 't7', 't8', 't9', 't10']
+export const SLOT_ORDER = ['t0', 'pre', 't1', 't2', 't3', 't4', 'break', 't5', 't6', 't7', 't8', 't9', 't10']
 
 export function getSlotRange(startSlotId?: string | null, span: number = 1): { start: number; end: number } {
   if (!startSlotId) return { start: 0, end: Math.max(0, span - 1) }
@@ -20,6 +20,23 @@ export function slotRangesOverlap(
   return r1.start <= r2.end && r1.end >= r2.start
 }
 
+function normalizeTimeToMinutes(t?: string | null): number | null {
+  if (!t) return null
+  const cleaned = t.trim()
+  const isPM = /pm/i.test(cleaned)
+  const isAM = /am/i.test(cleaned)
+  const digits = cleaned.replace(/[^\d:]/g, '')
+  const [hStr, mStr] = digits.split(':')
+  let hours = parseInt(hStr, 10) || 0
+  const mins = parseInt(mStr, 10) || 0
+  if (isPM && hours < 12) hours += 12
+  if (isAM && hours === 12) hours = 0
+  if (!isPM && !isAM && hours >= 1 && hours <= 6) {
+    hours += 12
+  }
+  return hours * 60 + mins
+}
+
 export function timeRangesOverlap(
   start1?: string | null,
   end1?: string | null,
@@ -27,8 +44,12 @@ export function timeRangesOverlap(
   end2?: string | null
 ): boolean {
   if (!start1 || !end1 || !start2 || !end2) return true
-  // Format HH:MM string comparison
-  return start1 < end2 && end1 > start2
+  const s1 = normalizeTimeToMinutes(start1)
+  const e1 = normalizeTimeToMinutes(end1)
+  const s2 = normalizeTimeToMinutes(start2)
+  const e2 = normalizeTimeToMinutes(end2)
+  if (s1 === null || e1 === null || s2 === null || e2 === null) return true
+  return s1 < e2 && e1 > s2
 }
 
 export interface CheckSchedulingConflictParams {
@@ -45,6 +66,7 @@ export interface CheckSchedulingConflictParams {
   startTime?: string | null
   endTime?: string | null
   excludeScheduleId?: string | null
+  date?: string | null
 }
 
 export interface ConflictDetail {
@@ -121,7 +143,21 @@ export async function checkSchedulingConflicts(
     }
   }
 
-  // 3. Query all active schedules for the specified day of week
+  // 3. Query skipped schedule slots for target date if provided
+  let skippedScheduleIds = new Set<string>()
+  if (params.date) {
+    try {
+      const skipRes = await pool.query(
+        `SELECT schedule_id FROM public.practical_logs WHERE date = $1 AND status = 'skipped' AND schedule_id IS NOT NULL`,
+        [params.date]
+      )
+      skippedScheduleIds = new Set(skipRes.rows.map((r: any) => r.schedule_id))
+    } catch (e) {
+      console.warn('Could not query practical_logs for skipped sessions:', e)
+    }
+  }
+
+  // 4. Query all active schedules for the specified day of week
   const schedRes = await pool.query(
     `SELECT 
        s.id,
@@ -135,6 +171,7 @@ export async function checkSchedulingConflicts(
        s.end_time,
        s.metadata,
        s.class_subject_id,
+       s.specific_date,
        cs.class_id
      FROM public.schedules s
      LEFT JOIN public.class_subjects cs ON cs.id = s.class_subject_id
@@ -146,8 +183,20 @@ export async function checkSchedulingConflicts(
   const targetRange = getSlotRange(params.slotId, params.span || 1)
   const norm = (s?: string | null) => (s ? s.trim().toLowerCase() : '')
 
+  const cleanParamDate = params.date ? params.date.split('T')[0] : null
+
   for (const existing of schedRes.rows) {
     if (params.excludeScheduleId && existing.id === params.excludeScheduleId) {
+      continue
+    }
+
+    // Date specificity checks:
+    const existDate = existing.specific_date ? String(existing.specific_date).split('T')[0] : null
+    if (cleanParamDate && existDate && cleanParamDate !== existDate) {
+      continue // Different specific dates do not collide
+    }
+    // If booking a recurring schedule (no param date), an ad-hoc session on a specific single date does not permanently block it
+    if (!cleanParamDate && existDate) {
       continue
     }
 
@@ -160,8 +209,13 @@ export async function checkSchedulingConflicts(
       existing.end_time
     )
 
-    // Consider overlapping if either slot range or custom time window collides
-    const hasOverlap = params.slotId && existing.slot_id ? slotOverlaps : timeOverlaps
+    // Prioritize custom time range overlap when start and end times are supplied
+    const hasOverlap =
+      params.startTime && params.endTime && existing.start_time && existing.end_time
+        ? timeOverlaps
+        : params.slotId && existing.slot_id
+          ? slotOverlaps
+          : timeOverlaps
 
     if (!hasOverlap) {
       continue
@@ -180,8 +234,12 @@ export async function checkSchedulingConflicts(
     }
 
     // A. Room / Facility Collision
-    const primaryCollides = existing.lab_id === params.labId || existSecLabId === params.labId
+    // Skipped schedule slots on this date are ignored during facility collision checks,
+    // unblocking teachers to immediately book unscheduled practicals in that period without false collision rejections.
+    const isSkippedOnDate = skippedScheduleIds.has(existing.id)
+    const primaryCollides = !isSkippedOnDate && (existing.lab_id === params.labId || existSecLabId === params.labId)
     const secondaryCollides =
+      !isSkippedOnDate &&
       params.secondaryLabId &&
       (existing.lab_id === params.secondaryLabId || existSecLabId === params.secondaryLabId)
 

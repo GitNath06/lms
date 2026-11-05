@@ -86,6 +86,61 @@ export function parseSlotTimeRange(labelOrSlot: string): ParsedTimeRange {
 }
 
 /**
+ * Converts 24-hour "HH:mm" time (e.g. "10:10", "13:40") to 12-hour format with AM/PM (e.g. "10:10 AM", "01:40 PM").
+ */
+export function format24hTo12h(time24: string): string {
+  if (!time24) return ''
+  const cleaned = time24.replace(/[^\d:]/g, '')
+  const [hStr, mStr] = cleaned.split(':')
+  let h = parseInt(hStr, 10)
+  const m = parseInt(mStr, 10) || 0
+  if (isNaN(h)) return time24
+
+  const period = h >= 12 ? 'PM' : 'AM'
+  const h12 = h % 12 || 12
+  const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`)
+  return `${pad(h12)}:${pad(m)} ${period}`
+}
+
+/**
+ * Converts any time string (e.g. "10:10 AM", "01:40 PM", "1:40 PM", "13:40") to 24-hour "HH:mm" for <input type="time">.
+ */
+export function formatTo24hInput(timeStr: string): string {
+  if (!timeStr) return '10:00'
+  const isPm = /pm/i.test(timeStr)
+  const isAm = /am/i.test(timeStr)
+  const cleaned = timeStr.replace(/[^\d:]/g, '')
+  const [hStr, mStr] = cleaned.split(':')
+  let h = parseInt(hStr, 10)
+  const m = parseInt(mStr, 10) || 0
+  if (isNaN(h)) return '10:00'
+
+  if (isPm && h < 12) h += 12
+  if (isAm && h === 12) h = 0
+  if (!isPm && !isAm && h >= 1 && h <= 7) h += 12 // Academic timetable afternoon heuristic
+
+  const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`)
+  return `${pad(h)}:${pad(m)}`
+}
+
+/**
+ * Formats a start and end time (24h or mixed) into institutional period range label:
+ * e.g. "10:00 - 10:45 AM", "12:15 - 01:00 PM", "01:40 - 02:25 PM"
+ */
+export function formatPeriodRangeLabel(startTime24: string, endTime24: string): string {
+  const start12 = format24hTo12h(startTime24)
+  const end12 = format24hTo12h(endTime24)
+
+  const [startTimeOnly, startPeriod] = start12.split(' ')
+  const [endTimeOnly, endPeriod] = end12.split(' ')
+
+  if (startPeriod === endPeriod) {
+    return `${startTimeOnly} - ${endTimeOnly} ${endPeriod}`
+  }
+  return `${start12} - ${end12}`
+}
+
+/**
  * Validates whether a given string is a standard RFC4122 v1-v5 UUID.
  */
 export function isValidUuid(id?: string | null): boolean {
@@ -102,12 +157,27 @@ export function parseTimeToMinutes(timeStr: string): number {
 }
 
 /**
+ * Universal Chronological Period Slot Sorter
+ * Correctly orders period slot configurations (e.g. Pre-Period, Period 1, Break, etc.)
+ * strictly by their 24-hour start time in minutes, ensuring morning slots always appear first.
+ */
+export function sortPeriodSlots<T extends { label?: string; timeRange?: string }>(slots: T[]): T[] {
+  return [...slots].sort((a, b) => {
+    const timeA = parseTimeToMinutes(a.label || a.timeRange || '')
+    const timeB = parseTimeToMinutes(b.label || b.timeRange || '')
+    return timeA - timeB
+  })
+}
+
+/**
  * Universal Chronological Session Sorter
  * Correctly orders academic timetable slots by slot sequence and 24-hour start time,
  * eliminating 12-hour string sorting bugs where afternoon slots (e.g. 01:45 PM) appear before morning slots (10:10 AM).
  */
 export function sortSessionsChronologically<T>(items: T[]): T[] {
   const slotOrder: Record<string, number> = {
+    t0: 0,
+    pre: 0,
     t1: 1, // Pre-Period (09:15 - 10:00)
     t2: 2, // Period 1 (10:10 - 11:00)
     t3: 3, // Period 2 (11:00 - 11:45)
@@ -121,20 +191,20 @@ export function sortSessionsChronologically<T>(items: T[]): T[] {
   }
 
   return [...items].sort((a: any, b: any) => {
-    const slotA = a.slot_id || a.slotId || ''
-    const slotB = b.slot_id || b.slotId || ''
-    const orderA = slotOrder[slotA] || 0
-    const orderB = slotOrder[slotB] || 0
-
-    if (orderA && orderB && orderA !== orderB) {
-      return orderA - orderB
-    }
-
     const timeA = parseTimeToMinutes(a.start_time || a.startTime || a.timeSlot || '')
     const timeB = parseTimeToMinutes(b.start_time || b.startTime || b.timeSlot || '')
 
-    if (timeA !== timeB) {
+    if (timeA && timeB && timeA !== timeB) {
       return timeA - timeB
+    }
+
+    const slotA = a.slot_id || a.slotId || ''
+    const slotB = b.slot_id || b.slotId || ''
+    const orderA = slotOrder[slotA] ?? 99
+    const orderB = slotOrder[slotB] ?? 99
+
+    if (orderA !== orderB) {
+      return orderA - orderB
     }
 
     // Tie-breaker: lab name / code (stable natural ordering)

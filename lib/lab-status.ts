@@ -36,4 +36,5 @@ export interface LabFacilityPayload {
   capacity: number
   type: string
   status: LabFacilityStatus | string
+  is_active?: boolean
 }

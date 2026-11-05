@@ -1,0 +1,3347 @@
+﻿
+=========================================
+FILE: hooks\use-infrastructure-state.ts
+=========================================
+
+'use client'
+
+import { useState, useEffect, useCallback } from 'react'
+import { createClient } from '@/lib/supabase/client'
+import { isSupabaseConfigured } from '@/lib/supabase/config'
+import { broadcastSync, subscribeToSync } from '@/lib/sync-bus'
+import {
+  DEFAULT_HOLIDAYS,
+  HolidayItem,
+  isDateWithinHoliday
+} from '@/lib/master-data'
+import {
+  getAcademicHolidays,
+  addAcademicHoliday,
+  updateAcademicHoliday,
+  deleteAcademicHoliday,
+} from '@/app/actions/holidays'
+import {
+  getInstitutionSetting,
+  updateInstitutionSetting,
+  getPeriodSlotsAction,
+  updatePeriodSlotsAction,
+} from '@/app/actions/settings'
+import { sortPeriodSlots } from '@/lib/utils'
+import {
+  getLabFacilitiesAction,
+  updateLabFacility,
+  createLabFacility,
+  deleteLabFacility,
+} from '@/app/actions/labs'
+import { getClassesAction } from '@/app/actions/classes'
+import { getSubjectsAction } from '@/app/actions/subjects'
+import { getTeachers } from '@/app/actions/logs'
+
+export interface PeriodSlotItem {
+  id: string
+  name: string
+  label: string
+}
+
+export interface LabFacilityItem {
+  id: string
+  name: string
+  code: string
+  capacity: number
+  type: string
+  status: string
+  is_active?: boolean
+}
+
+export interface ClassEnrollmentItem {
+  id: string
+  name: string
+  section: string
+  capacity: number
+  stream: string
+  is_active?: boolean
+}
+
+export interface FacultyMemberItem {
+  id: string
+  name: string
+  dept: string
+  role: string
+  email: string
+  photo_url?: string | null
+  assignedSubjectCodes?: string[]
+}
+
+export interface SubjectCurriculumItem {
+  code: string
+  title: string
+  grade: string
+  quota: number
+  lab: string
+  labId: string
+  teacherId: string
+  teacherName?: string
+}
+
+export interface IncidentCategoryItem {
+  id: string
+  code: string
+  name: string
+  description: string
+  severity: 'minor' | 'moderate' | 'major_critical'
+  targetLab?: 'all' | 'phys' | 'chem' | 'comp'
+  is_active?: boolean
+}
+
+export interface IncidentGovernanceSettings {
+  autoEscalateMajorToHOD: boolean
+  notifyLabInCharge: boolean
+  emergencyContacts: {
+    physEmail: string
+    chemEmail: string
+    compEmail: string
+    hodEmail: string
+  }
+}
+
+// Deprecated prototype mock array - All incident categories are canonically managed in public.issue_categories
+export const DEFAULT_INCIDENT_CATEGORIES: IncidentCategoryItem[] = []
+
+export const DEFAULT_INCIDENT_SETTINGS: IncidentGovernanceSettings = {
+  autoEscalateMajorToHOD: true,
+  notifyLabInCharge: true,
+  emergencyContacts: {
+    physEmail: 'physics.incharge@rrl.edu.np',
+    chemEmail: 'chemistry.incharge@rrl.edu.np',
+    compEmail: 'computer.incharge@rrl.edu.np',
+    hodEmail: 'hod.science@rrl.edu.np',
+  },
+}
+
+const STORAGE_KEYS = {
+  PERIODS: 'lmr_admin_periods_v2',
+  LABS: 'lmr_admin_labs_v2',
+  CLASSES: 'lmr_admin_classes_v2',
+  FACULTY: 'lmr_admin_faculty_v2',
+  SUBJECTS: 'lmr_admin_subjects_v2',
+  HOLIDAYS: 'lmr_admin_holidays_v2',
+  INCIDENT_CATEGORIES: 'lmr_admin_incident_categories_v2',
+  INCIDENT_SETTINGS: 'lmr_admin_incident_settings_v2',
+}
+
+
+
+// Module-level deduplication cache
+let cachedLabsPromise: Promise<LabFacilityItem[] | null> | null = null
+let cachedFacultyPromise: Promise<FacultyMemberItem[] | null> | null = null
+let cachedHolidaysPromise: Promise<HolidayItem[] | null> | null = null
+let cachedPeriodsPromise: Promise<PeriodSlotItem[] | null> | null = null
+let cachedClassesPromise: Promise<ClassEnrollmentItem[] | null> | null = null
+let cachedSubjectsPromise: Promise<SubjectCurriculumItem[] | null> | null = null
+let cachedIncidentCategoriesPromise: Promise<IncidentCategoryItem[] | null> | null = null
+let cachedIncidentSettingsPromise: Promise<IncidentGovernanceSettings | null> | null = null
+let lastInfraFetchTime = 0
+const INFRA_CACHE_TTL = 30000 // 30 seconds
+
+// Singleton realtime subscription & subscriber registry
+let sharedInfraChannel: any = null
+let infraRefCount = 0
+const infraSubscribers = new Set<{
+  setLabs: React.Dispatch<React.SetStateAction<LabFacilityItem[]>>
+  setHolidays: React.Dispatch<React.SetStateAction<HolidayItem[]>>
+  setPeriods: React.Dispatch<React.SetStateAction<PeriodSlotItem[]>>
+  setClasses: React.Dispatch<React.SetStateAction<ClassEnrollmentItem[]>>
+  setSubjects: React.Dispatch<React.SetStateAction<SubjectCurriculumItem[]>>
+  setIncidentCategories: React.Dispatch<React.SetStateAction<IncidentCategoryItem[]>>
+  setIncidentSettings: React.Dispatch<React.SetStateAction<IncidentGovernanceSettings>>
+}>()
+
+export function useInfrastructureState() {
+  const [isLoading, setIsLoading] = useState<boolean>(true)
+  const [hasFetchedOnce, setHasFetchedOnce] = useState<boolean>(false)
+  const [periods, setPeriods] = useState<PeriodSlotItem[]>([])
+  const [labs, setLabs] = useState<LabFacilityItem[]>([])
+  const [classes, setClasses] = useState<ClassEnrollmentItem[]>([])
+  const [faculty, setFaculty] = useState<FacultyMemberItem[]>([])
+  const [subjects, setSubjects] = useState<SubjectCurriculumItem[]>([])
+  const [holidays, setHolidays] = useState<HolidayItem[]>(DEFAULT_HOLIDAYS)
+  const [incidentCategories, setIncidentCategories] = useState<IncidentCategoryItem[]>(DEFAULT_INCIDENT_CATEGORIES)
+  const [incidentSettings, setIncidentSettings] = useState<IncidentGovernanceSettings>(DEFAULT_INCIDENT_SETTINGS)
+
+  // Load from localStorage on mount (prevents SSR hydration mismatch)
+  useEffect(() => {
+    try {
+      const p = localStorage.getItem(STORAGE_KEYS.PERIODS)
+      if (p) setPeriods(JSON.parse(p))
+      const l = localStorage.getItem(STORAGE_KEYS.LABS)
+      if (l) setLabs(JSON.parse(l))
+      const c = localStorage.getItem(STORAGE_KEYS.CLASSES)
+      if (c) setClasses(JSON.parse(c))
+      const f = localStorage.getItem(STORAGE_KEYS.FACULTY)
+      if (f) setFaculty(JSON.parse(f))
+      const s = localStorage.getItem(STORAGE_KEYS.SUBJECTS)
+      if (s) setSubjects(JSON.parse(s))
+      const h = localStorage.getItem(STORAGE_KEYS.HOLIDAYS)
+      if (h) {
+        try {
+          const parsed = JSON.parse(h)
+          if (Array.isArray(parsed)) {
+            const uniqueHolidaysMap = new Map<string, HolidayItem>()
+            parsed.forEach((item: any) => {
+              if (item && item.id) uniqueHolidaysMap.set(item.id, item)
+            })
+            DEFAULT_HOLIDAYS.forEach((dh) => {
+              if (!uniqueHolidaysMap.has(dh.id)) {
+                uniqueHolidaysMap.set(dh.id, dh)
+              }
+            })
+            const merged = Array.from(uniqueHolidaysMap.values())
+            setHolidays(merged)
+            localStorage.setItem(STORAGE_KEYS.HOLIDAYS, JSON.stringify(merged))
+          }
+        } catch (e) {}
+      }
+      const ic = localStorage.getItem(STORAGE_KEYS.INCIDENT_CATEGORIES)
+      if (ic) setIncidentCategories(JSON.parse(ic))
+      const is = localStorage.getItem(STORAGE_KEYS.INCIDENT_SETTINGS)
+      if (is) setIncidentSettings(JSON.parse(is))
+    } catch (e) {}
+  }, [])
+
+  // Broadcast helper (asynchronous to prevent React setState-in-render collisions)
+  const notifyUpdated = () => {
+    if (typeof window !== 'undefined') {
+      queueMicrotask(() => {
+        window.dispatchEvent(new Event('infrastructure-updated'))
+      })
+    }
+  }
+
+  // Persist helper
+  const saveToStorage = (key: string, data: any) => {
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(key, JSON.stringify(data))
+        notifyUpdated()
+        queueMicrotask(() => {
+          if (key === STORAGE_KEYS.HOLIDAYS) {
+            cachedHolidaysPromise = Promise.resolve(data)
+            infraSubscribers.forEach((sub) => sub.setHolidays(data))
+            broadcastSync('holidays', data)
+          } else if (key === STORAGE_KEYS.LABS) {
+            cachedLabsPromise = Promise.resolve(data)
+            infraSubscribers.forEach((sub) => sub.setLabs(data))
+            broadcastSync('infrastructure', { key, data })
+          } else if (key === STORAGE_KEYS.PERIODS) {
+            cachedPeriodsPromise = Promise.resolve(data)
+            infraSubscribers.forEach((sub) => sub.setPeriods(data))
+            broadcastSync('infrastructure', { key, data })
+          } else if (key === STORAGE_KEYS.CLASSES) {
+            cachedClassesPromise = Promise.resolve(data)
+            infraSubscribers.forEach((sub) => sub.setClasses(data))
+            broadcastSync('infrastructure', { key, data })
+          } else if (key === STORAGE_KEYS.SUBJECTS) {
+            cachedSubjectsPromise = Promise.resolve(data)
+            infraSubscribers.forEach((sub) => sub.setSubjects(data))
+            broadcastSync('infrastructure', { key, data })
+          } else if (key === STORAGE_KEYS.INCIDENT_CATEGORIES) {
+            cachedIncidentCategoriesPromise = Promise.resolve(data)
+            infraSubscribers.forEach((sub) => sub.setIncidentCategories(data))
+            broadcastSync('infrastructure', { key, data })
+          } else if (key === STORAGE_KEYS.INCIDENT_SETTINGS) {
+            cachedIncidentSettingsPromise = Promise.resolve(data)
+            infraSubscribers.forEach((sub) => sub.setIncidentSettings(data))
+            broadcastSync('infrastructure', { key, data })
+          } else {
+            broadcastSync('infrastructure', { key, data })
+          }
+        })
+      } catch (e) {
+        console.error('Failed to persist infrastructure state', e)
+      }
+    }
+  }
+
+  // Two-way remote synchronization with Supabase (deduplicated across instances)
+  useEffect(() => {
+    let isMounted = true
+    if (!isSupabaseConfigured()) return
+
+    const subscriber = {
+      setLabs,
+      setHolidays,
+      setPeriods,
+      setClasses,
+      setSubjects,
+      setIncidentCategories,
+      setIncidentSettings,
+    }
+    infraSubscribers.add(subscriber)
+    infraRefCount++
+
+    const supabase = createClient()
+    const now = Date.now()
+    const isCacheStale = now - lastInfraFetchTime > INFRA_CACHE_TTL
+
+    // 1. Fetch remote labs (deduplicated)
+    if (isCacheStale || !cachedLabsPromise) {
+      lastInfraFetchTime = now
+      cachedLabsPromise = getLabFacilitiesAction().then((res) => {
+        if (res.success && Array.isArray(res.data)) {
+          const mappedLabs: LabFacilityItem[] = res.data.map((l) => ({
+            id: l.id,
+            name: l.name,
+            code: l.code || l.id.toUpperCase(),
+            capacity: l.capacity || 40,
+            type: l.type || 'computer_lab',
+            status: l.status || 'Operational',
+            is_active: l.is_active,
+          }))
+          try {
+            localStorage.setItem(STORAGE_KEYS.LABS, JSON.stringify(mappedLabs))
+          } catch (e) {}
+          return mappedLabs
+        }
+        return null
+      })
+    }
+
+    cachedLabsPromise?.then((labsData) => {
+      if (Array.isArray(labsData) && isMounted) setLabs(labsData)
+    })
+
+    // 2. Fetch remote faculty/profiles (deduplicated)
+    if (isCacheStale || !cachedFacultyPromise) {
+      cachedFacultyPromise = getTeachers().then((dbProfiles) => {
+        if (Array.isArray(dbProfiles)) {
+          const mappedFaculty: FacultyMemberItem[] = dbProfiles.map((p: any) => ({
+            id: p.id,
+            name: p.full_name || 'Faculty Member',
+            dept: 'Academic Department',
+            role: p.role === 'admin' || p.role === 'lab_incharge' ? 'Lab In-Charge' : 'Senior Faculty',
+            email: p.email || '',
+            photo_url: null,
+            assignedSubjectCodes: [],
+          }))
+          try {
+            localStorage.setItem(STORAGE_KEYS.FACULTY, JSON.stringify(mappedFaculty))
+          } catch (e) {}
+          return mappedFaculty
+        }
+        return null
+      })
+    }
+
+    cachedFacultyPromise?.then((facultyData) => {
+      if (Array.isArray(facultyData) && isMounted) setFaculty(facultyData)
+    })
+
+    // 3. Fetch remote academic holidays (deduplicated)
+    if (isCacheStale || !cachedHolidaysPromise) {
+      cachedHolidaysPromise = getAcademicHolidays().then((dbHolidays) => {
+        if (Array.isArray(dbHolidays)) {
+          const uniqueHolsMap = new Map<string, HolidayItem>()
+          dbHolidays.forEach((item) => {
+            if (item && item.id) uniqueHolsMap.set(item.id, item)
+          })
+          const dedupedHolidays = Array.from(uniqueHolsMap.values())
+          try {
+            localStorage.setItem(STORAGE_KEYS.HOLIDAYS, JSON.stringify(dedupedHolidays))
+          } catch (e) {}
+          return dedupedHolidays
+        }
+        return null
+      })
+    }
+
+    cachedHolidaysPromise?.then((holsData) => {
+      if (Array.isArray(holsData) && isMounted) setHolidays(holsData)
+    })
+
+    // 4. Fetch remote periods (deduplicated)
+    if (isCacheStale || !cachedPeriodsPromise) {
+      cachedPeriodsPromise = getPeriodSlotsAction().then((res) => {
+        if (res.success && Array.isArray(res.data)) {
+          try {
+            localStorage.setItem(STORAGE_KEYS.PERIODS, JSON.stringify(res.data))
+          } catch (e) {}
+          return res.data
+        }
+        return null
+      })
+    }
+
+    cachedPeriodsPromise?.then((periodsData) => {
+      if (Array.isArray(periodsData) && isMounted) setPeriods(periodsData)
+    })
+
+    // 5. Fetch remote classes (deduplicated)
+    if (isCacheStale || !cachedClassesPromise) {
+      cachedClassesPromise = getClassesAction({ activeOnly: true }).then((res) => {
+        if (res.success && Array.isArray(res.data)) {
+          const mappedClasses: ClassEnrollmentItem[] = res.data.map((c) => ({
+            id: c.id,
+            name: c.name,
+            section: c.section || 'A',
+            capacity: c.capacity || 40,
+            stream: c.stream_id || (c.grade && c.grade >= 11 ? 'Science' : 'General'),
+            is_active: c.is_active,
+          }))
+          try {
+            localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(mappedClasses))
+          } catch (e) {}
+          return mappedClasses
+        }
+        return null
+      })
+    }
+
+    cachedClassesPromise?.then((classesData) => {
+      if (Array.isArray(classesData) && isMounted) setClasses(classesData)
+    })
+
+    // 6. Fetch remote subjects (deduplicated)
+    if (isCacheStale || !cachedSubjectsPromise) {
+      cachedSubjectsPromise = getSubjectsAction({ activeOnly: true }).then((res) => {
+        if (res.success && Array.isArray(res.data)) {
+          const mappedSubjects: SubjectCurriculumItem[] = res.data.map((s) => {
+            let grade = 'Class 12'
+            if (s.code.includes('-11') || s.name.includes('11')) grade = 'Class 11'
+            else if (s.code.includes('-10') || s.name.includes('10')) grade = 'Class 10'
+            else if (s.code.includes('-9') || s.name.includes('9')) grade = 'Class 9'
+            else if (s.code.includes('-8') || s.name.includes('8')) grade = 'Class 8'
+            else if (s.code.includes('-7') || s.name.includes('7')) grade = 'Class 7'
+            else if (s.code.includes('-6') || s.name.includes('6')) grade = 'Class 6'
+
+            let labName = 'Computer Lab'
+            if (s.default_lab_id === 'phys') labName = 'Physics Lab'
+            else if (s.default_lab_id === 'chem') labName = 'Chemistry Lab'
+            else if (s.default_lab_id === 'bio') labName = 'Biology Lab'
+            else if (s.default_lab_id === 'elec') labName = 'Electronics Lab'
+
+            return {
+              code: s.code,
+              title: s.name,
+              grade,
+              quota: s.credit_hours || 4,
+              lab: labName,
+              labId: s.default_lab_id || 'comp',
+              teacherId: '',
+            }
+          })
+          try {
+            localStorage.setItem(STORAGE_KEYS.SUBJECTS, JSON.stringify(mappedSubjects))
+          } catch (e) {}
+          return mappedSubjects
+        }
+        return null
+      })
+    }
+
+    cachedSubjectsPromise?.then((subjectsData) => {
+      if (Array.isArray(subjectsData) && isMounted) setSubjects(subjectsData)
+    })
+
+    // 7. Fetch remote incident categories (deduplicated)
+    if (isCacheStale || !cachedIncidentCategoriesPromise) {
+      cachedIncidentCategoriesPromise = getInstitutionSetting<IncidentCategoryItem[]>(
+        'infrastructure_incident_categories',
+        DEFAULT_INCIDENT_CATEGORIES
+      ).then((res) => {
+        if (Array.isArray(res)) {
+          try {
+            localStorage.setItem(STORAGE_KEYS.INCIDENT_CATEGORIES, JSON.stringify(res))
+          } catch (e) {}
+          return res
+        }
+        return null
+      })
+    }
+
+    cachedIncidentCategoriesPromise?.then((catsData) => {
+      if (Array.isArray(catsData) && isMounted) setIncidentCategories(catsData)
+    })
+
+    // 8. Fetch remote incident settings (deduplicated)
+    if (isCacheStale || !cachedIncidentSettingsPromise) {
+      cachedIncidentSettingsPromise = getInstitutionSetting<IncidentGovernanceSettings>(
+        'infrastructure_incident_settings',
+        DEFAULT_INCIDENT_SETTINGS
+      ).then((res) => {
+        if (res) {
+          try {
+            localStorage.setItem(STORAGE_KEYS.INCIDENT_SETTINGS, JSON.stringify(res))
+          } catch (e) {}
+          return res
+        }
+        return null
+      })
+    }
+
+    cachedIncidentSettingsPromise?.then((settingsData) => {
+      if (settingsData && isMounted) setIncidentSettings(settingsData)
+    })
+
+    // Settle initial loading once core infrastructure promises complete
+    Promise.allSettled([
+      cachedLabsPromise,
+      cachedClassesPromise,
+      cachedSubjectsPromise,
+      cachedPeriodsPromise,
+      cachedFacultyPromise,
+    ]).then(() => {
+      if (isMounted) {
+        setIsLoading(false)
+        setHasFetchedOnce(true)
+      }
+    })
+
+    // 9. Shared Singleton Realtime subscription
+    if (!sharedInfraChannel) {
+      try {
+        const existing = supabase.getChannels().find((c: any) => c.topic === 'realtime:shared-infra-changes')
+        if (existing) {
+          supabase.removeChannel(existing)
+        }
+      } catch (e) {}
+
+      sharedInfraChannel = supabase
+        .channel('shared-infra-changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'labs' }, () => {
+          cachedLabsPromise = null
+          supabase
+            .from('labs')
+            .select('*')
+            .order('name')
+            .then(({ data: updatedLabs }) => {
+              if (updatedLabs) {
+                const mapped: LabFacilityItem[] = updatedLabs.map((l: any) => ({
+                  id: l.id,
+                  name: l.name,
+                  code: l.code || l.id.toUpperCase(),
+                  capacity: l.capacity || 40,
+                  type: l.type || 'computer_lab',
+                  status: l.status || (l.is_active ? 'Operational' : 'Inactive'),
+                  is_active: l.is_active !== undefined ? l.is_active : l.status === 'Operational',
+                }))
+                try {
+                  localStorage.setItem(STORAGE_KEYS.LABS, JSON.stringify(mapped))
+                } catch (e) {}
+                infraSubscribers.forEach((sub) => sub.setLabs(mapped))
+              }
+            })
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'academic_holidays' }, () => {
+          cachedHolidaysPromise = null
+          getAcademicHolidays().then((updatedHolidays) => {
+            if (updatedHolidays) {
+              try {
+                localStorage.setItem(STORAGE_KEYS.HOLIDAYS, JSON.stringify(updatedHolidays))
+              } catch (e) {}
+              infraSubscribers.forEach((sub) => sub.setHolidays(updatedHolidays))
+            }
+          })
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'classes' }, () => {
+          cachedClassesPromise = null
+          getClassesAction({ activeOnly: true }).then((res) => {
+            if (res.success && res.data) {
+              const mapped: ClassEnrollmentItem[] = res.data.map((c) => ({
+                id: c.id,
+                name: c.name,
+                section: c.section || 'A',
+                capacity: c.capacity || 40,
+                stream: c.stream_id || (c.grade && c.grade >= 11 ? 'Science' : 'General'),
+                is_active: c.is_active,
+              }))
+              try {
+                localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(mapped))
+              } catch (e) {}
+              infraSubscribers.forEach((sub) => sub.setClasses(mapped))
+            }
+          })
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'subjects' }, () => {
+          cachedSubjectsPromise = null
+          getSubjectsAction({ activeOnly: true }).then((res) => {
+            if (res.success && res.data) {
+              const mapped: SubjectCurriculumItem[] = res.data.map((s) => ({
+                code: s.code,
+                title: s.name,
+                grade: s.code.includes('-11') ? 'Class 11' : s.code.includes('-10') ? 'Class 10' : s.code.includes('-9') ? 'Class 9' : s.code.includes('-8') ? 'Class 8' : s.code.includes('-7') ? 'Class 7' : s.code.includes('-6') ? 'Class 6' : 'Class 12',
+                quota: s.credit_hours || 4,
+                lab: s.default_lab_id === 'phys' ? 'Physics Lab' : s.default_lab_id === 'chem' ? 'Chemistry Lab' : s.default_lab_id === 'bio' ? 'Biology Lab' : 'Computer Lab',
+                labId: s.default_lab_id || 'comp',
+                teacherId: 't4',
+              }))
+              try {
+                localStorage.setItem(STORAGE_KEYS.SUBJECTS, JSON.stringify(mapped))
+              } catch (e) {}
+              infraSubscribers.forEach((sub) => sub.setSubjects(mapped))
+            }
+          })
+        })
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'institution_settings' },
+          (payload: any) => {
+            const row = payload.new
+            if (!row || !row.key || !row.value) return
+            if (row.key === 'infrastructure_periods') {
+              cachedPeriodsPromise = Promise.resolve(row.value)
+              try {
+                localStorage.setItem(STORAGE_KEYS.PERIODS, JSON.stringify(row.value))
+              } catch (e) {}
+              infraSubscribers.forEach((sub) => sub.setPeriods(row.value))
+            } else if (row.key === 'infrastructure_classes') {
+              cachedClassesPromise = Promise.resolve(row.value)
+              try {
+                localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(row.value))
+              } catch (e) {}
+              infraSubscribers.forEach((sub) => sub.setClasses(row.value))
+            } else if (row.key === 'infrastructure_subjects') {
+              cachedSubjectsPromise = Promise.resolve(row.value)
+              try {
+                localStorage.setItem(STORAGE_KEYS.SUBJECTS, JSON.stringify(row.value))
+              } catch (e) {}
+              infraSubscribers.forEach((sub) => sub.setSubjects(row.value))
+            } else if (row.key === 'infrastructure_incident_categories') {
+              cachedIncidentCategoriesPromise = Promise.resolve(row.value)
+              try {
+                localStorage.setItem(STORAGE_KEYS.INCIDENT_CATEGORIES, JSON.stringify(row.value))
+              } catch (e) {}
+              infraSubscribers.forEach((sub) => sub.setIncidentCategories(row.value))
+            } else if (row.key === 'infrastructure_incident_settings') {
+              cachedIncidentSettingsPromise = Promise.resolve(row.value)
+              try {
+                localStorage.setItem(STORAGE_KEYS.INCIDENT_SETTINGS, JSON.stringify(row.value))
+              } catch (e) {}
+              infraSubscribers.forEach((sub) => sub.setIncidentSettings(row.value))
+            }
+          }
+        )
+        .subscribe()
+    }
+
+    return () => {
+      isMounted = false
+      infraSubscribers.delete(subscriber)
+      infraRefCount--
+      if (infraRefCount <= 0 && sharedInfraChannel) {
+        supabase.removeChannel(sharedInfraChannel)
+        sharedInfraChannel = null
+        infraRefCount = 0
+      }
+    }
+  }, [])
+
+  // Cross-tab / cross-component sync
+  useEffect(() => {
+    const handleSync = () => {
+      try {
+        const p = localStorage.getItem(STORAGE_KEYS.PERIODS)
+        if (p) setPeriods((prev) => (JSON.stringify(prev) === p ? prev : JSON.parse(p)))
+        const l = localStorage.getItem(STORAGE_KEYS.LABS)
+        if (l) setLabs((prev) => (JSON.stringify(prev) === l ? prev : JSON.parse(l)))
+        const c = localStorage.getItem(STORAGE_KEYS.CLASSES)
+        if (c) setClasses((prev) => (JSON.stringify(prev) === c ? prev : JSON.parse(c)))
+        const f = localStorage.getItem(STORAGE_KEYS.FACULTY)
+        if (f) setFaculty((prev) => (JSON.stringify(prev) === f ? prev : JSON.parse(f)))
+        const s = localStorage.getItem(STORAGE_KEYS.SUBJECTS)
+        if (s) setSubjects((prev) => (JSON.stringify(prev) === s ? prev : JSON.parse(s)))
+        const h = localStorage.getItem(STORAGE_KEYS.HOLIDAYS)
+        if (h) setHolidays((prev) => (JSON.stringify(prev) === h ? prev : JSON.parse(h)))
+        const ic = localStorage.getItem(STORAGE_KEYS.INCIDENT_CATEGORIES)
+        if (ic) setIncidentCategories((prev) => (JSON.stringify(prev) === ic ? prev : JSON.parse(ic)))
+        const is = localStorage.getItem(STORAGE_KEYS.INCIDENT_SETTINGS)
+        if (is) setIncidentSettings((prev) => (JSON.stringify(prev) === is ? prev : JSON.parse(is)))
+      } catch (e) {}
+    }
+
+    window.addEventListener('infrastructure-updated', handleSync)
+    window.addEventListener('storage', (e) => {
+      if (e.key && Object.values(STORAGE_KEYS).includes(e.key)) {
+        handleSync()
+      }
+    })
+    const unsubInfra = subscribeToSync('infrastructure', () => handleSync())
+    const unsubHolidays = subscribeToSync('holidays', () => handleSync())
+
+    return () => {
+      window.removeEventListener('infrastructure-updated', handleSync)
+      window.removeEventListener('storage', handleSync as any)
+      unsubInfra()
+      unsubHolidays()
+    }
+  }, [])
+
+  // 1. Periods Management
+  const addPeriod = useCallback((period: PeriodSlotItem) => {
+    setPeriods((prev) => {
+      const updated = sortPeriodSlots([...prev, period])
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.PERIODS, updated)
+        updatePeriodSlotsAction(updated).catch(() => {})
+      })
+      return updated
+    })
+  }, [])
+
+  const updatePeriod = useCallback((id: string, updates: Partial<PeriodSlotItem>) => {
+    setPeriods((prev) => {
+      const updated = sortPeriodSlots(prev.map((p) => (p.id === id ? { ...p, ...updates } : p)))
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.PERIODS, updated)
+        updatePeriodSlotsAction(updated).catch(() => {})
+      })
+      return updated
+    })
+  }, [])
+
+  const deletePeriod = useCallback((id: string) => {
+    setPeriods((prev) => {
+      const updated = prev.filter((p) => p.id !== id)
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.PERIODS, updated)
+        updatePeriodSlotsAction(updated).catch(() => {})
+      })
+      return updated
+    })
+  }, [])
+
+  const resetPeriods = useCallback(async () => {
+    try {
+      const res = await getPeriodSlotsAction()
+      const slots = res.success ? res.data : []
+      const sorted = sortPeriodSlots(slots)
+      setPeriods(sorted)
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.PERIODS, sorted)
+        updatePeriodSlotsAction(sorted).catch(() => {})
+      })
+    } catch (e) {
+      console.warn('Failed to reset periods:', e)
+    }
+  }, [])
+
+  // 2. Labs Management
+  const addLab = useCallback((lab: LabFacilityItem) => {
+    setLabs((prev) => {
+      const updated = [...prev, lab]
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.LABS, updated)
+        cachedLabsPromise = null
+        lastInfraFetchTime = 0
+        createLabFacility(lab).catch((err) => {
+          console.error('[LMR] Remote createLabFacility failed:', err)
+        })
+      })
+      return updated
+    })
+  }, [])
+
+  const updateLab = useCallback((id: string, updates: Partial<LabFacilityItem>) => {
+    setLabs((prev) => {
+      const updated = prev.map((l) => (l.id === id ? { ...l, ...updates } : l))
+      saveToStorage(STORAGE_KEYS.LABS, updated)
+      cachedLabsPromise = null
+      lastInfraFetchTime = 0
+      return updated
+    })
+    updateLabFacility(id, updates).catch((err) => {
+      console.error('[LMR] Remote updateLabFacility failed:', err)
+    })
+  }, [])
+
+  const deleteLab = useCallback((id: string) => {
+    setLabs((prev) => {
+      const updated = prev.filter((l) => l.id !== id)
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.LABS, updated)
+        cachedLabsPromise = null
+        lastInfraFetchTime = 0
+        deleteLabFacility(id).catch((err) => {
+          console.error('[LMR] Remote deleteLabFacility failed:', err)
+        })
+      })
+      return updated
+    })
+  }, [])
+
+  // 3. Classes Management
+  const addClass = useCallback((cls: ClassEnrollmentItem) => {
+    setClasses((prev) => {
+      const updated = [...prev, cls]
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.CLASSES, updated)
+        updateInstitutionSetting('infrastructure_classes', updated).catch(() => {})
+      })
+      return updated
+    })
+  }, [])
+
+  const updateClass = useCallback((id: string, updates: Partial<ClassEnrollmentItem>) => {
+    setClasses((prev) => {
+      const updated = prev.map((c) => (c.id === id ? { ...c, ...updates } : c))
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.CLASSES, updated)
+        updateInstitutionSetting('infrastructure_classes', updated).catch(() => {})
+      })
+      return updated
+    })
+  }, [])
+
+  const deleteClass = useCallback((id: string) => {
+    setClasses((prev) => {
+      const updated = prev.filter((c) => c.id !== id)
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.CLASSES, updated)
+        updateInstitutionSetting('infrastructure_classes', updated).catch(() => {})
+      })
+      return updated
+    })
+  }, [])
+
+  // 4. Faculty Management
+  const addFaculty = useCallback((fac: FacultyMemberItem) => {
+    setFaculty((prev) => {
+      const updated = [...prev, fac]
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.FACULTY, updated)
+      })
+      return updated
+    })
+  }, [])
+
+  const updateFaculty = useCallback((id: string, updates: Partial<FacultyMemberItem>) => {
+    setFaculty((prev) => {
+      const updated = prev.map((f) => (f.id === id ? { ...f, ...updates } : f))
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.FACULTY, updated)
+      })
+      return updated
+    })
+  }, [])
+
+  const deleteFaculty = useCallback((id: string) => {
+    setFaculty((prev) => {
+      const updated = prev.filter((f) => f.id !== id)
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.FACULTY, updated)
+      })
+      return updated
+    })
+  }, [])
+
+  // 5. Subjects & Teacher Assignment Management
+  const addSubject = useCallback((sub: SubjectCurriculumItem) => {
+    setSubjects((prev) => {
+      const updated = [...prev, sub]
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.SUBJECTS, updated)
+        updateInstitutionSetting('infrastructure_subjects', updated).catch(() => {})
+      })
+      return updated
+    })
+  }, [])
+
+  const updateSubject = useCallback((code: string, updates: Partial<SubjectCurriculumItem>) => {
+    setSubjects((prev) => {
+      const updated = prev.map((s) => (s.code === code ? { ...s, ...updates } : s))
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.SUBJECTS, updated)
+        updateInstitutionSetting('infrastructure_subjects', updated).catch(() => {})
+      })
+      return updated
+    })
+  }, [])
+
+  const deleteSubject = useCallback((code: string) => {
+    setSubjects((prev) => {
+      const updated = prev.filter((s) => s.code !== code)
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.SUBJECTS, updated)
+        updateInstitutionSetting('infrastructure_subjects', updated).catch(() => {})
+      })
+      return updated
+    })
+  }, [])
+
+  const assignTeacherToSubject = useCallback((subjectCode: string, teacherId: string) => {
+    let teacherName = 'Assigned Faculty'
+    setFaculty((prevFaculty) => {
+      const targetTeacher = prevFaculty.find((f) => f.id === teacherId)
+      if (targetTeacher) {
+        teacherName = targetTeacher.name
+      }
+      const updatedFaculty = prevFaculty.map((f) => {
+        const codes = f.assignedSubjectCodes || []
+        if (f.id === teacherId) {
+          return { ...f, assignedSubjectCodes: Array.from(new Set([...codes, subjectCode])) }
+        } else {
+          return { ...f, assignedSubjectCodes: codes.filter((c) => c !== subjectCode) }
+        }
+      })
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.FACULTY, updatedFaculty)
+      })
+      return updatedFaculty
+    })
+
+    setSubjects((prevSubjects) => {
+      const updatedSubjects = prevSubjects.map((s) =>
+        s.code === subjectCode ? { ...s, teacherId, teacherName } : s
+      )
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.SUBJECTS, updatedSubjects)
+        updateInstitutionSetting('infrastructure_subjects', updatedSubjects).catch(() => {})
+      })
+      return updatedSubjects
+    })
+  }, [])
+
+  // 6. Holidays & Calendar Management
+  const addHoliday = useCallback((hol: HolidayItem) => {
+    setHolidays((prev) => {
+      const filtered = prev.filter((h) => h.id !== hol.id)
+      const updated = [hol, ...filtered]
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.HOLIDAYS, updated)
+        addAcademicHoliday(hol).catch((err) => {
+          console.error('Failed to save academic holiday remotely:', err)
+        })
+      })
+      return updated
+    })
+  }, [])
+
+  const updateHoliday = useCallback((id: string, updates: Partial<HolidayItem>) => {
+    setHolidays((prev) => {
+      const updated = prev.map((h) => (h.id === id ? { ...h, ...updates } : h))
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.HOLIDAYS, updated)
+        updateAcademicHoliday(id, updates).catch((err) => {
+          console.error('Failed to update academic holiday remotely:', err)
+        })
+      })
+      return updated
+    })
+  }, [])
+
+  const deleteHoliday = useCallback((id: string) => {
+    setHolidays((prev) => {
+      const updated = prev.filter((h) => h.id !== id)
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.HOLIDAYS, updated)
+        deleteAcademicHoliday(id).catch((err) => {
+          console.error('Failed to delete academic holiday remotely:', err)
+        })
+      })
+      return updated
+    })
+  }, [])
+
+  const checkIsHoliday = useCallback((dateStr: string) => {
+    return holidays.some((h) => isDateWithinHoliday(dateStr, h))
+  }, [holidays])
+
+  const getHolidayForDate = useCallback((dateStr: string) => {
+    return holidays.find((h) => isDateWithinHoliday(dateStr, h))
+  }, [holidays])
+
+  const resetHolidaysToOfficialGazette = useCallback(() => {
+    setHolidays(DEFAULT_HOLIDAYS)
+    queueMicrotask(() => {
+      saveToStorage(STORAGE_KEYS.HOLIDAYS, DEFAULT_HOLIDAYS)
+      DEFAULT_HOLIDAYS.forEach((dh) => {
+        addAcademicHoliday(dh).catch(() => {})
+      })
+    })
+  }, [])
+
+  // 7. Incident Categories & Governance Settings Management
+  const addIncidentCategory = useCallback((cat: IncidentCategoryItem) => {
+    setIncidentCategories((prev) => {
+      const updated = [...prev, cat]
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.INCIDENT_CATEGORIES, updated)
+        updateInstitutionSetting('infrastructure_incident_categories', updated).catch(() => {})
+      })
+      return updated
+    })
+  }, [])
+
+  const updateIncidentCategory = useCallback((id: string, updates: Partial<IncidentCategoryItem>) => {
+    setIncidentCategories((prev) => {
+      const updated = prev.map((c) => (c.id === id ? { ...c, ...updates } : c))
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.INCIDENT_CATEGORIES, updated)
+        updateInstitutionSetting('infrastructure_incident_categories', updated).catch(() => {})
+      })
+      return updated
+    })
+  }, [])
+
+  const deleteIncidentCategory = useCallback((id: string) => {
+    setIncidentCategories((prev) => {
+      const updated = prev.filter((c) => c.id !== id)
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.INCIDENT_CATEGORIES, updated)
+        updateInstitutionSetting('infrastructure_incident_categories', updated).catch(() => {})
+      })
+      return updated
+    })
+  }, [])
+
+  const deactivateIncidentCategory = useCallback((id: string) => {
+    setIncidentCategories((prev) => {
+      const updated = prev.map((c) => (c.id === id ? { ...c, is_active: false } : c))
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.INCIDENT_CATEGORIES, updated)
+        updateInstitutionSetting('infrastructure_incident_categories', updated).catch(() => {})
+      })
+      return updated
+    })
+  }, [])
+
+  const resetIncidentCategories = useCallback(() => {
+    setIncidentCategories(DEFAULT_INCIDENT_CATEGORIES)
+    queueMicrotask(() => {
+      saveToStorage(STORAGE_KEYS.INCIDENT_CATEGORIES, DEFAULT_INCIDENT_CATEGORIES)
+      updateInstitutionSetting('infrastructure_incident_categories', DEFAULT_INCIDENT_CATEGORIES).catch(() => {})
+    })
+  }, [])
+
+  const updateIncidentSettings = useCallback((updates: Partial<IncidentGovernanceSettings>) => {
+    setIncidentSettings((prev) => {
+      const updated = {
+        ...prev,
+        ...updates,
+        emergencyContacts: {
+          ...prev.emergencyContacts,
+          ...(updates.emergencyContacts || {}),
+        },
+      }
+      queueMicrotask(() => {
+        saveToStorage(STORAGE_KEYS.INCIDENT_SETTINGS, updated)
+        updateInstitutionSetting('infrastructure_incident_settings', updated).catch(() => {})
+      })
+      return updated
+    })
+  }, [])
+
+  return {
+    isLoading,
+    hasFetchedOnce,
+    periods,
+    labs,
+    classes,
+    faculty,
+    subjects,
+    holidays,
+    incidentCategories,
+    incidentSettings,
+    addPeriod,
+    updatePeriod,
+    deletePeriod,
+    resetPeriods,
+    addLab,
+    updateLab,
+    deleteLab,
+    addClass,
+    updateClass,
+    deleteClass,
+    addFaculty,
+    updateFaculty,
+    deleteFaculty,
+    addSubject,
+    updateSubject,
+    deleteSubject,
+    assignTeacherToSubject,
+    addHoliday,
+    updateHoliday,
+    deleteHoliday,
+    resetHolidaysToOfficialGazette,
+    checkIsHoliday,
+    getHolidayForDate,
+    addIncidentCategory,
+    updateIncidentCategory,
+    deleteIncidentCategory,
+    deactivateIncidentCategory,
+    resetIncidentCategories,
+    updateIncidentSettings,
+  }
+}
+
+=========================================
+FILE: hooks\use-routine-state.ts
+=========================================
+
+'use client'
+
+import { useState, useEffect, useCallback, useRef } from 'react'
+import {
+  MasterRoutineItem,
+  computeCombinedTimeRange,
+  cleanSubjectTitle,
+} from '@/lib/master-data'
+import {
+  getSchedules,
+  createSchedule,
+  updateSchedule as updateScheduleAction,
+  mergeSchedules as mergeSchedulesAction,
+  unmergeSchedule as unmergeScheduleAction,
+  deleteSchedule as deleteScheduleAction,
+  resetSchedulesToMaster as resetSchedulesToMasterAction,
+  updateScheduleStatus,
+} from '@/app/actions/schedules'
+import { parseSlotTimeRange, sortSessionsChronologically } from '@/lib/utils'
+import { broadcastSync, subscribeToSync } from '@/lib/sync-bus'
+
+const STORAGE_KEY = 'lab_master_routine_2083_v6'
+const ROUTINE_OUTBOX_KEY = 'lab_pending_schedules_outbox_v1'
+
+export function deduplicateRoutines(items: MasterRoutineItem[]): MasterRoutineItem[] {
+  if (!Array.isArray(items)) return []
+  const seen = new Set<string>()
+  const result: MasterRoutineItem[] = []
+  for (const item of items) {
+    if (!item || !item.id || seen.has(item.id)) continue
+    seen.add(item.id)
+    result.push(item)
+  }
+  return sortSessionsChronologically(result)
+}
+
+function formatRoutineSubject(code?: string, title?: string): string {
+  if (!code && !title) return 'Practical Session'
+  if (!code) return title!
+  if (!title) return code
+  return title.toLowerCase().startsWith(code.toLowerCase()) ? title : `${code} - ${title}`
+}
+
+// Schedule Outbox Helpers
+function getPendingRoutineOutbox(): MasterRoutineItem[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = localStorage.getItem(ROUTINE_OUTBOX_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed)) return parsed
+    }
+  } catch {}
+  return []
+}
+
+function savePendingRoutineOutbox(queue: MasterRoutineItem[]) {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(ROUTINE_OUTBOX_KEY, JSON.stringify(queue))
+    queueMicrotask(() => {
+      window.dispatchEvent(new CustomEvent('sync-status-changed', { detail: { pendingSchedulesCount: queue.length } }))
+    })
+  } catch {}
+}
+
+function addRoutineToOutbox(session: MasterRoutineItem) {
+  const current = getPendingRoutineOutbox()
+  const filtered = current.filter((s) => s.id !== session.id)
+  savePendingRoutineOutbox([...filtered, session])
+}
+
+function removeRoutineFromOutbox(id: string) {
+  const current = getPendingRoutineOutbox()
+  savePendingRoutineOutbox(current.filter((s) => s.id !== id))
+}
+
+export function useRoutineState() {
+  const [routines, setRoutines] = useState<MasterRoutineItem[]>([])
+  const [isLoading, setIsLoading] = useState<boolean>(true)
+  const [hasFetchedOnce, setHasFetchedOnce] = useState<boolean>(false)
+  const [isLoaded, setIsLoaded] = useState(false)
+  const isFlushingRef = useRef(false)
+
+  // Load from localStorage on mount (preserves user deletions and modifications without phantom resurrection)
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY)
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setRoutines(deduplicateRoutines(parsed))
+        }
+      }
+    } catch (e) {}
+    setIsLoaded(true)
+  }, [])
+
+  // Flush Pending Schedules Outbox to Supabase
+  const flushRoutineOutbox = useCallback(async () => {
+    if (typeof window === 'undefined' || !navigator.onLine) return
+    if (isFlushingRef.current) return
+
+    const pending = getPendingRoutineOutbox()
+    if (pending.length === 0) return
+
+    isFlushingRef.current = true
+    try {
+      for (const item of pending) {
+        const res = await createSchedule({
+          id: item.id,
+          lab_id: item.labKey === 'comp' ? 'comp' : item.labKey === 'phys' ? 'phys' : item.labKey === 'chem' ? 'chem' : item.labKey === 'bio' ? 'bio' : 'elec',
+          teacher_id: item.teacherId || null,
+          subject_name: formatRoutineSubject(item.subjectCode, item.subjectTitle),
+          batch_name: item.grade,
+          day_key: item.dayKey,
+          slot_id: item.slotId,
+          span: item.span || 1,
+          start_time: parseSlotTimeRange(item.timeSlot).startTime,
+          end_time: parseSlotTimeRange(item.timeSlot).endTime,
+          class_subject_id: item.classSubjectId || null,
+          academic_year_id: item.academicYearId || null,
+          status: 'scheduled',
+          metadata: {
+            teacher: item.teacher,
+            labName: item.lab,
+            studentsCount: item.defaultStudents,
+            status: item.status || 'confirmed',
+          },
+        })
+
+        if (res && res.success) {
+          removeRoutineFromOutbox(item.id)
+        } else if (res && res.error) {
+          console.warn('Routine outbox item rejected by server, removing from outbox queue:', res.error)
+          removeRoutineFromOutbox(item.id)
+        }
+      }
+    } catch (err) {
+      console.warn('Error flushing routine outbox:', err)
+    } finally {
+      isFlushingRef.current = false
+    }
+  }, [])
+
+  // Persist helper (sanitizes duplicates and dispatches async to prevent React render collisions)
+  const persistRoutines = useCallback((updater: MasterRoutineItem[] | ((prev: MasterRoutineItem[]) => MasterRoutineItem[])) => {
+    setRoutines((prev) => {
+      const raw = typeof updater === 'function' ? updater(prev) : updater
+      const updated = deduplicateRoutines(raw)
+      try {
+        if (typeof window !== 'undefined') {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(updated))
+        }
+      } catch (e) {
+        console.error('Failed to save routine', e)
+      }
+      return updated
+    })
+
+    if (typeof window !== 'undefined') {
+      queueMicrotask(() => {
+        window.dispatchEvent(new Event('routine-updated'))
+        broadcastSync('schedules', {})
+      })
+    }
+  }, [])
+
+  // Load from Supabase with fallback to localStorage and pending outbox merge
+  const loadRemoteSchedules = useCallback(async () => {
+    setIsLoading(true)
+    try {
+      try {
+        await flushRoutineOutbox()
+
+        const dbSchedules = await getSchedules()
+        if (Array.isArray(dbSchedules)) {
+          const DAY_NAME_MAP: Record<string, 'Sunday' | 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday'> = {
+            sun: 'Sunday',
+            mon: 'Monday',
+            tue: 'Tuesday',
+            wed: 'Wednesday',
+            thu: 'Thursday',
+            fri: 'Friday',
+            sat: 'Saturday',
+          }
+
+          const pending = getPendingRoutineOutbox()
+          const pendingIds = new Set(pending.map((p) => p.id))
+
+          const mappedRemote: MasterRoutineItem[] = dbSchedules
+            .filter((s: any) => !pendingIds.has(s.id))
+            .map((s: any) => {
+              const labKey = s.lab_id || (s.labs?.type?.includes('comp') ? 'comp' : s.labs?.type?.includes('phys') ? 'phys' : s.labs?.type?.includes('chem') ? 'chem' : s.labs?.type?.includes('bio') ? 'bio' : 'elec')
+              const isComp = labKey === 'comp'
+              const isPhys = labKey === 'phys'
+              const isChem = labKey === 'chem'
+              const isBio = labKey === 'bio'
+
+              return {
+                id: s.id,
+                day: DAY_NAME_MAP[s.day_key] || 'Sunday',
+                dayKey: s.day_key || 'sun',
+                timeSlot:
+                  (s.span && s.span > 1 && s.slot_id)
+                    ? computeCombinedTimeRange(s.slot_id, s.span)
+                    : `${s.start_time} - ${s.end_time}`,
+                slotId: s.slot_id || 't2',
+                span: s.span || 1,
+                subjectCode: (() => {
+                  if (s.subject_code) return s.subject_code
+                  const raw = s.subject_name || ''
+                  const split = raw.match(/^([A-Za-z0-9_-]+)/)
+                  return split ? split[1] : 'PRAC'
+                })(),
+                subjectTitle: (() => {
+                  const raw = s.subject_name || 'Practical Session'
+                  const code = s.subject_code || raw.match(/^([A-Za-z0-9_-]+)/)?.[1] || ''
+                  return cleanSubjectTitle(code, raw) || raw
+                })(),
+                grade: s.batch_name || 'Class 12',
+                gradeKey: 'class-12',
+                teacher: s.teacher_name || s.profiles?.full_name || 'Unassigned Faculty',
+                teacherId: s.resolved_teacher_id || s.teacher_id || s.profiles?.id || null,
+                lab: s.labs?.name || 'Laboratory',
+                labCode: s.labs?.code || s.metadata?.labCode,
+                labKey,
+                secondaryLab: s.metadata?.secondary_lab_name || s.metadata?.secondaryLab || undefined,
+                secondaryLabKey: s.metadata?.secondary_lab_id || s.metadata?.secondaryLabKey || undefined,
+                isDualLab: Boolean(s.metadata?.is_multi_lab || s.metadata?.isDualLab || s.metadata?.secondary_lab_id),
+                coTeacher: s.metadata?.co_teacher || s.metadata?.coTeacher || undefined,
+                classSubjectId: s.class_subject_id || null,
+                academicYearId: s.academic_year_id || null,
+                specificDate: s.specific_date ? String(s.specific_date).split('T')[0] : (s.metadata?.specific_date || null),
+                isAdHoc: Boolean(s.specific_date || s.metadata?.is_adhoc || s.id?.startsWith('adhoc-')),
+                defaultStudents: s.metadata?.studentsCount || 36,
+                category: isComp ? 'Computer' : isPhys ? 'Physics' : isChem ? 'Chemistry' : isBio ? 'Biology' : 'General',
+                dotColor: isComp ? 'bg-indigo-500' : isPhys ? 'bg-amber-500' : isChem ? 'bg-emerald-500' : isBio ? 'bg-teal-500' : 'bg-cyan-500',
+                badgeColor: 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700',
+                accentColor: 'border-l-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/20 text-zinc-950 dark:text-zinc-50',
+                status: s.status || s.metadata?.status || 'confirmed',
+                isSkipped: s.metadata?.is_skipped || s.status === 'skipped' || false,
+                skippedReason: s.metadata?.skipped_reason || undefined,
+                skippedBy: s.metadata?.skipped_by || undefined,
+                requestedBy: s.metadata?.requested_by || undefined,
+                declineReason: s.metadata?.decline_reason || undefined,
+              }
+            })
+
+          // Remote database schedules ARE the authoritative source of truth.
+          const scheduleMap = new Map<string, MasterRoutineItem>()
+          for (const remoteItem of mappedRemote) {
+            scheduleMap.set(remoteItem.id, remoteItem)
+          }
+          for (const pendingItem of pending) {
+            if ((pendingItem.status as any) === 'deleted') {
+              scheduleMap.delete(pendingItem.id)
+            } else {
+              scheduleMap.set(pendingItem.id, pendingItem)
+            }
+          }
+          const merged = deduplicateRoutines(Array.from(scheduleMap.values()))
+          try {
+            if (typeof window !== 'undefined') {
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(merged))
+            }
+          } catch {}
+          setRoutines(merged)
+          return
+        }
+      } catch (e) {
+        console.warn('Using local routine storage:', e)
+      }
+
+      // Local fallback only if offline / fetch threw
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY)
+        if (saved) {
+          const parsed = JSON.parse(saved)
+          if (Array.isArray(parsed)) {
+            setRoutines(deduplicateRoutines(parsed))
+          }
+        } else {
+          setRoutines([])
+        }
+      } catch (e) {}
+    } finally {
+      setIsLoaded(true)
+      setIsLoading(false)
+      setHasFetchedOnce(true)
+    }
+  }, [flushRoutineOutbox])
+
+  useEffect(() => {
+    loadRemoteSchedules()
+
+    const handleOnline = () => {
+      flushRoutineOutbox()
+      loadRemoteSchedules()
+    }
+
+    window.addEventListener('online', handleOnline)
+    return () => window.removeEventListener('online', handleOnline)
+  }, [flushRoutineOutbox, loadRemoteSchedules])
+
+  // Listen to external updates across tabs
+  useEffect(() => {
+    const handleUpdate = () => {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY)
+        if (saved) {
+          const parsed = JSON.parse(saved)
+          if (Array.isArray(parsed)) {
+            const deduped = deduplicateRoutines(parsed)
+            setRoutines((prev) => {
+              if (prev.length === deduped.length && JSON.stringify(prev) === JSON.stringify(deduped)) {
+                return prev
+              }
+              return deduped
+            })
+          }
+        }
+      } catch (e) {}
+    }
+
+    window.addEventListener('routine-updated', handleUpdate)
+    window.addEventListener('storage', (e) => {
+      if (e.key === STORAGE_KEY) handleUpdate()
+    })
+
+    const unsub = subscribeToSync('schedules', (eventData) => {
+      const payloadRoutines = eventData?.payload?.routines
+      if (payloadRoutines && Array.isArray(payloadRoutines)) {
+        const deduped = deduplicateRoutines(payloadRoutines)
+        setRoutines((prev) => {
+          if (prev.length === deduped.length && JSON.stringify(prev) === JSON.stringify(deduped)) {
+            return prev
+          }
+          return deduped
+        })
+      } else {
+        handleUpdate()
+      }
+    })
+
+    return () => {
+      window.removeEventListener('routine-updated', handleUpdate)
+      window.removeEventListener('storage', handleUpdate as any)
+      unsub()
+    }
+  }, [])
+
+  // Operations backed by Server Actions + Optimistic State + Outbox
+  const addSession = async (session: MasterRoutineItem): Promise<{ success: boolean; error?: string }> => {
+    const effectiveSpan = session.span || 1
+    const effectiveTimeSlot = (effectiveSpan > 1 && session.slotId)
+      ? computeCombinedTimeRange(session.slotId, effectiveSpan)
+      : (session.timeSlot || '10:10 - 11:00')
+
+    const finalizedSession: MasterRoutineItem = {
+      ...session,
+      span: effectiveSpan,
+      timeSlot: effectiveTimeSlot,
+    }
+
+    persistRoutines((prev) => {
+      const filtered = prev.filter((r) => r.id !== finalizedSession.id)
+      return [...filtered, finalizedSession]
+    })
+    addRoutineToOutbox(finalizedSession)
+
+    if (navigator.onLine) {
+      try {
+        const parsedTimes = parseSlotTimeRange(effectiveTimeSlot)
+        const res = await createSchedule({
+          id: finalizedSession.id,
+          lab_id: finalizedSession.labKey === 'comp' ? 'comp' : finalizedSession.labKey === 'phys' ? 'phys' : finalizedSession.labKey === 'chem' ? 'chem' : finalizedSession.labKey === 'bio' ? 'bio' : 'elec',
+          teacher_id: finalizedSession.teacherId || null,
+          subject_name: formatRoutineSubject(finalizedSession.subjectCode, finalizedSession.subjectTitle),
+          batch_name: finalizedSession.grade,
+          day_key: finalizedSession.dayKey,
+          slot_id: finalizedSession.slotId,
+          span: effectiveSpan,
+          start_time: parsedTimes.startTime,
+          end_time: parsedTimes.endTime,
+          class_subject_id: finalizedSession.classSubjectId || null,
+          academic_year_id: finalizedSession.academicYearId || null,
+          specific_date: finalizedSession.specificDate || null,
+          status: 'scheduled',
+          metadata: {
+            teacher: finalizedSession.teacher,
+            labName: finalizedSession.lab,
+            studentsCount: finalizedSession.defaultStudents,
+            secondary_lab_id: finalizedSession.secondaryLabKey || null,
+            secondary_lab_name: finalizedSession.secondaryLab || null,
+            is_multi_lab: Boolean(finalizedSession.isDualLab),
+            co_teacher: finalizedSession.coTeacher || null,
+            status: finalizedSession.status || 'confirmed',
+            specific_date: finalizedSession.specificDate || null,
+            is_adhoc: finalizedSession.isAdHoc || Boolean(finalizedSession.specificDate),
+          },
+        })
+        if (res && res.success) {
+          removeRoutineFromOutbox(finalizedSession.id)
+          return { success: true }
+        } else if (res && res.error) {
+          console.error('[LMR] createSchedule rejected:', res.error)
+          persistRoutines((prev) => prev.filter((r) => r.id !== finalizedSession.id))
+          removeRoutineFromOutbox(finalizedSession.id)
+          return { success: false, error: res.error }
+        }
+      } catch (e: any) {
+        console.warn('Network offline, routine queued in outbox:', e)
+        return { success: false, error: e?.message || 'Network error' }
+      }
+    }
+    return { success: true }
+  }
+
+  const deleteSession = async (sessionId: string) => {
+    removeRoutineFromOutbox(sessionId)
+    persistRoutines((prev) => prev.filter((r) => r.id !== sessionId))
+
+    if (navigator.onLine) {
+      try {
+        const res = await deleteScheduleAction(sessionId)
+        if (res && !res.success) {
+          console.error('[DATABASE ERROR] Failed to delete schedule in database:', res.error)
+        }
+      } catch (e) {
+        console.warn('Server sync for deleteSession failed:', e)
+      }
+    }
+  }
+
+  const updateSession = async (sessionId: string, updatedFields: Partial<MasterRoutineItem>) => {
+    const current = routines.find((r) => r.id === sessionId)
+    if (!current) return
+    const updated: MasterRoutineItem = {
+      ...current,
+      ...updatedFields,
+    }
+    persistRoutines((prev) => prev.map((r) => (r.id === sessionId ? updated : r)))
+    addRoutineToOutbox(updated)
+
+    if (navigator.onLine) {
+      try {
+        const labId =
+          updated.labKey === 'comp'
+            ? 'comp'
+            : updated.labKey === 'phys'
+            ? 'phys'
+            : updated.labKey === 'chem'
+            ? 'chem'
+            : updated.labKey === 'bio'
+            ? 'bio'
+            : 'elec'
+
+        const res = await updateScheduleAction(sessionId, {
+          lab_id: labId,
+          teacher_id: updated.teacherId || null,
+          subject_name: formatRoutineSubject(updated.subjectCode, updated.subjectTitle),
+          batch_name: updated.grade,
+          day_key: updated.dayKey,
+          slot_id: updated.slotId,
+          span: updated.span || 1,
+          start_time: parseSlotTimeRange(updated.timeSlot).startTime,
+          end_time: parseSlotTimeRange(updated.timeSlot).endTime,
+          class_subject_id: updated.classSubjectId || null,
+          academic_year_id: updated.academicYearId || null,
+          metadata: {
+            teacher: updated.teacher,
+            labName: updated.lab,
+            studentsCount: updated.defaultStudents,
+            secondary_lab_id: updated.secondaryLabKey,
+            is_multi_lab: updated.isDualLab,
+            status: updated.status || 'confirmed',
+          },
+        })
+        if (res && res.success) {
+          removeRoutineFromOutbox(sessionId)
+        }
+      } catch (e) {
+        console.warn('Network offline, update queued in outbox:', e)
+      }
+    }
+  }
+
+  const extendSession = async (sessionId: string, additionalSpan: number = 1) => {
+    const current = routines.find((r) => r.id === sessionId)
+    if (!current) return
+    const newSpan = (current.span || 1) + additionalSpan
+    const newTimeSlot = computeCombinedTimeRange(current.slotId, newSpan)
+    const updated = {
+      ...current,
+      span: newSpan,
+      timeSlot: newTimeSlot,
+    }
+    persistRoutines((prev) => prev.map((r) => (r.id === sessionId ? updated : r)))
+    addRoutineToOutbox(updated)
+
+    if (navigator.onLine) {
+      try {
+        await updateScheduleAction(sessionId, {
+          span: newSpan,
+          start_time: parseSlotTimeRange(newTimeSlot).startTime,
+          end_time: parseSlotTimeRange(newTimeSlot).endTime,
+        })
+        removeRoutineFromOutbox(sessionId)
+      } catch (e) {
+        console.warn('Server sync for extendSession skipped:', e)
+      }
+    }
+  }
+
+  const mergeSession = async (
+    sessionId: string,
+    nextSessionId?: string,
+    mergedCode?: string,
+    mergedTitle?: string,
+    mergedGrade?: string,
+    mergedTeacher?: string
+  ) => {
+    const current = routines.find((r) => r.id === sessionId)
+    if (!current) return
+
+    if (nextSessionId) {
+      const next = routines.find((r) => r.id === nextSessionId)
+      if (next) {
+        const combinedSpan = (current.span || 1) + (next.span || 1)
+        const combinedTimeSlot = computeCombinedTimeRange(current.slotId, combinedSpan)
+        const isSameCode = Boolean(current.subjectCode === next.subjectCode)
+        const isSameTitle = Boolean(current.subjectTitle === next.subjectTitle)
+        const combinedCode =
+          mergedCode || (isSameCode ? current.subjectCode : `${current.subjectCode} + ${next.subjectCode}`)
+        const combinedTitle =
+          mergedTitle || (isSameTitle ? current.subjectTitle : `${current.subjectTitle} & ${next.subjectTitle}`)
+        const combinedGrade = mergedGrade || (current.grade === next.grade ? current.grade : `${current.grade} & ${next.grade}`)
+        const combinedTeacher = mergedTeacher || (current.teacher === next.teacher ? current.teacher : `${current.teacher} & ${next.teacher}`)
+        const combinedStudents = (current.defaultStudents || 36) + (next.defaultStudents || 36)
+
+        const mergedItem: MasterRoutineItem = {
+          ...current,
+          span: combinedSpan,
+          timeSlot: combinedTimeSlot,
+          subjectCode: combinedCode,
+          subjectTitle: combinedTitle,
+          grade: combinedGrade,
+          teacher: combinedTeacher,
+          defaultStudents: combinedStudents,
+          mergedParts: [
+            {
+              subjectCode: current.subjectCode,
+              subjectTitle: current.subjectTitle,
+              grade: current.grade,
+              teacher: current.teacher,
+              students: current.defaultStudents,
+            },
+            {
+              subjectCode: next.subjectCode,
+              subjectTitle: next.subjectTitle,
+              grade: next.grade,
+              teacher: next.teacher,
+              students: next.defaultStudents,
+            },
+          ],
+        }
+
+        persistRoutines((prev) =>
+          prev.filter((r) => r.id !== nextSessionId).map((r) => (r.id === sessionId ? mergedItem : r))
+        )
+        addRoutineToOutbox(mergedItem)
+
+        try {
+          await mergeSchedulesAction(sessionId, nextSessionId, {
+            subject_name: mergedTitle,
+            batch_name: mergedGrade,
+          })
+        } catch (e) {
+          console.warn('Server sync for mergeSession skipped:', e)
+        }
+        return
+      }
+    }
+
+    // Single session extend fallback
+    const newSpan = (current.span || 1) + 1
+    const updated = {
+      ...current,
+      span: newSpan,
+      timeSlot: computeCombinedTimeRange(current.slotId, newSpan),
+    }
+    persistRoutines((prev) => prev.map((r) => (r.id === sessionId ? updated : r)))
+    addRoutineToOutbox(updated)
+  }
+
+  const unmergeSession = async (sessionId: string) => {
+    const current = routines.find((r) => r.id === sessionId)
+    if (!current || (current.span || 1) <= 1) return
+
+    let slotList: Array<{ id: string; label: string; name?: string }> = []
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('infrastructure_periods')
+        if (saved) {
+          const parsed = JSON.parse(saved)
+          if (Array.isArray(parsed) && parsed.length > 0) slotList = parsed
+        }
+      } catch (e) {}
+    }
+    const originalSlot = slotList.find((t) => t.id === current.slotId)
+    const unmerged: MasterRoutineItem = {
+      ...current,
+      span: 1,
+      timeSlot: originalSlot?.label || current.timeSlot.split('-')[0]?.trim() || '10:10 - 11:00',
+      subjectCode: current.mergedParts ? current.mergedParts[0].subjectCode : current.subjectCode.split(' + ')[0],
+      subjectTitle: current.mergedParts ? current.mergedParts[0].subjectTitle : current.subjectTitle.split(' & ')[0],
+      grade: current.mergedParts ? current.mergedParts[0].grade : current.grade.split(' & ')[0],
+      teacher: current.mergedParts ? current.mergedParts[0].teacher : current.teacher.split(' & ')[0],
+      mergedParts: undefined,
+    }
+
+    persistRoutines((prev) => prev.map((r) => (r.id === sessionId ? unmerged : r)))
+    addRoutineToOutbox(unmerged)
+
+    try {
+      await unmergeScheduleAction(sessionId)
+    } catch (e) {
+      console.warn('Server sync for unmergeSession skipped:', e)
+    }
+  }
+
+  const skipSession = async (sessionId: string, reason: string = 'Administrative cancellation', skippedBy: string = 'Administrator') => {
+    const current = routines.find((r) => r.id === sessionId)
+    const updated: MasterRoutineItem = current
+      ? {
+          ...current,
+          status: 'skipped',
+          isSkipped: true,
+          skippedReason: reason,
+          skippedBy,
+        }
+      : ({
+          id: sessionId,
+          status: 'skipped',
+          isSkipped: true,
+          skippedReason: reason,
+          skippedBy,
+        } as any)
+
+    persistRoutines((prev) =>
+      prev.map((r) =>
+        r.id === sessionId
+          ? {
+              ...r,
+              status: 'skipped',
+              isSkipped: true,
+              skippedReason: reason,
+              skippedBy,
+            }
+          : r
+      )
+    )
+    addRoutineToOutbox(updated)
+
+    try {
+      await updateScheduleStatus(sessionId, {
+        status: 'skipped',
+        is_skipped: true,
+        skipped_reason: reason,
+        skipped_by: skippedBy,
+      })
+    } catch (e) {
+      console.warn('Server sync for skipSession skipped:', e)
+    }
+  }
+
+  const unskipSession = async (sessionId: string) => {
+    const current = routines.find((r) => r.id === sessionId)
+    const updated: MasterRoutineItem = current
+      ? {
+          ...current,
+          status: 'confirmed',
+          isSkipped: false,
+          skippedReason: undefined,
+          skippedBy: undefined,
+        }
+      : ({
+          id: sessionId,
+          status: 'confirmed',
+          isSkipped: false,
+        } as any)
+
+    persistRoutines((prev) =>
+      prev.map((r) =>
+        r.id === sessionId
+          ? {
+              ...r,
+              status: 'confirmed',
+              isSkipped: false,
+              skippedReason: undefined,
+              skippedBy: undefined,
+            }
+          : r
+      )
+    )
+    addRoutineToOutbox(updated)
+
+    try {
+      await updateScheduleStatus(sessionId, {
+        status: 'confirmed',
+        is_skipped: false,
+      })
+    } catch (e) {
+      console.warn('Server sync for unskipSession skipped:', e)
+    }
+  }
+
+  const requestSlotBooking = async (session: MasterRoutineItem, requestedBy: string) => {
+    const requestedSession: MasterRoutineItem = {
+      ...session,
+      status: 'requested',
+      isSkipped: false,
+      requestedBy,
+    }
+    persistRoutines((prev) => {
+      const filtered = prev.filter((r) => r.id !== requestedSession.id)
+      return [...filtered, requestedSession]
+    })
+    addRoutineToOutbox(requestedSession)
+
+    if (navigator.onLine) {
+      try {
+        const res = await createSchedule({
+          lab_id: session.labKey === 'comp' ? 'comp' : session.labKey === 'phys' ? 'phys' : session.labKey === 'chem' ? 'chem' : session.labKey === 'bio' ? 'bio' : 'elec',
+          subject_name: formatRoutineSubject(session.subjectCode, session.subjectTitle),
+          batch_name: session.grade,
+          day_key: session.dayKey,
+          slot_id: session.slotId,
+          span: session.span || 1,
+          teacher_id: session.teacherId || null,
+          class_subject_id: session.classSubjectId || null,
+          specific_date: session.specificDate || null,
+          start_time: parseSlotTimeRange(session.timeSlot).startTime,
+          end_time: parseSlotTimeRange(session.timeSlot).endTime,
+          metadata: {
+            teacher: session.teacher,
+            labName: session.lab,
+            studentsCount: session.defaultStudents,
+            secondary_lab_id: session.secondaryLabKey || null,
+            secondary_lab_name: session.secondaryLab || null,
+            is_multi_lab: Boolean(session.isDualLab),
+            co_teacher: session.coTeacher || null,
+            status: 'requested',
+            requested_by: requestedBy,
+            specific_date: session.specificDate || null,
+            is_adhoc: session.isAdHoc || Boolean(session.specificDate),
+          },
+        })
+        if (res && res.success) {
+          removeRoutineFromOutbox(session.id)
+        }
+      } catch (e) {
+        console.warn('Network offline, routine queued in outbox:', e)
+      }
+    }
+  }
+
+  const approveSlotBooking = async (sessionId: string) => {
+    const current = routines.find((r) => r.id === sessionId)
+    const updated: MasterRoutineItem = current
+      ? {
+          ...current,
+          status: 'confirmed',
+        }
+      : ({
+          id: sessionId,
+          status: 'confirmed',
+        } as any)
+
+    persistRoutines((prev) =>
+      prev.map((r) => (r.id === sessionId ? { ...r, status: 'confirmed' } : r))
+    )
+    addRoutineToOutbox(updated)
+
+    try {
+      await updateScheduleStatus(sessionId, { status: 'confirmed' })
+    } catch (e) {
+      console.warn('Server sync for approveSlotBooking skipped:', e)
+    }
+  }
+
+  const rejectSlotBooking = async (sessionId: string, reason?: string) => {
+    const current = routines.find((r) => r.id === sessionId)
+    const updated: MasterRoutineItem = current
+      ? {
+          ...current,
+          status: 'skipped',
+          isSkipped: true,
+          declineReason: reason || 'Booking request declined by Lab Administration',
+        }
+      : ({
+          id: sessionId,
+          status: 'skipped',
+          isSkipped: true,
+          declineReason: reason || 'Booking request declined by Lab Administration',
+        } as any)
+
+    persistRoutines((prev) =>
+      prev.map((r) =>
+        r.id === sessionId
+          ? {
+              ...r,
+              status: 'skipped',
+              isSkipped: true,
+              declineReason: reason || 'Booking request declined by Lab Administration',
+            }
+          : r
+      )
+    )
+    addRoutineToOutbox(updated)
+
+    try {
+      await updateScheduleStatus(sessionId, {
+        status: 'skipped',
+        is_skipped: true,
+        decline_reason: reason || 'Booking request declined by Lab Administration',
+      })
+    } catch (e) {
+      console.warn('Server sync for rejectSlotBooking skipped:', e)
+    }
+  }
+
+  const resetToMaster = async () => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(ROUTINE_OUTBOX_KEY)
+      savePendingRoutineOutbox([])
+    }
+    try {
+      const res = await resetSchedulesToMasterAction()
+      if (res.success) {
+        await loadRemoteSchedules()
+      }
+    } catch (e) {
+      console.warn('Failed to reset remote database to master:', e)
+    }
+  }
+
+  return {
+    routines,
+    isLoaded,
+    isLoading,
+    hasFetchedOnce,
+    refreshSchedules: loadRemoteSchedules,
+    addSession,
+    updateSession,
+    deleteSession,
+    extendSession,
+    mergeSession,
+    unmergeSession,
+    skipSession,
+    unskipSession,
+    requestSlotBooking,
+    approveSlotBooking,
+    rejectSlotBooking,
+    resetToMaster,
+    flushRoutineOutbox,
+  }
+}
+
+=========================================
+FILE: app\(dashboard)\schedules\advanced-calendar.tsx
+=========================================
+
+'use client'
+
+import React, { useState, useEffect, useMemo } from 'react'
+import {
+  Plus,
+  RotateCcw,
+  Coffee,
+  Merge,
+  Clock,
+  Split,
+  CalendarDays,
+  Palmtree,
+  Sparkles,
+  Lock,
+  Flame,
+  Radio,
+  UserCheck,
+  AlertCircle,
+  Check,
+  X,
+  AlertTriangle,
+  Landmark,
+  Wrench,
+  Building2,
+  Loader2,
+} from 'lucide-react'
+import {
+  MasterRoutineItem,
+  getOrderedDays,
+  getWeekDates,
+  DayKey,
+  formatCleanSubjectCode,
+  formatSubjectHeading,
+  cleanSubjectTitle,
+  isDateWithinHoliday,
+  getOccupiedLabsInSlot,
+} from '@/lib/master-data'
+import SessionActionModal, { ModalMode } from '@/components/schedules/session-action-modal'
+import { useLiveSchedule } from '@/hooks/use-live-schedule'
+import { useRoutineState } from '@/hooks/use-routine-state'
+import { useCalendarSettings } from '@/hooks/use-calendar-settings'
+import { useSubstitutionState } from '@/hooks/use-substitution-state'
+import { useInfrastructureState } from '@/hooks/use-infrastructure-state'
+import { UserProfile } from '@/app/actions/auth'
+
+interface AdvancedCalendarProps {
+  labFilter?: string
+  teacherFilter?: string
+  currentUser?: UserProfile | null
+  weekOffset?: number
+}
+
+export default function AdvancedCalendar({
+  labFilter = 'all',
+  teacherFilter = 'all',
+  currentUser = null,
+  weekOffset = 0,
+}: AdvancedCalendarProps) {
+  const {
+    dayKey: currentDayKey,
+    activeSlotId,
+    activeSessions,
+    now,
+  } = useLiveSchedule()
+
+  const {
+    startDay,
+    sundayWeekend,
+    saturdayWeekend,
+  } = useCalendarSettings()
+
+  const { holidays, labs, periods } = useInfrastructureState()
+  const activeSlots = periods && periods.length > 0 ? periods : []
+
+  // Calculate Base Date according to week offset
+  const baseDate = useMemo(() => {
+    const d = new Date(now)
+    d.setDate(d.getDate() + weekOffset * 7)
+    return d
+  }, [now, weekOffset])
+
+  const orderedDays = getOrderedDays(startDay)
+  const displayedDays = useMemo(() => {
+    if (sundayWeekend && saturdayWeekend) {
+      return orderedDays.filter((d) => d.id !== 'sat' && d.id !== 'sun')
+    }
+    if (saturdayWeekend && !sundayWeekend) {
+      return orderedDays.filter((d) => d.id !== 'sat')
+    }
+    return orderedDays
+  }, [orderedDays, sundayWeekend, saturdayWeekend])
+  const weekDates = getWeekDates(baseDate, startDay)
+
+  const {
+    routines,
+    addSession,
+    updateSession,
+    deleteSession,
+    extendSession,
+    mergeSession,
+    unmergeSession,
+    skipSession,
+    unskipSession,
+    requestSlotBooking,
+    approveSlotBooking,
+    rejectSlotBooking,
+    resetToMaster,
+  } = useRoutineState()
+
+  const { getSubForSession } = useSubstitutionState()
+
+  const [mounted, setMounted] = useState(false)
+  const [selectedSession, setSelectedSession] = useState<MasterRoutineItem | null>(null)
+  const [hoveredSession, setHoveredSession] = useState<MasterRoutineItem | null>(null)
+  const [modalMode, setModalMode] = useState<ModalMode>('log')
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [toastMessage, setToastMessage] = useState<string | null>(null)
+
+  // Decline Dialog State
+  const [declineSessionId, setDeclineSessionId] = useState<string | null>(null)
+  const [declineReason, setDeclineReason] = useState<string>('Lab occupied for senior exams')
+  const [customDeclineReason, setCustomDeclineReason] = useState<string>('')
+  const [isDeclineModalOpen, setIsDeclineModalOpen] = useState(false)
+  const [isSubmittingDecline, setIsSubmittingDecline] = useState(false)
+  const [declineError, setDeclineError] = useState<string | null>(null)
+  const [mobileDayKey, setMobileDayKey] = useState<DayKey>(() => (currentDayKey as DayKey) || 'sun')
+
+  useEffect(() => {
+    if (displayedDays.length > 0 && !displayedDays.some((d) => d.id === mobileDayKey)) {
+      setMobileDayKey(displayedDays[0].id)
+    }
+  }, [displayedDays, mobileDayKey])
+
+  const handleConfirmDecline = async () => {
+    if (!declineSessionId) return
+    setIsSubmittingDecline(true)
+    setDeclineError(null)
+    try {
+      const finalReason = declineReason === 'Other' ? (customDeclineReason || 'Declined by Admin') : declineReason
+      await rejectSlotBooking(declineSessionId, finalReason)
+      setIsDeclineModalOpen(false)
+      handleSuccess('Slot request declined and subject teacher notified.')
+    } catch (err: any) {
+      setDeclineError(err?.message || 'Failed to decline slot booking request.')
+    } finally {
+      setIsSubmittingDecline(false)
+    }
+  }
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  useEffect(() => {
+    if (currentDayKey) {
+      setMobileDayKey(currentDayKey as DayKey)
+    }
+  }, [currentDayKey])
+
+  const [selectedDateStr, setSelectedDateStr] = useState<string | null>(null)
+
+  const openActionModal = (session: MasterRoutineItem, mode: ModalMode = 'log', dateStr?: string) => {
+    const effDate = dateStr || session.date || session.specificDate || null
+    setSelectedDateStr(effDate)
+    setSelectedSession(effDate ? { ...session, date: effDate, specificDate: session.specificDate || effDate } : session)
+    setModalMode(mode)
+    setIsModalOpen(true)
+  }
+
+  const isDayOff = (dayKey: DayKey): boolean => {
+    if (dayKey === 'sun') return sundayWeekend
+    if (dayKey === 'sat') return saturdayWeekend
+    return false
+  }
+
+  const handleQuickAdd = (dayKey: DayKey, slotId: string) => {
+    if (isDayOff(dayKey)) {
+      setToastMessage('Scheduling is locked on weekend recess days.')
+      setTimeout(() => setToastMessage(null), 3000)
+      return
+    }
+
+    const targetDateInfo = weekDates.find((w) => w.dayKey === dayKey)
+    if (targetDateInfo && holidays.some((h) => isDateWithinHoliday(targetDateInfo.dateStr, h))) {
+      const matchingH = holidays.find((h) => isDateWithinHoliday(targetDateInfo.dateStr, h))
+      setToastMessage(`Institutional Holiday (${matchingH?.name || 'Recess'}): Practical slot booking is locked.`)
+      setTimeout(() => setToastMessage(null), 3500)
+      return
+    }
+
+    const slot = activeSlots.find((t) => t.id === slotId)
+    const timeSlot = slot?.label || '10:10 - 11:00'
+    const dayObj = orderedDays.find((d) => d.id === dayKey)
+    const dayLabel = (dayObj?.label as any) || 'Monday'
+    const isTeacherRole = currentUser?.role === 'teacher'
+
+    const occupiedLabs = getOccupiedLabsInSlot(filteredRoutine, dayKey, slotId)
+    const labOptions: Array<{ key: 'comp' | 'phys' | 'chem' | 'bio' | 'elec'; name: MasterRoutineItem['lab']; code: string; title: string }> = [
+      { key: 'comp', name: 'Computer Lab', code: 'COMP-12', title: 'Data Structures Lab' },
+      { key: 'phys', name: 'Physics Lab', code: 'PHY-11', title: 'Optics & Mechanics Lab' },
+      { key: 'chem', name: 'Chemistry Lab', code: 'CHEM-11', title: 'Inorganic Chemistry Lab' },
+      { key: 'bio', name: 'Biology Lab', code: 'BIO-11', title: 'Microbiology Lab' },
+      { key: 'elec', name: 'Electronics Lab', code: 'DDMP-10', title: 'Digital Design & MP' },
+    ]
+    const chosenLab = labOptions.find((l) => !occupiedLabs.has(l.key)) || labOptions[0]
+
+    const adhocSession: MasterRoutineItem = {
+      id: `adhoc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      day: dayLabel,
+      dayKey,
+      timeSlot,
+      slotId,
+      span: 1,
+      subjectCode: chosenLab.code,
+      subjectTitle: chosenLab.title,
+      grade: 'Class 12',
+      gradeKey: 'class-12',
+      teacher: isTeacherRole ? (currentUser?.full_name || 'Practical Subject Teacher') : 'Assigned Subject Teacher',
+      teacherId: isTeacherRole ? (currentUser?.id || null) : null,
+      date: targetDateInfo?.dateStr,
+      specificDate: targetDateInfo?.dateStr,
+      isAdHoc: true,
+      lab: chosenLab.name,
+      labKey: chosenLab.key,
+      defaultStudents: 38,
+      category: chosenLab.key === 'comp' ? 'Computer' : chosenLab.key === 'phys' ? 'Physics' : chosenLab.key === 'chem' ? 'Chemistry' : 'Biology',
+      dotColor: chosenLab.key === 'comp' ? 'bg-indigo-500' : chosenLab.key === 'phys' ? 'bg-cyan-500' : chosenLab.key === 'chem' ? 'bg-rose-500' : 'bg-emerald-500',
+      badgeColor: 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-200 border-indigo-200 dark:border-indigo-700',
+      accentColor:
+        'border-l-indigo-500 bg-indigo-50/90 dark:bg-indigo-950/50 text-zinc-950 dark:text-white border-indigo-200 dark:border-indigo-500/30',
+    }
+
+    setSelectedDateStr(targetDateInfo?.dateStr || null)
+    setSelectedSession(adhocSession)
+    setModalMode('book')
+    setIsModalOpen(true)
+  }
+
+  const handleSuccess = (msg: string) => {
+    setToastMessage(msg)
+    setTimeout(() => setToastMessage(null), 4000)
+  }
+
+  const getLabDisplayCode = (labKey?: string, labCode?: string, labName?: string): string => {
+    if (labs && labs.length > 0) {
+      const matched = labs.find(
+        (l) =>
+          (labKey && l.id.toLowerCase() === labKey.toLowerCase()) ||
+          (labKey && l.code.toLowerCase() === labKey.toLowerCase()) ||
+          (labCode && l.code.toLowerCase() === labCode.toLowerCase()) ||
+          (labName && l.name.toLowerCase() === labName.toLowerCase()) ||
+          (labName && l.id.toLowerCase() === labName.toLowerCase())
+      )
+      if (matched?.code) return matched.code
+    }
+    if (labCode && labCode !== 'Lab 01') return labCode
+    const k = (labKey || '').toLowerCase().trim()
+    if (k === 'comp') return 'COMP-LAB'
+    if (k === 'phys') return 'LAB-PHYS-01'
+    if (k === 'chem') return 'LAB-CHEM-01'
+    if (k === 'bio') return 'LAB-BIO-01'
+    if (k === 'elec') return 'LAB-ELEC-01'
+    return k ? k.toUpperCase() : 'LAB'
+  }
+
+  const getLabDisplayName = (labKey?: string, fallbackName?: string): string => {
+    if (labs && labs.length > 0) {
+      const matched = labs.find(
+        (l) =>
+          (labKey && l.id.toLowerCase() === labKey.toLowerCase()) ||
+          (labKey && l.code.toLowerCase() === labKey.toLowerCase()) ||
+          (fallbackName && l.name.toLowerCase() === fallbackName.toLowerCase()) ||
+          (fallbackName && l.id.toLowerCase() === fallbackName.toLowerCase())
+      )
+      if (matched?.name) return matched.name
+    }
+    return fallbackName || 'Laboratory'
+  }
+
+  const getCompactLabName = (key?: string) => {
+    if (!key) return ''
+    if (labs && labs.length > 0) {
+      const matched = labs.find(
+        (l) => l.id.toLowerCase() === key.toLowerCase() || l.code.toLowerCase() === key.toLowerCase()
+      )
+      if (matched?.code) return matched.code
+    }
+    const k = key.toLowerCase().trim()
+    if (k === 'comp') return 'COMP'
+    if (k === 'phys') return 'PHY'
+    if (k === 'chem') return 'CHM'
+    if (k === 'bio') return 'BIO'
+    if (k === 'elec') return 'ELC'
+    return k.slice(0, 4).toUpperCase()
+  }
+
+  // ACCURATE LAB & TEACHER FILTER: Keep full routine on grid and highlight matching sessions
+  const isSessionHighlighted = (item: MasterRoutineItem): boolean => {
+    // 1. Lab Filter Check (supports primary or secondary multi-lab facility)
+    if (labFilter !== 'all') {
+      const matchComp = labFilter === 'comp' && (item.labKey === 'comp' || item.lab.toLowerCase().includes('comp') || (item.isDualLab && (item.secondaryLabKey === 'comp' || (item.secondaryLab || '').toLowerCase().includes('comp'))))
+      const matchPhys = labFilter === 'phys' && (item.labKey === 'phys' || item.lab.toLowerCase().includes('phys') || (item.isDualLab && (item.secondaryLabKey === 'phys' || (item.secondaryLab || '').toLowerCase().includes('phys'))))
+      const matchChem = labFilter === 'chem' && (item.labKey === 'chem' || item.lab.toLowerCase().includes('chem') || (item.isDualLab && (item.secondaryLabKey === 'chem' || (item.secondaryLab || '').toLowerCase().includes('chem'))))
+      const matchBio = labFilter === 'bio' && (item.labKey === 'bio' || item.lab.toLowerCase().includes('bio') || (item.isDualLab && (item.secondaryLabKey === 'bio' || (item.secondaryLab || '').toLowerCase().includes('bio'))))
+      const matchOther = !['comp', 'phys', 'chem', 'bio'].includes(labFilter) && (item.labKey === labFilter || (item.isDualLab && item.secondaryLabKey === labFilter))
+      if (!matchComp && !matchPhys && !matchChem && !matchBio && !matchOther) return false
+    }
+
+    // 2. Subject Teacher Filter Check (Relational ID match + exact name match)
+    if (teacherFilter && teacherFilter !== 'all') {
+      if (teacherFilter === 'my_sessions') {
+        const userId = currentUser?.id
+        const userFullName = currentUser?.full_name?.toLowerCase().trim()
+        const isAssigned = (userId && item.teacherId === userId) || (userFullName && item.teacher.toLowerCase().trim() === userFullName)
+        const isRequested = Boolean(userFullName && item.requestedBy && item.requestedBy.toLowerCase().trim() === userFullName)
+        if (!isAssigned && !isRequested) return false
+      } else {
+        if (item.teacher !== teacherFilter) return false
+      }
+    }
+
+    return true
+  }
+
+  // Preserve routine for layout stability so grid columns don't shift
+  const filteredRoutine = routines
+
+  // Dynamic Aurora Glow Computation (Live Session or Hovered Session)
+  const targetSessionForAurora = hoveredSession || (activeSessions && activeSessions.length > 0 ? activeSessions[0] : null)
+
+  const getAuroraStyles = () => {
+    if (!targetSessionForAurora) {
+      return {
+        blob1: 'bg-indigo-500/20 dark:bg-indigo-600/15',
+        blob2: 'bg-cyan-500/20 dark:bg-cyan-600/15',
+        blob3: 'bg-violet-500/15 dark:bg-violet-600/10',
+      }
+    }
+
+    const lab = targetSessionForAurora.lab.toLowerCase()
+    const code = targetSessionForAurora.subjectCode.toUpperCase()
+
+    if (lab.includes('comp') || code.includes('COMP') || code.includes('DBMS') || code.includes('WPD')) {
+      return {
+        blob1: 'bg-indigo-500/30 dark:bg-indigo-600/25',
+        blob2: 'bg-violet-500/30 dark:bg-violet-600/25',
+        blob3: 'bg-blue-500/20 dark:bg-blue-600/20',
+      }
+    }
+    if (lab.includes('phys') || code.includes('PHY')) {
+      return {
+        blob1: 'bg-cyan-500/30 dark:bg-cyan-500/25',
+        blob2: 'bg-teal-500/30 dark:bg-teal-500/25',
+        blob3: 'bg-sky-500/20 dark:bg-sky-600/20',
+      }
+    }
+    if (lab.includes('chem') || code.includes('CHEM')) {
+      return {
+        blob1: 'bg-rose-500/30 dark:bg-rose-500/25',
+        blob2: 'bg-pink-500/30 dark:bg-pink-500/25',
+        blob3: 'bg-amber-500/20 dark:bg-amber-600/20',
+      }
+    }
+    if (lab.includes('bio') || code.includes('BIO')) {
+      return {
+        blob1: 'bg-emerald-500/30 dark:bg-emerald-500/25',
+        blob2: 'bg-lime-500/30 dark:bg-lime-500/25',
+        blob3: 'bg-teal-500/20 dark:bg-teal-600/20',
+      }
+    }
+
+    return {
+      blob1: 'bg-amber-500/30 dark:bg-amber-500/25',
+      blob2: 'bg-orange-500/30 dark:bg-orange-500/25',
+      blob3: 'bg-yellow-500/20 dark:bg-yellow-600/20',
+    }
+  }
+
+  const aurora = getAuroraStyles()
+  const canApprove =
+    currentUser?.role === 'super_admin' ||
+    currentUser?.role === 'lab_incharge' ||
+    currentUser?.role === 'hod'
+
+  return (
+    <div className="flex flex-col h-full w-full bg-white/95 dark:bg-zinc-950/95 border border-zinc-200 dark:border-zinc-800/90 rounded-2xl shadow-[0_1px_3px_0_rgba(0,0,0,0.06),0_1px_2px_-1px_rgba(0,0,0,0.06)] overflow-hidden select-none relative backdrop-blur-xl">
+      {/* ðŸŒŒ Dynamic Ambient Aurora Glow Blobs Layer */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+        <div
+          className={`absolute -top-24 -left-20 w-96 h-96 rounded-full blur-[100px] transition-colors duration-1000 animate-aurora-1 ${aurora.blob1}`}
+        />
+        <div
+          className={`absolute top-1/3 -right-24 w-[28rem] h-[28rem] rounded-full blur-[110px] transition-colors duration-1000 animate-aurora-2 ${aurora.blob2}`}
+        />
+        <div
+          className={`absolute -bottom-20 left-1/3 w-[26rem] h-[26rem] rounded-full blur-[120px] transition-colors duration-1000 animate-aurora-1 ${aurora.blob3}`}
+        />
+      </div>
+
+      {/* Toast Feedback */}
+      {toastMessage && (
+        <div className="absolute top-4 right-4 z-50 bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 px-4 py-2.5 rounded-xl shadow-2xl text-xs font-mono font-medium animate-in slide-in-from-top-2 duration-200 flex items-center gap-2 border border-zinc-700 dark:border-zinc-300">
+          <Sparkles className="h-4 w-4 text-emerald-400 dark:text-emerald-600" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
+
+      {/* ============================================================= */}
+      {/* MOBILE DAY-BY-DAY CARD VIEW (md:hidden)                       */}
+      {/* ============================================================= */}
+      <div className="md:hidden flex flex-col flex-1 overflow-hidden relative z-10">
+        {/* Day-by-Day Tab Pills */}
+        <div className="flex items-center gap-1.5 p-2.5 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/80 dark:bg-zinc-900/80 backdrop-blur-sm shrink-0">
+          {displayedDays.map((day) => {
+            const isSelected = mobileDayKey === day.id
+            const isToday = currentDayKey === day.id
+            const dayDate = weekDates.find((w) => w.dayKey === day.id)
+            return (
+              <button
+                key={day.id}
+                type="button"
+                onClick={() => setMobileDayKey(day.id)}
+                className={`flex flex-col items-center px-3 py-1.5 rounded-xl text-xs font-heading transition-all shrink-0 cursor-pointer ${
+                  isSelected
+                    ? 'bg-indigo-600 text-white font-extrabold shadow-sm'
+                    : 'bg-white dark:bg-zinc-800/90 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700/80 hover:bg-zinc-100'
+                }`}
+              >
+                <span className="font-bold uppercase tracking-wider text-[11px] flex items-center gap-1">
+                  {day.label}
+                  {isToday && (
+                    <span className={`h-1.5 w-1.5 rounded-full ${isSelected ? 'bg-white' : 'bg-emerald-500 animate-pulse'}`} />
+                  )}
+                </span>
+                {dayDate && (
+                  <span className={`text-[10px] font-mono mt-0.5 ${isSelected ? 'text-indigo-100' : 'text-zinc-400'}`}>
+                    {dayDate.dateStr.split('-').slice(1).join('/')}
+                  </span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Selected Day Content */}
+        <div className="p-3 space-y-3 flex-1 overflow-y-auto">
+          {(() => {
+            const isWeekend = isDayOff(mobileDayKey)
+            const dayDateInfo = weekDates.find((w) => w.dayKey === mobileDayKey)
+            const dayHoliday = dayDateInfo ? holidays.find((h) => isDateWithinHoliday(dayDateInfo.dateStr, h)) : null
+
+            if (isWeekend) {
+              return (
+                <div className="p-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 text-center space-y-2 shadow-xs">
+                  <Palmtree className="h-7 w-7 text-amber-500 mx-auto" />
+                  <h4 className="text-sm font-heading font-extrabold text-zinc-900 dark:text-white">
+                    Weekend Statutory Recess
+                  </h4>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400 max-w-xs mx-auto">
+                    Laboratory practical sessions and scheduled timetables are suspended on statutory weekends.
+                  </p>
+                </div>
+              )
+            }
+
+            if (dayHoliday) {
+              return (
+                <div className="p-6 rounded-2xl border border-amber-300 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/20 text-center space-y-2 shadow-xs">
+                  <Sparkles className="h-7 w-7 text-amber-500 mx-auto" />
+                  <h4 className="text-sm font-heading font-extrabold text-amber-900 dark:text-amber-200">
+                    Institutional Holiday: {dayHoliday.name}
+                  </h4>
+                  <p className="text-xs text-amber-700 dark:text-amber-300 max-w-xs mx-auto">
+                    Operations and practical attendance tallies are suspended on recognized institutional holidays.
+                  </p>
+                </div>
+              )
+            }
+
+            const rawDaySchedules = filteredRoutine.filter((s) => {
+              if (s.dayKey !== mobileDayKey) return false
+              if (s.specificDate) {
+                return s.specificDate === dayDateInfo?.dateStr
+              }
+              return true
+            })
+            const seenIds = new Set<string>()
+            const daySessions = rawDaySchedules.filter((s) => {
+              if (!s || !s.id || seenIds.has(s.id)) return false
+              seenIds.add(s.id)
+              return true
+            })
+
+            const sortedSessions = [...daySessions].sort((a, b) => {
+              const aIdx = activeSlots.findIndex((t) => t.id === a.slotId)
+              const bIdx = activeSlots.findIndex((t) => t.id === b.slotId)
+              return aIdx - bIdx
+            })
+
+            if (sortedSessions.length === 0) {
+              return (
+                <div className="p-8 text-center rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800 bg-white/50 dark:bg-zinc-900/30">
+                  <CalendarDays className="h-7 w-7 text-zinc-400 mx-auto mb-2" />
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400 font-medium">
+                    No laboratory practical sessions scheduled for this day.
+                  </p>
+                </div>
+              )
+            }
+
+            return (
+              <div className="space-y-2.5">
+                {sortedSessions.map((session) => {
+                  const isLive = currentDayKey === mobileDayKey && activeSlotId === session.slotId
+                  const activeSub = getSubForSession(session.id, dayDateInfo?.dateStr || '')
+                  const isSkipped = session.status === 'skipped'
+                  const isRequested = session.status === 'requested'
+
+                  return (
+                    <div
+                      key={session.id}
+                      onClick={() => {
+                        openActionModal(session, 'log', dayDateInfo?.dateStr)
+                      }}
+                      className={`rounded-2xl border p-3.5 transition-all shadow-xs cursor-pointer active:scale-[0.99] space-y-2.5 ${
+                        isLive
+                          ? 'border-emerald-500/50 bg-emerald-50/40 dark:bg-emerald-950/20 ring-1 ring-emerald-500/30'
+                          : 'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/90 hover:border-indigo-500/40'
+                      }`}
+                    >
+                      {/* Top Row: Time Range, Period, and Status Beacon */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 text-xs font-mono font-bold text-zinc-900 dark:text-zinc-100">
+                          <Clock className="h-3.5 w-3.5 text-zinc-400" />
+                          <span>{session.timeSlot}</span>
+                          <span className="text-zinc-400">&bull;</span>
+                          <span className="text-zinc-600 dark:text-zinc-400 font-sans text-[11px]">
+                            {session.span && session.span > 1
+                              ? `${session.span} Periods (${session.slotId.toUpperCase()})`
+                              : session.slotId.toUpperCase()}
+                          </span>
+                        </div>
+
+                        {isLive ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-black bg-emerald-600 text-white shadow-xs animate-pulse">
+                            <span className="h-1.5 w-1.5 rounded-full bg-white" />
+                            LIVE NOW
+                          </span>
+                        ) : isSkipped ? (
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                            Skipped
+                          </span>
+                        ) : isRequested ? (
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                            Requested
+                          </span>
+                        ) : null}
+                      </div>
+
+                      {/* Middle Row: Subject Title & Grade */}
+                      <div>
+                        <h4 className="font-heading font-extrabold text-sm text-zinc-900 dark:text-white leading-snug">
+                          {formatSubjectHeading(session.subjectCode, session.subjectTitle)}
+                        </h4>
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                          <span className="px-2 py-0.5 rounded-md text-[11px] font-bold font-sans bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-500/20">
+                            {session.grade}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-md text-[11px] font-medium font-sans bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700">
+                            {getLabDisplayName(session.labKey, session.lab)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Bottom Row: Faculty & Action Hint */}
+                      <div className="flex items-center justify-between pt-2 border-t border-zinc-100 dark:border-zinc-800/80 text-xs">
+                        <span className="text-zinc-600 dark:text-zinc-400 font-medium">
+                          {activeSub ? (
+                            <span className="text-indigo-600 dark:text-indigo-400 font-bold">
+                              {activeSub.substitute_teacher_name} (Proxy)
+                            </span>
+                          ) : (
+                            session.teacher
+                          )}
+                        </span>
+                        <span className="text-indigo-600 dark:text-indigo-400 font-semibold text-[11px]">
+                          Tap to Manage &rarr;
+                        </span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )
+          })()}
+        </div>
+      </div>
+
+      {/* Main Grid Viewport (Desktop / Tablet: md:flex) */}
+      <div className="hidden md:flex flex-1 w-full overflow-auto relative z-10">
+        <div className="w-full min-w-[1540px] flex flex-col h-full">
+          {/* Top Axis: Time Slots Header */}
+          <div className="flex border-b border-zinc-200 dark:border-zinc-800/90 bg-zinc-50/95 dark:bg-zinc-900/95 sticky top-0 z-30 backdrop-blur-md w-full">
+            {/* Axis Label */}
+            <div className="w-48 shrink-0 border-r border-zinc-200 dark:border-zinc-800/90 p-3.5 flex items-center justify-between text-xs font-mono font-extrabold text-zinc-700 dark:text-zinc-200 uppercase tracking-wider sticky left-0 z-40 bg-zinc-50 dark:bg-zinc-900 shadow-xs">
+              <span className="flex items-center gap-2">
+                <CalendarDays className="h-4 w-4 text-indigo-500" />
+                DAY // 2083
+              </span>
+              <button
+                onClick={resetToMaster}
+                title="Reset Routine to Master Schedule"
+                className="p-1 text-zinc-400 hover:text-zinc-900 dark:hover:text-white rounded transition-colors"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+              </button>
+            </div>
+
+            {/* Period Slots */}
+            <div
+              className="flex-1 grid divide-x divide-zinc-200 dark:divide-zinc-800/80"
+              style={{ gridTemplateColumns: `repeat(${activeSlots.length || 10}, minmax(0, 1fr))` }}
+            >
+              {activeSlots.map((slot) => {
+                const isBreak = slot.id === 'break' || slot.id?.toLowerCase().includes('break') || slot.name?.toLowerCase().includes('break') || slot.name?.toLowerCase().includes('recess')
+                const isSlotActive = weekOffset === 0 && activeSlotId === slot.id
+
+                return (
+                  <div
+                    key={slot.id}
+                    className={`p-3 px-2 text-center font-mono flex flex-col justify-center transition-all relative ${
+                      isBreak
+                        ? 'bg-amber-50/40 dark:bg-amber-950/20'
+                        : isSlotActive
+                        ? 'bg-emerald-50/90 dark:bg-emerald-950/60 ring-2 ring-emerald-500/80 shadow-[0_0_20px_rgba(16,185,129,0.25)] z-10'
+                        : ''
+                    }`}
+                  >
+                    <div className="flex items-center justify-center gap-1.5">
+                      <span
+                        className={`text-xs font-extrabold tracking-tight ${
+                          isBreak
+                            ? 'text-amber-600 dark:text-amber-400'
+                            : isSlotActive
+                            ? 'text-emerald-700 dark:text-emerald-300 font-black'
+                            : 'text-zinc-950 dark:text-white'
+                        }`}
+                      >
+                        {slot.name}
+                      </span>
+                      {isSlotActive && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-mono font-black bg-emerald-600 text-white shadow-xs animate-pulse">
+                          <span className="h-1.5 w-1.5 rounded-full bg-white" />
+                          LIVE
+                        </span>
+                      )}
+                    </div>
+                    <span
+                      className={`text-[11px] mt-0.5 font-bold ${
+                        isSlotActive ? 'text-emerald-800 dark:text-emerald-300' : 'text-zinc-600 dark:text-zinc-400'
+                      }`}
+                    >
+                      {slot.label}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Day Rows in Configured Order (Recess days omitted when configured) */}
+          <div suppressHydrationWarning className="flex-1 flex flex-col divide-y divide-zinc-200/80 dark:divide-zinc-800/80 w-full">
+            {displayedDays.map((day) => {
+              const isToday = weekOffset === 0 && currentDayKey === day.id
+              const dayDateInfo = weekDates.find((w) => w.dayKey === day.id)
+              const rawDaySchedules = filteredRoutine.filter((s) => {
+                if (s.dayKey !== day.id) return false
+                if (s.specificDate) {
+                  return s.specificDate === dayDateInfo?.dateStr
+                }
+                return true
+              })
+              // Strict deduplication by session.id to guarantee 100% unique React keys
+              const seenSessionIds = new Set<string>()
+              const daySchedules = rawDaySchedules.filter((s) => {
+                if (!s || !s.id || seenSessionIds.has(s.id)) return false
+                seenSessionIds.add(s.id)
+                return true
+              })
+              const isWeekend = isDayOff(day.id)
+              const dayHoliday = dayDateInfo ? holidays.find((h) => isDateWithinHoliday(dayDateInfo.dateStr, h)) : null
+              const isHoliday = !!dayHoliday
+
+              // Multi-track allocation
+              const sessionTracks = new Map<string, number>()
+              const trackOccupancy: Array<Set<number>> = [new Set(), new Set()]
+
+              const sortedSchedules = [...daySchedules].sort((a, b) => {
+                const aIdx = activeSlots.findIndex((t) => t.id === a.slotId)
+                const bIdx = activeSlots.findIndex((t) => t.id === b.slotId)
+                return aIdx - bIdx
+              })
+
+              sortedSchedules.forEach((session) => {
+                const startIdx = activeSlots.findIndex((t) => t.id === session.slotId)
+                if (startIdx === -1) return
+                const span = session.span || 1
+
+                let chosenTrack = 0
+                for (let track = 0; track < trackOccupancy.length; track++) {
+                  let canFit = true
+                  for (let c = startIdx; c < startIdx + span; c++) {
+                    if (trackOccupancy[track].has(c)) {
+                      canFit = false
+                      break
+                    }
+                  }
+                  if (canFit) {
+                    chosenTrack = track
+                    break
+                  }
+                }
+
+                if (chosenTrack >= trackOccupancy.length) {
+                  trackOccupancy.push(new Set())
+                  chosenTrack = trackOccupancy.length - 1
+                }
+
+                for (let c = startIdx; c < startIdx + span; c++) {
+                  trackOccupancy[chosenTrack].add(c)
+                }
+                sessionTracks.set(session.id, chosenTrack)
+              })
+
+              const hasTrack1 = trackOccupancy[1] && trackOccupancy[1].size > 0
+              const rowHeightClass = isWeekend
+                ? 'min-h-[80px]'
+                : hasTrack1
+                ? 'min-h-[148px]'
+                : 'min-h-[84px]'
+
+              return (
+                <div
+                  key={day.id}
+                  suppressHydrationWarning
+                  className={`flex ${rowHeightClass} transition-colors relative w-full ${
+                    isToday
+                      ? 'bg-emerald-500/10 dark:bg-emerald-950/20 ring-1 ring-emerald-500/40 z-10'
+                      : isHoliday
+                      ? 'bg-amber-50/10 dark:bg-amber-950/10'
+                      : isWeekend
+                      ? 'bg-zinc-100/40 dark:bg-zinc-900/30'
+                      : ''
+                  }`}
+                >
+                  {/* Left Sticky Day Axis with High-Contrast Dual Dates */}
+                  <div
+                    suppressHydrationWarning
+                    className={`w-48 shrink-0 border-r p-2.5 sm:p-3 flex flex-col justify-between sticky left-0 z-20 shadow-xs ${
+                      isToday
+                        ? 'border-l-4 border-l-emerald-500 bg-emerald-50/95 dark:bg-zinc-900/98 border-r-emerald-500/50'
+                        : isHoliday
+                        ? 'border-zinc-200 dark:border-zinc-800/80 bg-zinc-50/95 dark:bg-zinc-950/95 border-l-4 border-l-amber-500'
+                        : isWeekend
+                        ? 'border-zinc-200 dark:border-zinc-800/80 bg-zinc-100/90 dark:bg-zinc-900/80'
+                        : 'border-zinc-200 dark:border-zinc-800/80 bg-zinc-50/90 dark:bg-zinc-950/90'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4
+                          suppressHydrationWarning
+                          className={`text-base font-extrabold ${
+                            isToday
+                              ? 'text-emerald-900 dark:text-emerald-100'
+                              : isHoliday
+                              ? 'text-amber-900 dark:text-amber-200'
+                              : isWeekend
+                              ? 'text-zinc-600 dark:text-zinc-400'
+                              : 'text-zinc-950 dark:text-white'
+                          }`}
+                        >
+                          {day.label}
+                        </h4>
+                        {isToday && (
+                          <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
+                        )}
+                      </div>
+
+                      <div
+                        suppressHydrationWarning
+                        className={`text-xs font-mono font-bold mt-0.5 ${
+                          isToday
+                            ? 'text-emerald-700 dark:text-emerald-400'
+                            : isHoliday
+                            ? 'text-amber-700 dark:text-amber-400'
+                            : 'text-zinc-600 dark:text-zinc-400'
+                        }`}
+                      >
+                        {day.nepaliName}
+                      </div>
+
+                      {/* BOTH NEPALI & ENGLISH DATES */}
+                      {dayDateInfo && (
+                        <div suppressHydrationWarning className="flex items-center gap-1.5 text-xs font-mono mt-1.5 font-bold">
+                          <span className="text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-200/60 dark:border-amber-800/60">
+                            {dayDateInfo.formattedNp}
+                          </span>
+                          <span className="text-zinc-400">â€¢</span>
+                          <span className="text-zinc-600 dark:text-zinc-300">
+                            {dayDateInfo.formattedEng}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mt-2" suppressHydrationWarning>
+                      {isToday ? (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-extrabold bg-emerald-500/25 text-emerald-900 dark:text-emerald-200 border border-emerald-500/80 shadow-[0_0_10px_rgba(16,185,129,0.25)]">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                          TODAY
+                        </span>
+                      ) : isHoliday ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-500/20 text-amber-900 dark:text-amber-200 border border-amber-500/40 shadow-xs truncate max-w-full">
+                          <Palmtree className="h-3 w-3 text-amber-600 dark:text-amber-400 shrink-0" />
+                          <span className="truncate">{dayHoliday.name || dayHoliday.title}</span>
+                        </span>
+                      ) : isWeekend ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60">
+                          <Palmtree className="h-3 w-3 text-amber-600 dark:text-amber-400" />
+                          Weekend Recess
+                        </span>
+                      ) : (
+                        <span suppressHydrationWarning className="text-[11px] font-mono font-semibold text-zinc-500 dark:text-zinc-400">
+                          {daySchedules.length} Sessions
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 10-Column Multi-Track Grid Body OR Whole-Day Suspension Banner */}
+                  {(() => {
+                    const isWholeDaySuspended =
+                      isHoliday ||
+                      isWeekend
+
+                    if (isWholeDaySuspended) {
+                      const holidayName = (dayHoliday as any)?.name || (dayHoliday as any)?.title || 'Official Gazetted Holiday'
+
+                      return (
+                        <div
+                          className={`flex-1 flex items-center justify-between px-6 sm:px-8 py-5 border-b relative overflow-hidden transition-all ${
+                            isHoliday
+                              ? 'bg-gradient-to-r from-amber-500/[0.09] via-amber-500/[0.04] to-emerald-500/[0.05] dark:from-amber-950/35 dark:via-zinc-900/40 dark:to-emerald-950/20 border-amber-500/30'
+                              : isWeekend
+                              ? 'bg-gradient-to-r from-zinc-100/70 via-zinc-50/40 to-zinc-100/70 dark:from-zinc-900/50 dark:via-zinc-900/20 dark:to-zinc-900/50 border-zinc-200/80 dark:border-zinc-800/80'
+                              : 'bg-gradient-to-r from-indigo-500/[0.06] via-indigo-500/[0.03] to-purple-500/[0.05] dark:from-indigo-950/30 dark:via-zinc-900/40 dark:to-purple-950/20 border-indigo-500/30'
+                          }`}
+                        >
+                          {/* Ambient Gold/Amber Glow behind text */}
+                          <div className="absolute left-16 top-1/2 -translate-y-1/2 w-80 h-32 bg-amber-500/10 dark:bg-amber-500/15 rounded-full blur-3xl pointer-events-none" />
+
+                          {/* Left: Holiday Icon + Title + Operational Explanation */}
+                          <div className="flex items-center gap-4 relative z-10">
+                            <div
+                              className={`h-12 w-12 rounded-2xl flex items-center justify-center shrink-0 shadow-sm transition-transform ${
+                                isHoliday
+                                  ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 shadow-amber-500/10'
+                                  : isWeekend
+                                  ? 'bg-zinc-200/80 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border border-zinc-300 dark:border-zinc-700'
+                                  : 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 shadow-indigo-500/10'
+                              }`}
+                            >
+                              {isHoliday ? (
+                                <Landmark className="h-6 w-6" />
+                              ) : isWeekend ? (
+                                <Coffee className="h-6 w-6" />
+                              ) : (
+                                <Sparkles className="h-6 w-6" />
+                              )}
+                            </div>
+
+                            <div className="space-y-0.5">
+                              <div className="flex flex-wrap items-center gap-2.5">
+                                <h3 className="text-sm sm:text-base font-heading font-black text-zinc-950 dark:text-white tracking-tight">
+                                  {isHoliday
+                                    ? holidayName
+                                    : day.id === 'fri'
+                                    ? 'Academic Review & Practical Catch-up'
+                                    : 'Institutional Weekend Recess'}
+                                </h3>
+
+                                <span
+                                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider border ${
+                                    isHoliday
+                                      ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30'
+                                      : isWeekend
+                                      ? 'bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-300 dark:border-zinc-700'
+                                      : 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border-indigo-500/30'
+                                  }`}
+                                >
+                                  {isHoliday ? 'Gazetted Public Holiday' : day.id === 'fri' ? 'Review Window' : 'Weekend Recess'}
+                                </span>
+
+                                {isToday && (
+                                  <span className="px-2 py-0.2 rounded-full text-[9px] font-mono font-black bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/40">
+                                    TODAY
+                                  </span>
+                                )}
+                              </div>
+
+                              <p className="text-xs text-zinc-600 dark:text-zinc-400 font-sans max-w-3xl leading-relaxed">
+                                {isHoliday
+                                  ? `All laboratory practicals, student attendance tallies, and instructor session logs are suspended for ${holidayName}. Routine timetable resumes on the next scheduled academic day.`
+                                  : day.id === 'fri'
+                                  ? 'Friday timetable allocated for faculty syllabus reviews, student clubs, and practical makeup sessions.'
+                                  : 'Weekly scheduled institutional recess. Laboratory facilities secured and offline.'}
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Right: Operational Directives / Micro-Pills */}
+                          <div className="hidden md:flex items-center gap-2.5 font-mono text-xs shrink-0 relative z-10">
+                            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/80 dark:bg-zinc-900/80 border border-zinc-200/80 dark:border-zinc-800 shadow-2xs backdrop-blur-xs">
+                              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                              <span className="text-zinc-700 dark:text-zinc-300 font-medium text-[11px]">
+                                Attendance Not Required
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/80 dark:bg-zinc-900/80 border border-zinc-200/80 dark:border-zinc-800 shadow-2xs backdrop-blur-xs">
+                              <Wrench className="h-3.5 w-3.5 text-indigo-500" />
+                              <span className="text-zinc-700 dark:text-zinc-300 font-medium text-[11px]">
+                                Maintenance Access Open
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    }
+
+                    return (
+                      <div
+                        suppressHydrationWarning
+                        className={`flex-1 grid divide-x relative w-full ${
+                          isToday
+                            ? 'divide-emerald-500/30 dark:divide-emerald-500/20'
+                            : 'divide-zinc-200/80 dark:divide-zinc-800/60'
+                        }`}
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: `repeat(${activeSlots.length || 10}, minmax(0, 1fr))`,
+                          gridTemplateRows: hasTrack1 ? 'minmax(68px, 1fr) minmax(68px, 1fr)' : 'minmax(68px, auto)',
+                        }}
+                      >
+                        {/* Background Grid Cells */}
+                        {activeSlots.map((slot, slotIdx) => {
+                          const isSlotActive = isToday && activeSlotId === slot.id
+                          const isBreak = slot.id === 'break' || slot.id?.toLowerCase().includes('break') || slot.name?.toLowerCase().includes('break') || slot.name?.toLowerCase().includes('recess')
+                          const isOccupiedOnTrack0 = trackOccupancy[0].has(slotIdx)
+                          const isOccupiedOnTrack1 = trackOccupancy[1] ? trackOccupancy[1].has(slotIdx) : false
+                          const isSlotOccupied = isOccupiedOnTrack0 || isOccupiedOnTrack1
+
+                          return (
+                            <div
+                              key={`bg-${day.id}-${slot.id}`}
+                              style={{
+                                gridColumnStart: slotIdx + 1,
+                                gridColumnEnd: slotIdx + 2,
+                                gridRowStart: 1,
+                                gridRowEnd: hasTrack1 ? 3 : 2,
+                              }}
+                              className={`group/cell relative transition-colors ${
+                                isBreak
+                                  ? 'bg-amber-50/25 dark:bg-amber-950/15 flex items-center justify-center'
+                                  : isSlotActive
+                                  ? 'bg-emerald-500/10 dark:bg-emerald-950/25 ring-1 ring-inset ring-emerald-500/30'
+                                  : isWeekend
+                                  ? 'bg-zinc-100/30 dark:bg-zinc-900/20'
+                                  : isHoliday
+                                  ? 'bg-amber-500/5 dark:bg-amber-950/10 hover:bg-amber-500/10'
+                                  : 'hover:bg-zinc-50/90 dark:hover:bg-zinc-900/50'
+                              }`}
+                            >
+                              {isBreak ? (
+                                !isSlotOccupied ? (
+                                  <div className="flex flex-col items-center justify-center text-amber-600 dark:text-amber-400 font-mono text-[10px] font-bold pointer-events-none">
+                                    <Coffee className="h-4 w-4 mb-0.5 opacity-80" />
+                                    <span>RECESS</span>
+                                  </div>
+                                ) : null
+                              ) : isHoliday ? (
+                                <div className="flex flex-col items-center justify-center h-full text-amber-700/35 dark:text-amber-400/35 font-mono text-[9px] font-bold pointer-events-none p-1 text-center select-none">
+                                  <Palmtree className="h-3 w-3 mb-0.5 opacity-40" />
+                                  <span>RECESS</span>
+                                </div>
+                              ) : isWeekend ? (
+                                <div className="flex items-center justify-center h-full opacity-30 pointer-events-none">
+                                  <Lock className="h-3.5 w-3.5 text-zinc-400" />
+                                </div>
+                              ) : (
+                                /* Quick-Add Buttons: Slot Free (Track 0) vs Next Available Track (Track 1) */
+                                mounted && (
+                                  !isOccupiedOnTrack0 ? (
+                                    <button
+                                      onClick={() => handleQuickAdd(day.id, slot.id)}
+                                      className="opacity-0 group-hover/cell:opacity-100 transition-opacity absolute inset-0 m-2 rounded-xl border border-dashed border-zinc-300 dark:border-zinc-700 bg-white/90 dark:bg-zinc-900/90 text-zinc-700 dark:text-zinc-200 hover:text-zinc-950 dark:hover:text-white flex items-center justify-center gap-1.5 text-xs font-sans font-semibold shadow-sm backdrop-blur-md cursor-pointer"
+                                      title={`Book practical slot on ${day.label} (${slot.name})`}
+                                    >
+                                      <Plus className="h-4 w-4 text-indigo-500" />
+                                      <span>{currentUser?.role === 'teacher' ? 'Request Slot' : 'Book Slot'}</span>
+                                    </button>
+                                  ) : !isOccupiedOnTrack1 ? (
+                                    <button
+                                      onClick={() => handleQuickAdd(day.id, slot.id)}
+                                      className={`opacity-0 group-hover/cell:opacity-100 transition-opacity absolute rounded-lg border border-dashed border-indigo-300 dark:border-indigo-700/60 bg-white/95 dark:bg-zinc-900/95 text-indigo-700 dark:text-indigo-300 hover:text-indigo-950 dark:hover:text-white flex items-center justify-center gap-1 text-[11px] font-sans font-semibold shadow-xs backdrop-blur-md cursor-pointer z-20 ${
+                                        hasTrack1
+                                          ? 'left-1 right-1 bottom-1 top-[52%] m-1'
+                                          : 'bottom-1 left-1.5 right-1.5 h-6'
+                                      }`}
+                                      title={`Book another laboratory session on ${day.label} (${slot.name})`}
+                                    >
+                                      <Plus className="h-3 w-3 text-indigo-500" />
+                                      <span>{currentUser?.role === 'teacher' ? 'Request Session' : 'Book Session'}</span>
+                                    </button>
+                                  ) : null
+                                )
+                              )}
+                            </div>
+                          )
+                        })}
+
+                        {/* Allocated Session Cards */}
+                        {daySchedules.map((session) => {
+                          const startIdx = activeSlots.findIndex((t) => t.id === session.slotId)
+                          if (startIdx === -1) return null
+
+                          const span = session.span || 1
+                          const trackIdx = sessionTracks.get(session.id) || 0
+                          const isMultiPeriod = span > 1
+                          const isDualLab = Boolean(session.isDualLab)
+                          const isLiveNow = isToday && activeSlotId === session.slotId
+                          const activeSub = getSubForSession(session.id, dayDateInfo?.dateStr || '')
+
+                          const isSkipped = Boolean(session.isSkipped || session.status === 'skipped')
+                          const isRequested = session.status === 'requested'
+                          const isHolidaySession = isHoliday
+                          const isHighlighted = isSessionHighlighted(session)
+
+                          const isComp = session.lab.toLowerCase().includes('comp') || session.labKey === 'comp'
+                          const isPhys = session.lab.toLowerCase().includes('phys') || session.labKey === 'phys'
+                          const isChem = session.lab.toLowerCase().includes('chem') || session.labKey === 'chem'
+
+                          return (
+                            <div
+                              key={session.id}
+                              onClick={() => {
+                                if (isHolidaySession) {
+                                  const holidayTitle = (dayHoliday as any)?.name || (dayHoliday as any)?.title || 'Academic Recess'
+                                  setToastMessage(`Practical session automatically cancelled for ${holidayTitle}. Session actions and logging are disabled on holidays.`)
+                                  setTimeout(() => setToastMessage(null), 3500)
+                                  return
+                                }
+                                openActionModal(session, 'log', dayDateInfo?.dateStr)
+                              }}
+                              onMouseEnter={() => !isHolidaySession && setHoveredSession(session)}
+                              onMouseLeave={() => !isHolidaySession && setHoveredSession(null)}
+                              style={{
+                                gridColumnStart: startIdx + 1,
+                                gridColumnEnd: startIdx + 1 + span,
+                                gridRowStart: trackIdx + 1,
+                                gridRowEnd: trackIdx + 2,
+                                zIndex: 10,
+                              }}
+                              className={`m-1 p-2 sm:p-2.5 rounded-xl border-l-4 transition-all duration-200 flex flex-col justify-between overflow-hidden relative group backdrop-blur-md cursor-pointer self-start h-[68px] ${
+                                isDualLab
+                                  ? 'ring-1 ring-indigo-500/40 bg-gradient-to-r from-indigo-500/[0.08] to-transparent'
+                                  : ''
+                              } ${
+                                !isHighlighted
+                                  ? 'opacity-25 grayscale-[30%] hover:opacity-90'
+                                  : ''
+                              } ${
+                                isHolidaySession
+                                  ? 'grayscale opacity-35 bg-zinc-100/90 dark:bg-zinc-900/90 border border-zinc-200/90 dark:border-zinc-800/90 text-zinc-500 dark:text-zinc-400 select-none cursor-not-allowed shadow-none'
+                                  : isSkipped
+                                  ? 'grayscale opacity-40 hover:opacity-85 bg-zinc-100/90 dark:bg-zinc-900/90 border-2 border-dashed border-zinc-400 dark:border-zinc-600 text-zinc-500 dark:text-zinc-400 shadow-none'
+                                  : isRequested
+                                  ? 'border-2 border-dashed border-amber-500 bg-amber-50/90 dark:bg-amber-950/50 hover:dark:bg-amber-950/70 text-zinc-950 dark:text-white shadow-[0_0_15px_rgba(245,158,11,0.25)] hover:shadow-[0_0_25px_rgba(245,158,11,0.45)] ring-1 ring-amber-500/40'
+                                  : isLiveNow
+                                  ? 'ring-2 ring-emerald-500 shadow-[0_0_30px_rgba(16,185,129,0.45)] scale-[1.02]'
+                                  : 'shadow-xs hover:shadow-xl hover:scale-[1.02]'
+                              } ${
+                                !isSkipped && !isHolidaySession && !isRequested && isMultiPeriod
+                                  ? 'border-l-violet-500 bg-violet-50/90 dark:bg-violet-950/60 hover:dark:bg-violet-950/80 text-zinc-950 dark:text-white border border-violet-200 dark:border-violet-500/50 shadow-[0_0_15px_rgba(139,92,246,0.15)] hover:shadow-[0_0_25px_rgba(139,92,246,0.4)]'
+                                  : !isSkipped && !isHolidaySession && !isRequested && isComp
+                                  ? 'border-l-indigo-500 bg-indigo-50/90 dark:bg-indigo-950/50 hover:dark:bg-indigo-950/70 text-zinc-950 dark:text-white border border-indigo-200 dark:border-indigo-500/50 shadow-[0_0_15px_rgba(99,102,241,0.15)] hover:shadow-[0_0_25px_rgba(99,102,241,0.4)]'
+                                  : !isSkipped && !isHolidaySession && !isRequested && isPhys
+                                  ? 'border-l-cyan-500 bg-cyan-50/90 dark:bg-cyan-950/50 hover:dark:bg-cyan-950/70 text-zinc-950 dark:text-white border border-cyan-200 dark:border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.15)] hover:shadow-[0_0_25px_rgba(6,182,212,0.4)]'
+                                  : !isSkipped && !isHolidaySession && !isRequested && isChem
+                                  ? 'border-l-rose-500 bg-rose-50/90 dark:bg-rose-950/50 hover:dark:bg-rose-950/70 text-zinc-950 dark:text-white border border-rose-200 dark:border-rose-500/50 shadow-[0_0_15px_rgba(244,63,94,0.15)] hover:shadow-[0_0_25px_rgba(244,63,94,0.4)]'
+                                  : !isSkipped && !isHolidaySession && !isRequested
+                                  ? 'border-l-emerald-500 bg-emerald-50/90 dark:bg-emerald-950/50 hover:dark:bg-emerald-950/70 text-zinc-950 dark:text-white border border-emerald-200 dark:border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.15)] hover:shadow-[0_0_25px_rgba(16,185,129,0.4)]'
+                                  : ''
+                              }`}
+                            >
+                              <div className="flex-1 flex flex-col justify-between overflow-hidden">
+                                {/* Line 1: Subject Code on left & Badges on right */}
+                                <div className="flex items-center justify-between gap-1 mb-0.5">
+                                  <span
+                                    className={`text-xs sm:text-sm font-heading font-black tracking-tight truncate ${
+                                      isSkipped || isHolidaySession
+                                        ? 'line-through text-zinc-400 dark:text-zinc-500'
+                                        : 'text-zinc-950 dark:text-white'
+                                    }`}
+                                  >
+                                    {session.subjectCode}
+                                  </span>
+
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    <span className="px-1.5 py-0.2 rounded text-[10px] font-sans font-bold bg-zinc-900/10 dark:bg-white/15 text-zinc-900 dark:text-zinc-100 border border-zinc-900/10 dark:border-white/10">
+                                      {session.grade.replace(/Class\s*/gi, '').trim() || session.grade}
+                                    </span>
+
+                                    {isDualLab && (
+                                      <span
+                                        title={`Multi-Lab Facility: ${session.lab} + ${session.secondaryLab || 'Secondary Lab'} simultaneously`}
+                                        className="h-4 w-4 rounded flex items-center justify-center bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 shadow-2xs shrink-0"
+                                      >
+                                        <Building2 className="h-2.5 w-2.5" />
+                                      </span>
+                                    )}
+
+                                    {isSkipped ? (
+                                      <span className="px-1 py-0.2 rounded text-[8px] font-sans bg-zinc-600 text-white font-bold">
+                                        SKIP
+                                      </span>
+                                    ) : isRequested ? (
+                                      <span className="px-1 py-0.2 rounded text-[8px] font-sans bg-amber-500 text-white font-bold animate-pulse">
+                                        PEND
+                                      </span>
+                                    ) : isLiveNow ? (
+                                      <span className="px-1.5 py-0.2 rounded text-[8px] font-sans bg-emerald-500 text-white font-black flex items-center gap-0.5 animate-pulse">
+                                        <Radio className="h-2 w-2" />
+                                        LIVE
+                                      </span>
+                                    ) : isMultiPeriod ? (
+                                      <span className="px-1 py-0.2 rounded text-[8px] font-sans bg-violet-600 text-white font-bold">
+                                        {span}P
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                </div>
+
+                                {/* Middle: Subject Practical Title / Topic */}
+                                {session.subjectTitle && (
+                                  <div
+                                    className={`text-[10.5px] font-medium truncate my-0.5 leading-tight ${
+                                      isSkipped || isHolidaySession
+                                        ? 'text-zinc-500 dark:text-zinc-500 line-through'
+                                        : 'text-zinc-600 dark:text-zinc-300'
+                                    }`}
+                                    title={formatSubjectHeading(session.subjectCode, session.subjectTitle)}
+                                  >
+                                    {cleanSubjectTitle(session.subjectCode, session.subjectTitle)}
+                                  </div>
+                                )}
+
+                                {/* Holiday Reason Overlay */}
+                                {isHolidaySession && (
+                                  <div className="text-[10px] font-sans text-zinc-600 dark:text-zinc-400 bg-zinc-200/70 dark:bg-zinc-800/80 px-2 py-0.5 rounded my-0.5 truncate border border-zinc-300/50 dark:border-zinc-700/50 font-medium flex items-center gap-1.5">
+                                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
+                                    <span className="truncate">Cancelled: {(dayHoliday as any)?.name || (dayHoliday as any)?.title || 'Academic Recess'}</span>
+                                  </div>
+                                )}
+
+                                {/* Skipped Reason Banner */}
+                                {isSkipped && session.skippedReason && (
+                                  <div className="text-[10px] font-sans text-zinc-600 dark:text-zinc-400 bg-zinc-200/70 dark:bg-zinc-800/80 px-1.5 py-0.5 rounded my-0.5 truncate">
+                                    Reason: {session.skippedReason}
+                                  </div>
+                                )}
+
+                                {/* Requested By Banner & Quick Approve/Decline for Admin */}
+                                {isRequested && !isHolidaySession && (
+                                  <div className="my-0.5 space-y-1">
+                                    <div className="text-[10px] font-sans font-bold text-amber-800 dark:text-amber-300 bg-amber-100/80 dark:bg-amber-900/60 px-1.5 py-0.5 rounded border border-amber-300/60 dark:border-amber-700/60 truncate">
+                                      Requested by: {session.requestedBy || session.teacher}
+                                    </div>
+
+                                    {canApprove && (
+                                      <div
+                                        className="flex items-center gap-1 pt-0.5 font-sans text-[10px]"
+                                        onClick={(e) => e.stopPropagation()}
+                                      >
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            approveSlotBooking(session.id)
+                                            handleSuccess(`Approved practical slot for ${session.teacher}`)
+                                          }}
+                                          className="px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
+                                          title="Approve Slot Booking"
+                                        >
+                                          <Check className="h-2.5 w-2.5" />
+                                          <span>Approve</span>
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setDeclineSessionId(session.id)
+                                            setDeclineError(null)
+                                            setIsDeclineModalOpen(true)
+                                          }}
+                                          className="px-2 py-0.5 rounded bg-rose-600 hover:bg-rose-700 text-white font-bold flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
+                                          title="Decline Slot Booking with Reason"
+                                        >
+                                          <X className="h-2.5 w-2.5" />
+                                          <span>Decline</span>
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+
+                                {activeSub && (
+                                  <div className="flex items-center gap-1 text-[10px] font-sans text-indigo-700 dark:text-indigo-300 bg-indigo-100/90 dark:bg-indigo-950/90 px-1.5 py-0.5 rounded border border-indigo-300/70 dark:border-indigo-800/70 my-0.5 font-bold">
+                                    <UserCheck className="h-3 w-3 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                                    <span className="truncate">Sub: {activeSub.substitute_teacher_name}</span>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Line 2: Teacher Name & Contextual Badge */}
+                              <div className="flex items-center justify-between text-[11px] font-sans mt-auto pt-1 border-t border-zinc-200/50 dark:border-zinc-700/50 gap-1">
+                                <span
+                                  className="truncate font-medium text-zinc-700 dark:text-zinc-300 text-[10.5px]"
+                                  title={`${activeSub?.substitute_teacher_name || session.teacher}${session.coTeacher ? ` & ${session.coTeacher}` : ''} (${getLabDisplayName(session.labKey, session.lab)} & ${session.secondaryLab || 'Secondary Lab'})`}
+                                >
+                                  {activeSub ? (
+                                    <span className="text-indigo-600 dark:text-indigo-400 font-semibold">
+                                      {activeSub.substitute_teacher_name.split(' ').slice(-1)[0]} (Proxy)
+                                    </span>
+                                  ) : (
+                                    session.teacher.replace(/-Teacher$/i, ' Staff').replace(/ & /g, ' + ')
+                                  )}
+                                  {isDualLab && session.coTeacher && session.coTeacher !== session.teacher && (
+                                    <span className="text-zinc-400 dark:text-zinc-500 font-normal"> +{session.coTeacher.split(' ').slice(-1)[0]}</span>
+                                  )}
+                                </span>
+
+                                {isDualLab ? (
+                                  <span
+                                    title={`Connected Facilities: ${getLabDisplayName(session.labKey, session.lab)} + ${session.secondaryLab || 'Secondary Lab'}`}
+                                    className="shrink-0 text-[8.5px] font-sans font-bold px-1.5 py-0.5 rounded bg-zinc-100/90 dark:bg-zinc-800/90 text-zinc-700 dark:text-zinc-300 border border-zinc-200/80 dark:border-zinc-700/80"
+                                  >
+                                    {getCompactLabName(session.labKey)}+{getCompactLabName(session.secondaryLabKey)}
+                                  </span>
+                                ) : isMultiPeriod ? (
+                                  <span className="shrink-0 text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-violet-500/15 text-violet-700 dark:text-violet-300 border border-violet-500/20">
+                                    {session.timeSlot.split(' - ')[0]}â€“{session.timeSlot.split(' - ')[1]}
+                                  </span>
+                                ) : (
+                                  <span
+                                    title={`Room: ${getLabDisplayName(session.labKey, session.lab)} (${getLabDisplayCode(session.labKey, session.labCode, session.lab)})`}
+                                    className="shrink-0 text-[8.5px] font-sans font-bold px-1.5 py-0.5 rounded bg-zinc-100/90 dark:bg-zinc-800/90 text-zinc-700 dark:text-zinc-300 border border-zinc-200/80 dark:border-zinc-700/80"
+                                  >
+                                    {getLabDisplayCode(session.labKey, session.labCode, session.lab)}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )
+                  })()}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Session Action Modal */}
+      <SessionActionModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        session={selectedSession}
+        sessionDate={selectedDateStr || selectedSession?.date || selectedSession?.specificDate || undefined}
+        allRoutines={routines}
+        initialMode={modalMode}
+        currentUser={currentUser}
+        onSuccess={handleSuccess}
+        onDeleteSession={deleteSession}
+        onExtendSession={extendSession}
+        onMergeSession={mergeSession}
+        onUnmergeSession={unmergeSession}
+        onAddSession={currentUser?.role === 'teacher' ? (s) => requestSlotBooking(s, currentUser.full_name) : addSession}
+        onUpdateSession={updateSession}
+        onSkipSession={(sessionId, reason) => skipSession(sessionId, reason, currentUser?.full_name || 'Subject Teacher')}
+        onUnskipSession={unskipSession}
+      />
+
+      {/* Decline Reason Modal for Super Admin & Lab Incharge */}
+      {isDeclineModalOpen && declineSessionId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in select-none">
+          <div className="w-full max-w-md bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl border border-zinc-200 dark:border-zinc-800 p-5 space-y-4 font-mono">
+            <div className="flex items-center justify-between border-b pb-3 border-zinc-200 dark:border-zinc-800">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 text-rose-500" />
+                <h3 className="text-sm font-bold text-zinc-950 dark:text-white">Decline Slot Booking Request</h3>
+              </div>
+              <button
+                disabled={isSubmittingDecline}
+                onClick={() => setIsDeclineModalOpen(false)}
+                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 disabled:opacity-50"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {declineError && (
+              <div className="p-2.5 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400 text-xs font-semibold flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>{declineError}</span>
+              </div>
+            )}
+
+            <p className="text-xs text-zinc-600 dark:text-zinc-400">
+              Specify the operational reason for declining this practical slot. An alert notification will be dispatched to the subject teacher.
+            </p>
+
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Preset Operational Reason:</label>
+              <select
+                value={declineReason}
+                onChange={(e) => setDeclineReason(e.target.value)}
+                disabled={isSubmittingDecline}
+                className="w-full p-2 text-xs rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none disabled:opacity-50"
+              >
+                <option value="Lab occupied for senior exams">Lab occupied for senior exams</option>
+                <option value="Equipment under scheduled maintenance">Equipment under scheduled maintenance</option>
+                <option value="Chemical inventory shortage">Chemical inventory shortage</option>
+                <option value="Time slot collision with another practical">Time slot collision with another practical</option>
+                <option value="Other">Custom Reason (specify below)</option>
+              </select>
+            </div>
+
+            {declineReason === 'Other' && (
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">Custom Reason Details:</label>
+                <input
+                  type="text"
+                  value={customDeclineReason}
+                  onChange={(e) => setCustomDeclineReason(e.target.value)}
+                  disabled={isSubmittingDecline}
+                  placeholder="e.g. System upgrade during period 3"
+                  className="w-full p-2 text-xs rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none disabled:opacity-50"
+                />
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                disabled={isSubmittingDecline}
+                onClick={() => setIsDeclineModalOpen(false)}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isSubmittingDecline}
+                onClick={handleConfirmDecline}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white shadow-xs transition-colors flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+              >
+                {isSubmittingDecline ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Declining...</span>
+                  </>
+                ) : (
+                  <span>Confirm Decline</span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

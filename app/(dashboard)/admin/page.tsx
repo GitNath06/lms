@@ -1,7 +1,8 @@
 'use client'
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import React, { useState, useEffect, useMemo, useCallback, Suspense } from 'react'
 import Link from 'next/link'
+import { useRouter, useSearchParams } from 'next/navigation'
 import {
   ShieldCheck,
   Shield,
@@ -42,6 +43,7 @@ import {
   GraduationCap,
   ShieldAlert,
   Archive,
+  Loader2,
 } from 'lucide-react'
 import { CohortPromotionWizard } from '@/components/admin/cohort-promotion-wizard'
 import { wipeClassCohortDataAction } from '@/app/actions/students'
@@ -65,12 +67,31 @@ import { IncidentCategoriesManager } from '@/components/admin/incident-categorie
 import { updateLabFacility, createLabFacility } from '@/app/actions/labs'
 import { recordClientAuditEvent } from '@/app/actions/audit'
 import dynamic from 'next/dynamic'
-import { HolidayItem } from '@/lib/master-data'
+import { HolidayItem, formatClassBatchLabel, matchesGrade } from '@/lib/master-data'
 import { useIncidentState, LabIncidentRecord } from '@/hooks/use-incident-state'
-import { matchesGrade } from '@/lib/context/institutional-relationships'
-import { getClassEnrollmentStats } from '@/app/actions/classes'
+import {
+  getClassesAction,
+  createClassAction,
+  updateClassAction,
+  deactivateClassAction,
+  getClassEnrollmentStats,
+} from '@/app/actions/classes'
+import {
+  getSubjectsAction,
+  getClassSubjectsAction,
+  createSubjectAction,
+  updateSubjectAction,
+  deactivateSubjectAction,
+  assignSubjectToClassAction,
+  removeClassSubjectAction,
+} from '@/app/actions/subjects'
+import { getTeachers } from '@/app/actions/logs'
+import type { ClassRecord } from '@/lib/types/classes'
+import type { SubjectRecord, ClassSubjectRecord } from '@/lib/types/subjects'
 import { getAcademicYears } from '@/app/actions/academic-years'
 import type { AcademicYear } from '@/lib/types/academic-years'
+import { fetchWithClientCache, getCachedData, setCachedData, invalidateCacheByPrefix } from '@/lib/cache/client-query-cache'
+import { formatPeriodRangeLabel, formatTo24hInput, parseSlotTimeRange } from '@/lib/utils'
 
 const DualCalendarPicker = dynamic(() => import('@/components/admin/dual-calendar-picker'), {
   ssr: false,
@@ -126,6 +147,21 @@ const InstitutionalArchiveHub = dynamic(() => import('@/components/admin/institu
   loading: () => <div className="h-32 flex items-center justify-center text-xs text-zinc-500 font-medium">Loading Institutional Archive Hub...</div>,
 })
 
+const WorkstationFaultCategoriesManager = dynamic(
+  () =>
+    import('@/components/admin/workstation-fault-categories-manager').then(
+      (m) => m.WorkstationFaultCategoriesManager
+    ),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-32 flex items-center justify-center text-xs text-zinc-500 font-medium">
+        Loading Workstation Faults Manager...
+      </div>
+    ),
+  }
+)
+
 async function computeSha256(text: string): Promise<string> {
   if (typeof window === 'undefined' || !window.crypto?.subtle) {
     return 'sha256-precomputed-hash'
@@ -135,6 +171,12 @@ async function computeSha256(text: string): Promise<string> {
   const hashBuffer = await crypto.subtle.digest('SHA-256', data)
   const hashArray = Array.from(new Uint8Array(hashBuffer))
   return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+export interface DisplaySubjectItem extends SubjectCurriculumItem {
+  classSubjectId?: string
+  subjectId?: string
+  classId?: string
 }
 
 interface DangerModalState {
@@ -153,9 +195,37 @@ interface DangerModalState {
 
 type ExecutiveCategory = 'identity' | 'curriculum' | 'facilities' | 'operations'
 
-export default function SuperAdminPage() {
+function SuperAdminPageContent() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const tabParam = searchParams.get('tab')
+
   // 4 Categorized Executive Tabs (No horizontal scrolling)
-  const [activeCategory, setActiveCategory] = useState<ExecutiveCategory>('identity')
+  const [activeCategory, setActiveCategory] = useState<ExecutiveCategory>(() => {
+    if (tabParam) {
+      const norm = tabParam.toLowerCase()
+      if (norm === 'identity' || norm === '01') return 'identity'
+      if (norm === 'curriculum' || norm === '02') return 'curriculum'
+      if (norm === 'facilities' || norm === '03') return 'facilities'
+      if (norm === 'operations' || norm === '04') return 'operations'
+    }
+    return 'identity'
+  })
+
+  // Synchronize state when tab query param in URL changes (e.g. via sidebar deep links)
+  useEffect(() => {
+    if (!tabParam) return
+    const norm = tabParam.toLowerCase()
+    if (norm === 'identity' || norm === '01') setActiveCategory('identity')
+    else if (norm === 'curriculum' || norm === '02') setActiveCategory('curriculum')
+    else if (norm === 'facilities' || norm === '03') setActiveCategory('facilities')
+    else if (norm === 'operations' || norm === '04') setActiveCategory('operations')
+  }, [tabParam])
+
+  const handleCategoryChange = (category: ExecutiveCategory) => {
+    setActiveCategory(category)
+    router.replace(`/admin?tab=${category}`, { scroll: false })
+  }
 
   // Collapsible cohort class groups state
   const [collapsedGrades, setCollapsedGrades] = useState<Record<string, boolean>>({})
@@ -165,7 +235,7 @@ export default function SuperAdminPage() {
 
   // Sub-tabs for Curriculum, Facilities, Operations
   const [curriculumSubTab, setCurriculumSubTab] = useState<'academic-years' | 'subjects' | 'periods' | 'classes' | 'routine' | 'roster' | 'promotion'>('academic-years')
-  const [facilitiesSubTab, setFacilitiesSubTab] = useState<'labs' | 'floor-designer' | 'maintenance' | 'categories' | 'incidents'>('labs')
+  const [facilitiesSubTab, setFacilitiesSubTab] = useState<'labs' | 'floor-designer' | 'maintenance' | 'workstation-faults' | 'categories' | 'incidents'>('labs')
   const [operationsSubTab, setOperationsSubTab] = useState<'calendar' | 'notifications' | 'audit' | 'recovery' | 'archive-hub'>('calendar')
 
   const [toastMessage, setToastMessage] = useState<string | null>(null)
@@ -197,10 +267,30 @@ export default function SuperAdminPage() {
   const [wipeClassId, setWipeClassId] = useState('12eng')
   const [isWiping, setIsWiping] = useState(false)
 
+  // 🌟 Canonical Database States (Phase 2 Unification with 0ms Synchronous Cache Hydration)
+  const [dbClasses, setDbClasses] = useState<ClassRecord[]>(() => {
+    const cached = getCachedData<any>('classes:admin:all')
+    return cached?.data || (Array.isArray(cached) ? cached : [])
+  })
+  const [dbSubjects, setDbSubjects] = useState<SubjectRecord[]>(() => {
+    const cached = getCachedData<any>('subjects:admin:all')
+    return cached?.data || (Array.isArray(cached) ? cached : [])
+  })
+  const [dbClassSubjects, setDbClassSubjects] = useState<ClassSubjectRecord[]>(() => {
+    const cached = getCachedData<any>('class-subjects:admin:2083')
+    return cached?.data || (Array.isArray(cached) ? cached : [])
+  })
+  const [dbTeachers, setDbTeachers] = useState<{ id: string; full_name: string; email?: string }[]>(() => {
+    const cached = getCachedData<any>('teachers:admin:all')
+    return Array.isArray(cached) ? cached : cached?.data || []
+  })
+  const [isLoadingClasses, setIsLoadingClasses] = useState(() => !getCachedData('classes:admin:all'))
+  const [isLoadingSubjects, setIsLoadingSubjects] = useState(() => !getCachedData('subjects:admin:all'))
+
   useEffect(() => {
     async function loadYears() {
       try {
-        const res = await getAcademicYears()
+        const res = await fetchWithClientCache('academic-years:list', () => getAcademicYears(), { staleTimeMs: 120_000 })
         if (res.success && res.data && res.data.length > 0) {
           setAcademicYears(res.data)
           const current = res.data.find((y: any) => y.is_current)
@@ -219,7 +309,7 @@ export default function SuperAdminPage() {
       return
     }
 
-    const targetClass = classes.find((c) => c.id === wipeClassId) || { name: wipeClassId }
+    const targetClass = (dbClasses.length > 0 ? dbClasses : classes).find((c) => c.id === wipeClassId) || { name: wipeClassId }
     const confirmWord = `WIPE ${targetClass.name.toUpperCase()}`
 
     setDangerModal({
@@ -275,29 +365,77 @@ export default function SuperAdminPage() {
     addLab,
     updateLab,
     deleteLab,
-    addClass,
-    updateClass,
-    deleteClass,
     addFaculty,
     updateFaculty,
     deleteFaculty,
-    addSubject,
-    updateSubject,
-    deleteSubject,
     assignTeacherToSubject,
     addHoliday,
     updateHoliday,
     deleteHoliday,
     resetHolidaysToOfficialGazette,
-    incidentCategories,
     incidentSettings,
-    addIncidentCategory,
-    updateIncidentCategory,
-    deleteIncidentCategory,
-    deactivateIncidentCategory,
-    resetIncidentCategories,
     updateIncidentSettings,
   } = useInfrastructureState()
+
+  // Derived effective collections prioritizing PostgreSQL canonical sources
+  const effectiveClasses: ClassEnrollmentItem[] = useMemo(() => {
+    return dbClasses.map((c) => ({
+      id: c.id,
+      name: c.name,
+      section: c.section || '',
+      capacity: c.capacity,
+      stream: c.stream_id || c.section || '',
+      is_active: c.is_active,
+    }))
+  }, [dbClasses])
+
+  const effectiveSubjects: DisplaySubjectItem[] = useMemo(() => {
+    const list: DisplaySubjectItem[] = []
+    const assignedSubjectIds = new Set<string>()
+
+    if (dbClassSubjects && dbClassSubjects.length > 0) {
+      for (const cs of dbClassSubjects) {
+        assignedSubjectIds.add(cs.subject_id)
+        const teacherObj = dbTeachers.find((t) => t.id === cs.teacher_id)
+        list.push({
+          classSubjectId: cs.id,
+          subjectId: cs.subject_id,
+          classId: cs.class_id,
+          code: cs.subject_code || '',
+          title: cs.subject_name || cs.subject_id,
+          grade: cs.class_name || cs.class_id,
+          quota: 25,
+          lab: cs.lab_name || 'Laboratory',
+          labId: cs.default_lab_id || 'comp',
+          teacherId: cs.teacher_id || '',
+          teacherName: cs.teacher_name || teacherObj?.full_name || 'Assigned Faculty',
+        })
+      }
+    }
+
+    // Include unassigned catalog subjects from dbSubjects so administrators can view and manage/deactivate them
+    if (dbSubjects && dbSubjects.length > 0) {
+      for (const s of dbSubjects) {
+        if (!assignedSubjectIds.has(s.id)) {
+          list.push({
+            classSubjectId: undefined,
+            subjectId: s.id,
+            classId: undefined,
+            code: s.code,
+            title: s.name,
+            grade: 'Catalog (Unassigned)',
+            quota: 25,
+            lab: labs.find((l) => l.id === s.default_lab_id)?.name || 'Laboratory',
+            labId: s.default_lab_id || 'comp',
+            teacherId: '',
+            teacherName: 'Unassigned',
+          })
+        }
+      }
+    }
+
+    return list
+  }, [dbClassSubjects, dbSubjects, dbTeachers, labs])
 
   // --- Add / Edit Modals States ---
   const [isAddLabOpen, setIsAddLabOpen] = useState(false)
@@ -312,17 +450,21 @@ export default function SuperAdminPage() {
   const [editingClass, setEditingClass] = useState<ClassEnrollmentItem | null>(null)
   const [classFormName, setClassFormName] = useState('')
   const [classFormSection, setClassFormSection] = useState('')
-  const [classFormCapacity, setClassFormCapacity] = useState(42)
-  const [classFormStream, setClassFormStream] = useState('Science Stream')
+  const [classFormCapacity, setClassFormCapacity] = useState(40)
+  const [classFormStream, setClassFormStream] = useState('')
+  const [isSubmittingClass, setIsSubmittingClass] = useState(false)
+  const [classFormError, setClassFormError] = useState<string | null>(null)
 
   const [isAddSubjectOpen, setIsAddSubjectOpen] = useState(false)
-  const [editingSubject, setEditingSubject] = useState<SubjectCurriculumItem | null>(null)
+  const [editingSubject, setEditingSubject] = useState<DisplaySubjectItem | null>(null)
   const [subFormTitle, setSubFormTitle] = useState('')
   const [subFormCode, setSubFormCode] = useState('')
   const [subFormGrade, setSubFormGrade] = useState('Class 12')
   const [subFormQuota, setSubFormQuota] = useState(25)
   const [subFormLabId, setSubFormLabId] = useState('comp')
-  const [subFormTeacherId, setSubFormTeacherId] = useState('t1')
+  const [subFormTeacherId, setSubFormTeacherId] = useState('')
+  const [isSubmittingSubject, setIsSubmittingSubject] = useState(false)
+  const [subFormError, setSubFormError] = useState<string | null>(null)
 
   // Subjects Filter & Grouping State
   const [subjectSearchQuery, setSubjectSearchQuery] = useState('')
@@ -336,11 +478,43 @@ export default function SuperAdminPage() {
   const [academicYearsList, setAcademicYearsList] = useState<AcademicYear[]>([])
   const [selectedYearForClasses, setSelectedYearForClasses] = useState<string>('2083')
 
+  const loadClassesData = useCallback(async () => {
+    setIsLoadingClasses(true)
+    try {
+      const res = await fetchWithClientCache('classes:admin:all', () => getClassesAction({ activeOnly: false }), { staleTimeMs: 60_000 })
+      if (res.success && res.data) {
+        setDbClasses(res.data)
+      }
+    } catch (e) {
+      console.error('Failed to load classes from PostgreSQL:', e)
+    } finally {
+      setIsLoadingClasses(false)
+    }
+  }, [])
+
+  const loadSubjectsData = useCallback(async () => {
+    setIsLoadingSubjects(true)
+    try {
+      const [csRes, sRes, tRes] = await Promise.all([
+        fetchWithClientCache(`class-subjects:admin:${selectedYearForClasses}`, () => getClassSubjectsAction(undefined, selectedYearForClasses), { staleTimeMs: 60_000 }),
+        fetchWithClientCache('subjects:admin:all', () => getSubjectsAction({ activeOnly: false }), { staleTimeMs: 60_000 }),
+        fetchWithClientCache('teachers:admin:all', () => getTeachers(), { staleTimeMs: 60_000 }),
+      ])
+      if (csRes.success && csRes.data) setDbClassSubjects(csRes.data)
+      if (sRes.success && sRes.data) setDbSubjects(sRes.data)
+      if (Array.isArray(tRes)) setDbTeachers(tRes)
+    } catch (e) {
+      console.error('Failed to load curriculum subjects from PostgreSQL:', e)
+    } finally {
+      setIsLoadingSubjects(false)
+    }
+  }, [selectedYearForClasses])
+
   const loadYearsAndStats = useCallback(async () => {
     try {
       const [yearsRes, statsRes] = await Promise.all([
-        getAcademicYears(),
-        getClassEnrollmentStats(selectedYearForClasses),
+        fetchWithClientCache('academic-years:list', () => getAcademicYears(), { staleTimeMs: 120_000 }),
+        fetchWithClientCache(`classes:enrollment-stats:${selectedYearForClasses}`, () => getClassEnrollmentStats(selectedYearForClasses), { staleTimeMs: 60_000 }),
       ])
       if (yearsRes.success && yearsRes.data) {
         setAcademicYearsList(yearsRes.data)
@@ -355,7 +529,9 @@ export default function SuperAdminPage() {
     } catch (err) {
       console.error('Failed to load class enrollment stats:', err)
     }
-  }, [selectedYearForClasses])
+    loadClassesData()
+    loadSubjectsData()
+  }, [selectedYearForClasses, loadClassesData, loadSubjectsData])
 
   useEffect(() => {
     loadYearsAndStats()
@@ -366,16 +542,20 @@ export default function SuperAdminPage() {
       loadYearsAndStats()
     }
     window.addEventListener('student-roster-updated', handleRemoteRosterUpdate)
+    window.addEventListener('classes-updated', handleRemoteRosterUpdate)
+    window.addEventListener('subjects-updated', handleRemoteRosterUpdate)
     window.addEventListener('infrastructure-updated', handleRemoteRosterUpdate)
     return () => {
       window.removeEventListener('student-roster-updated', handleRemoteRosterUpdate)
+      window.removeEventListener('classes-updated', handleRemoteRosterUpdate)
+      window.removeEventListener('subjects-updated', handleRemoteRosterUpdate)
       window.removeEventListener('infrastructure-updated', handleRemoteRosterUpdate)
     }
   }, [loadYearsAndStats])
 
   // Filtered subjects computation
   const filteredSubjects = useMemo(() => {
-    return subjects.filter((s) => {
+    return effectiveSubjects.filter((s) => {
       // Search filter
       if (subjectSearchQuery.trim()) {
         const q = subjectSearchQuery.toLowerCase()
@@ -391,6 +571,7 @@ export default function SuperAdminPage() {
         const matchesTeacher =
           s.teacherId === subjectTeacherFilter ||
           (s.teacherName && s.teacherName === subjectTeacherFilter) ||
+          (dbTeachers.find((t) => t.id === subjectTeacherFilter)?.full_name === s.teacherName) ||
           (faculty.find((f) => f.id === subjectTeacherFilter)?.name === s.teacherName)
         if (!matchesTeacher) return false
       }
@@ -407,11 +588,11 @@ export default function SuperAdminPage() {
 
       return true
     })
-  }, [subjects, subjectSearchQuery, subjectTeacherFilter, subjectClassFilter, subjectLabFilter, faculty])
+  }, [effectiveSubjects, subjectSearchQuery, subjectTeacherFilter, subjectClassFilter, subjectLabFilter, dbTeachers, faculty])
 
   // Grouped by Class computation
   const groupedSubjects = useMemo(() => {
-    const map = new Map<string, SubjectCurriculumItem[]>()
+    const map = new Map<string, DisplaySubjectItem[]>()
     filteredSubjects.forEach((s) => {
       const key = s.grade || 'Unassigned Class'
       if (!map.has(key)) {
@@ -430,14 +611,23 @@ export default function SuperAdminPage() {
     const list: { id: string; name: string }[] = []
     const seen = new Set<string>()
 
-    faculty.forEach((f) => {
-      if (f.name && !seen.has(f.name)) {
-        seen.add(f.name)
-        list.push({ id: f.id, name: f.name })
-      }
-    })
+    if (dbTeachers.length > 0) {
+      dbTeachers.forEach((t) => {
+        if (t.full_name && !seen.has(t.full_name)) {
+          seen.add(t.full_name)
+          list.push({ id: t.id, name: t.full_name })
+        }
+      })
+    } else {
+      faculty.forEach((f) => {
+        if (f.name && !seen.has(f.name)) {
+          seen.add(f.name)
+          list.push({ id: f.id, name: f.name })
+        }
+      })
+    }
 
-    subjects.forEach((s) => {
+    effectiveSubjects.forEach((s) => {
       if (s.teacherName && !seen.has(s.teacherName)) {
         seen.add(s.teacherName)
         list.push({ id: s.teacherId || s.teacherName, name: s.teacherName })
@@ -445,19 +635,19 @@ export default function SuperAdminPage() {
     })
 
     return list.sort((a, b) => a.name.localeCompare(b.name))
-  }, [faculty, subjects])
+  }, [dbTeachers, faculty, effectiveSubjects])
 
   // Class batches for filter dropdown (strictly based on Enrolled Class Batches)
   const classFilterOptions = useMemo(() => {
-    if (classes && classes.length > 0) {
-      return classes.map((c) => c.name)
+    if (effectiveClasses && effectiveClasses.length > 0) {
+      return effectiveClasses.map((c) => c.name)
     }
     const set = new Set<string>()
-    subjects.forEach((s) => {
+    effectiveSubjects.forEach((s) => {
       if (s.grade) set.add(s.grade)
     })
     return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
-  }, [classes, subjects])
+  }, [effectiveClasses, effectiveSubjects])
 
   const [isAddPeriodOpen, setIsAddPeriodOpen] = useState(false)
   const [editingPeriod, setEditingPeriod] = useState<PeriodSlotItem | null>(null)
@@ -496,18 +686,30 @@ export default function SuperAdminPage() {
     e.preventDefault()
     if (editingPeriod && !requireEditMode()) return
 
+    const formattedLabel = formatPeriodRangeLabel(periodFormStart, periodFormEnd)
+
     if (editingPeriod) {
       updatePeriod(editingPeriod.id, {
         name: periodFormName,
-        label: `${periodFormStart} - ${periodFormEnd}`,
+        label: formattedLabel,
       })
       triggerToast(`Period ${editingPeriod.name} updated.`)
       setEditingPeriod(null)
+      setIsAddPeriodOpen(false)
     } else {
+      const existingIds = new Set(periods.map((p) => p.id))
+      const isPre = periodFormName.toLowerCase().includes('pre')
+      let candidateId = isPre && !existingIds.has('t0') ? 't0' : `t${periods.length + 1}`
+      let counter = 1
+      while (existingIds.has(candidateId)) {
+        counter++
+        candidateId = `t${counter}`
+      }
+
       const newP: PeriodSlotItem = {
-        id: `t${periods.length + 1}`,
+        id: candidateId,
         name: periodFormName,
-        label: `${periodFormStart} - ${periodFormEnd}`,
+        label: formattedLabel,
       }
       addPeriod(newP)
       triggerToast(`Added period ${newP.name} (${newP.label})`)
@@ -550,73 +752,154 @@ export default function SuperAdminPage() {
     setLabFormCode('')
   }
 
-  // --- Handlers: Classes ---
-  const handleSaveClass = (e: React.FormEvent) => {
+  // --- Handlers: Classes (Canonical PostgreSQL) ---
+  const handleSaveClass = async (e: React.FormEvent) => {
     e.preventDefault()
     if (editingClass && !requireEditMode()) return
 
-    if (editingClass) {
-      updateClass(editingClass.id, {
-        name: classFormName,
-        section: classFormSection,
-        capacity: classFormCapacity,
-        stream: classFormStream,
-      })
-      triggerToast(`Class "${classFormName}" updated.`)
-      setEditingClass(null)
-    } else {
-      const newCls: ClassEnrollmentItem = {
-        id: `${classFormName.toLowerCase().replace(/\s+/g, '')}-${classFormSection.toLowerCase().replace(/\s+/g, '')}`,
-        name: classFormName,
-        section: classFormSection,
-        capacity: classFormCapacity,
-        stream: classFormStream,
+    const gradeNum = parseInt(classFormName.replace(/\D/g, '') || '0', 10) || null
+    setIsSubmittingClass(true)
+    setClassFormError(null)
+
+    try {
+      if (editingClass) {
+        const res = await updateClassAction(editingClass.id, {
+          name: classFormName,
+          grade: gradeNum,
+          section: classFormSection,
+          capacity: classFormCapacity,
+          stream_id: classFormStream,
+        })
+        if (res.success) {
+          setIsAddClassOpen(false)
+          setEditingClass(null)
+          setClassFormName('')
+          setClassFormSection('')
+          invalidateCacheByPrefix('classes:')
+          await loadClassesData()
+          window.dispatchEvent(new Event('classes-updated'))
+          triggerToast(`Class "${classFormName}" updated in database.`)
+        } else {
+          setClassFormError(res.error || 'Failed to update class.')
+        }
+      } else {
+        const cleanId = `${classFormName.toLowerCase().replace(/[^a-z0-9]/g, '')}-${classFormSection.toLowerCase().replace(/[^a-z0-9]/g, '')}`
+        const res = await createClassAction({
+          id: cleanId,
+          name: classFormName,
+          grade: gradeNum,
+          section: classFormSection,
+          capacity: classFormCapacity,
+          stream_id: classFormStream,
+        })
+        if (res.success) {
+          setIsAddClassOpen(false)
+          setClassFormName('')
+          setClassFormSection('')
+          invalidateCacheByPrefix('classes:')
+          await loadClassesData()
+          window.dispatchEvent(new Event('classes-updated'))
+          triggerToast(`Enrolled class batch "${classFormName} - ${classFormSection}" in database.`)
+        } else {
+          setClassFormError(res.error || 'Failed to enroll class.')
+        }
       }
-      addClass(newCls)
-      triggerToast(`Enrolled class batch "${classFormName} - ${classFormSection}".`)
-      setIsAddClassOpen(false)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error'
+      setClassFormError(`Error: ${msg}`)
+    } finally {
+      setIsSubmittingClass(false)
     }
-    setClassFormName('')
-    setClassFormSection('')
   }
 
-  // --- Handlers: Subjects ---
-  const handleSaveSubject = (e: React.FormEvent) => {
+  // --- Handlers: Subjects (Canonical PostgreSQL) ---
+  const handleSaveSubject = async (e: React.FormEvent) => {
     e.preventDefault()
     if (editingSubject && !requireEditMode()) return
 
-    const labObj = labs.find((l) => l.id === subFormLabId)
-    const teacherObj = faculty.find((f) => f.id === subFormTeacherId)
+    const targetClass = effectiveClasses.find((c) => c.id === subFormGrade || c.name === subFormGrade)
+    const targetClassId = targetClass?.id || subFormGrade
+    setIsSubmittingSubject(true)
+    setSubFormError(null)
 
-    if (editingSubject) {
-      updateSubject(editingSubject.code, {
-        title: subFormTitle,
-        grade: subFormGrade,
-        quota: subFormQuota,
-        lab: labObj?.name || 'Laboratory',
-        labId: subFormLabId,
-        teacherId: subFormTeacherId,
-        teacherName: teacherObj?.name || 'Assigned Faculty',
-      })
-      triggerToast(`Subject curriculum "${subFormTitle}" updated.`)
-      setEditingSubject(null)
-    } else {
-      const newSub: SubjectCurriculumItem = {
-        code: subFormCode.toUpperCase(),
-        title: subFormTitle,
-        grade: subFormGrade,
-        quota: subFormQuota,
-        lab: labObj?.name || 'Laboratory',
-        labId: subFormLabId,
-        teacherId: subFormTeacherId,
-        teacherName: teacherObj?.name || 'Assigned Faculty',
+    try {
+      if (editingSubject) {
+        const subId = editingSubject.subjectId || subFormCode.toLowerCase().replace(/[^a-z0-9_-]/g, '-')
+        await updateSubjectAction(subId, {
+          name: subFormTitle,
+          code: subFormCode,
+          default_lab_id: subFormLabId,
+        })
+
+        const assignRes = await assignSubjectToClassAction({
+          academic_year_id: selectedYearForClasses,
+          class_id: targetClassId,
+          subject_id: subId,
+          teacher_id: subFormTeacherId,
+          default_lab_id: subFormLabId,
+        })
+
+        if (assignRes.success) {
+          setIsAddSubjectOpen(false)
+          setEditingSubject(null)
+          setSubFormTitle('')
+          setSubFormCode('')
+          invalidateCacheByPrefix('subjects:')
+          invalidateCacheByPrefix('class-subjects:')
+          await loadSubjectsData()
+          window.dispatchEvent(new Event('subjects-updated'))
+          triggerToast(`Subject curriculum "${subFormTitle}" updated in database.`)
+        } else {
+          setSubFormError(assignRes.error || 'Failed to update subject assignment.')
+        }
+      } else {
+        const cleanCode = subFormCode.trim().toUpperCase()
+        const existingSub = dbSubjects.find(
+          (s) => s.code.toUpperCase() === cleanCode || s.id.toLowerCase() === cleanCode.toLowerCase()
+        )
+        let subjectId = existingSub?.id
+
+        if (!subjectId) {
+          const createRes = await createSubjectAction({
+            code: cleanCode,
+            name: subFormTitle,
+            default_lab_id: subFormLabId,
+          })
+          if (!createRes.success && !createRes.data) {
+            setSubFormError(createRes.error || 'Failed to create subject in catalog.')
+            setIsSubmittingSubject(false)
+            return
+          }
+          subjectId = createRes.data?.id || cleanCode.toLowerCase().replace(/[^a-z0-9_-]/g, '-')
+        }
+
+        const assignRes = await assignSubjectToClassAction({
+          academic_year_id: selectedYearForClasses,
+          class_id: targetClassId,
+          subject_id: subjectId,
+          teacher_id: subFormTeacherId,
+          default_lab_id: subFormLabId,
+        })
+
+        if (assignRes.success) {
+          setIsAddSubjectOpen(false)
+          setSubFormTitle('')
+          setSubFormCode('')
+          invalidateCacheByPrefix('subjects:')
+          invalidateCacheByPrefix('class-subjects:')
+          await loadSubjectsData()
+          window.dispatchEvent(new Event('subjects-updated'))
+          triggerToast(`Registered curriculum subject "${subFormTitle}" in database.`)
+        } else {
+          setSubFormError(assignRes.error || 'Failed to assign subject to class.')
+        }
       }
-      addSubject(newSub)
-      triggerToast(`Registered curriculum subject "${subFormTitle}".`)
-      setIsAddSubjectOpen(false)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error'
+      setSubFormError(`Error: ${msg}`)
+    } finally {
+      setIsSubmittingSubject(false)
     }
-    setSubFormTitle('')
-    setSubFormCode('')
   }
 
   // --- Disaster Recovery: Cryptographic Snapshot Export ---
@@ -630,11 +913,11 @@ export default function SuperAdminPage() {
         export_timestamp: new Date().toISOString(),
         periods,
         labs,
-        classes,
+        classes: effectiveClasses,
         faculty,
-        subjects,
+        subjects: effectiveSubjects,
         holidays,
-        incidentCategories,
+        incidentCategories: [],
         incidentSettings,
         calendarSettings: {
           startDay,
@@ -721,7 +1004,7 @@ export default function SuperAdminPage() {
     <div className="space-y-6 w-full select-none animate-in fade-in duration-300 font-sans">
       {/* Toast Feedback */}
       {toastMessage && (
-        <div className="fixed top-20 right-8 z-50 bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 px-4 py-2.5 rounded-xl shadow-2xl text-xs font-semibold animate-in slide-in-from-top-2 duration-200 flex items-center gap-2 border border-zinc-700 dark:border-zinc-300">
+        <div className="fixed top-20 right-8 z-[100] bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 px-4 py-2.5 rounded-xl shadow-2xl text-xs font-semibold animate-in slide-in-from-top-2 duration-200 flex items-center gap-2 border border-zinc-700 dark:border-zinc-300">
           <Sparkles className="h-4 w-4 text-amber-400 dark:text-amber-600" />
           <span>{toastMessage}</span>
         </div>
@@ -792,65 +1075,6 @@ export default function SuperAdminPage() {
         </div>
       </div>
 
-      {/* Admin Sub-Navigation Segmented Control */}
-      <div className="p-1 rounded-2xl bg-zinc-100/90 dark:bg-zinc-800/80 border border-zinc-200/80 dark:border-zinc-700/80 flex items-center gap-1 overflow-x-auto no-scrollbar">
-        <button
-          type="button"
-          onClick={() => setActiveCategory('identity')}
-          className={`flex-1 min-w-fit px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 ${
-            activeCategory === 'identity'
-              ? 'bg-indigo-600 text-white shadow-xs'
-              : 'text-zinc-600 dark:text-slate-300 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-200/50 dark:hover:bg-zinc-700/50'
-          }`}
-        >
-          <Users className="h-4 w-4 shrink-0" />
-          <span className="hidden lg:inline text-xs font-mono font-bold opacity-60 mr-0.5">01</span>
-          <span>Identity & Access</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveCategory('curriculum')}
-          className={`flex-1 min-w-fit px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 ${
-            activeCategory === 'curriculum'
-              ? 'bg-indigo-600 text-white shadow-xs'
-              : 'text-zinc-600 dark:text-slate-300 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-200/50 dark:hover:bg-zinc-700/50'
-          }`}
-        >
-          <BookOpen className="h-4 w-4 shrink-0" />
-          <span className="hidden lg:inline text-xs font-mono font-bold opacity-60 mr-0.5">02</span>
-          <span>Academic Curriculum</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveCategory('facilities')}
-          className={`flex-1 min-w-fit px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 ${
-            activeCategory === 'facilities'
-              ? 'bg-indigo-600 text-white shadow-xs'
-              : 'text-zinc-600 dark:text-slate-300 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-200/50 dark:hover:bg-zinc-700/50'
-          }`}
-        >
-          <Building2 className="h-4 w-4 shrink-0" />
-          <span className="hidden lg:inline text-xs font-mono font-bold opacity-60 mr-0.5">03</span>
-          <span>Facilities & Safety</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveCategory('operations')}
-          className={`flex-1 min-w-fit px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 ${
-            activeCategory === 'operations'
-              ? 'bg-indigo-600 text-white shadow-xs'
-              : 'text-zinc-600 dark:text-slate-300 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-200/50 dark:hover:bg-zinc-700/50'
-          }`}
-        >
-          <CalendarIcon className="h-4 w-4 shrink-0" />
-          <span className="hidden lg:inline text-xs font-mono font-bold opacity-60 mr-0.5">04</span>
-          <span>Operations & Backup</span>
-        </button>
-      </div>
-
       {/* --- SECTION 1: IDENTITY & ACCESS MANAGEMENT --- */}
       {activeCategory === 'identity' && (
         <UserAccessManager
@@ -884,7 +1108,7 @@ export default function SuperAdminPage() {
                   : 'text-zinc-600 dark:text-slate-300 hover:text-zinc-900 dark:hover:text-white'
               }`}
             >
-              Curriculum Subjects ({subjects.length})
+              Curriculum Subjects ({effectiveSubjects.length})
             </button>
             <button
               type="button"
@@ -906,7 +1130,7 @@ export default function SuperAdminPage() {
                   : 'text-zinc-600 dark:text-slate-300 hover:text-zinc-900 dark:hover:text-white'
               }`}
             >
-              Classes ({classes.length})
+              Classes ({effectiveClasses.length})
             </button>
             <button
               type="button"
@@ -961,7 +1185,7 @@ export default function SuperAdminPage() {
                     <BookOpen className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
                     <span>Practical Curriculum Catalog</span>
                     <Badge variant="outline" className="text-[11px] font-mono ml-1 font-bold">
-                      {filteredSubjects.length} of {subjects.length} Units
+                      {filteredSubjects.length} of {effectiveSubjects.length} Units
                     </Badge>
                   </CardTitle>
                   <CardDescription className="text-xs text-zinc-500 mt-0.5">
@@ -986,10 +1210,10 @@ export default function SuperAdminPage() {
                       setEditingSubject(null)
                       setSubFormTitle('')
                       setSubFormCode('')
-                      setSubFormGrade(classes[0]?.name || '12 Eng')
+                      setSubFormGrade(effectiveClasses[0]?.id || effectiveClasses[0]?.name || '12eng')
                       setSubFormQuota(25)
                       setSubFormLabId(labs[0]?.id || 'comp')
-                      setSubFormTeacherId(faculty[0]?.id || 't1')
+                      setSubFormTeacherId(dbTeachers[0]?.id || faculty[0]?.id || '')
                       setIsAddSubjectOpen(true)
                     }}
                     className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs gap-1.5 cursor-pointer shadow-xs"
@@ -1107,7 +1331,14 @@ export default function SuperAdminPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
-                    {filteredSubjects.length === 0 ? (
+                    {isLoadingSubjects ? (
+                      <tr>
+                        <td colSpan={6} className="py-12 text-center text-zinc-400 text-xs font-sans">
+                          <Loader2 className="h-4 w-4 animate-spin inline-block mr-2" />
+                          Loading practical curriculum subjects...
+                        </td>
+                      </tr>
+                    ) : filteredSubjects.length === 0 ? (
                       <tr>
                         <td colSpan={6} className="py-12 text-center text-zinc-400 text-xs font-sans">
                           No practical curriculum subjects match the selected filters.
@@ -1147,8 +1378,8 @@ export default function SuperAdminPage() {
                             </tr>
                             {/* Subjects in this Class */}
                             {!isCollapsed &&
-                              items.map((s) => (
-                                <tr key={s.code} className="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40 transition-colors">
+                              items.map((s, idx) => (
+                                <tr key={s.classSubjectId || `${grade}-${s.code}-${idx}`} className="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40 transition-colors">
                                   <td className="py-3 px-4">
                                     <div className="admin-type-primary-label text-zinc-950 dark:text-white">{s.title}</div>
                                     <span className="admin-type-code-chip text-zinc-600 dark:text-slate-300 block mt-0.5">{s.code}</span>
@@ -1178,7 +1409,7 @@ export default function SuperAdminPage() {
                                           setEditingSubject(s)
                                           setSubFormTitle(s.title)
                                           setSubFormCode(s.code)
-                                          setSubFormGrade(s.grade)
+                                          setSubFormGrade(s.classId || effectiveClasses.find((c) => c.name === s.grade)?.id || s.grade)
                                           setSubFormQuota(s.quota)
                                           setSubFormLabId(s.labId)
                                           setSubFormTeacherId(s.teacherId)
@@ -1196,15 +1427,40 @@ export default function SuperAdminPage() {
                                           disabled={!isEditModeUnlocked}
                                           onClick={() => {
                                             requestDangerAction({
-                                              title: `Remove Subject: ${s.title}`,
-                                              description: `Are you sure you want to delete ${s.code} - ${s.title}?`,
-                                              impactMessage: 'Historical logs referencing this code remain untouched.',
+                                              title: `Remove Subject Assignment: ${s.title}`,
+                                              description: `Are you sure you want to remove ${s.code} - ${s.title} from ${s.grade}?`,
+                                              impactMessage: 'Historical logs referencing this assignment are protected by foreign key constraints.',
                                               itemType: 'subject',
                                               itemId: s.code,
-                                              onConfirm: () => {
-                                                deleteSubject(s.code)
-                                                setDangerModal((prev) => ({ ...prev, isOpen: false }))
-                                                triggerToast(`Subject ${s.code} removed.`)
+                                              onConfirm: async () => {
+                                                if (s.classSubjectId) {
+                                                  const res = await removeClassSubjectAction(s.classSubjectId)
+                                                  setDangerModal((prev) => ({ ...prev, isOpen: false }))
+                                                  if (res.success) {
+                                                    triggerToast(`Subject assignment ${s.code} removed.`)
+                                                    invalidateCacheByPrefix('subjects:')
+          invalidateCacheByPrefix('class-subjects:')
+          await loadSubjectsData()
+                                                    window.dispatchEvent(new Event('subjects-updated'))
+                                                  } else {
+                                                    triggerToast(res.error || `Failed to remove subject ${s.code}.`)
+                                                  }
+                                                } else if (s.subjectId) {
+                                                  const res = await deactivateSubjectAction(s.subjectId)
+                                                  setDangerModal((prev) => ({ ...prev, isOpen: false }))
+                                                  if (res.success) {
+                                                    triggerToast(`Catalog subject ${s.code} deactivated.`)
+                                                    invalidateCacheByPrefix('subjects:')
+          invalidateCacheByPrefix('class-subjects:')
+          await loadSubjectsData()
+                                                    window.dispatchEvent(new Event('subjects-updated'))
+                                                  } else {
+                                                    triggerToast(res.error || `Failed to deactivate subject ${s.code}.`)
+                                                  }
+                                                } else {
+                                                  setDangerModal((prev) => ({ ...prev, isOpen: false }))
+                                                  triggerToast(`Subject ${s.code} removed.`)
+                                                }
                                               },
                                             })
                                           }}
@@ -1221,8 +1477,8 @@ export default function SuperAdminPage() {
                         )
                       })
                     ) : (
-                      filteredSubjects.map((s) => (
-                        <tr key={s.code} className="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40 transition-colors">
+                      filteredSubjects.map((s, idx) => (
+                        <tr key={s.classSubjectId || `${s.grade}-${s.code}-${idx}`} className="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40 transition-colors">
                           <td className="py-3 px-4">
                             <div className="admin-type-primary-label text-zinc-950 dark:text-white">{s.title}</div>
                             <span className="admin-type-code-chip text-zinc-600 dark:text-slate-300 block mt-0.5">{s.code}</span>
@@ -1252,7 +1508,7 @@ export default function SuperAdminPage() {
                                   setEditingSubject(s)
                                   setSubFormTitle(s.title)
                                   setSubFormCode(s.code)
-                                  setSubFormGrade(s.grade)
+                                  setSubFormGrade(s.classId || effectiveClasses.find((c) => c.name === s.grade)?.id || s.grade)
                                   setSubFormQuota(s.quota)
                                   setSubFormLabId(s.labId)
                                   setSubFormTeacherId(s.teacherId)
@@ -1270,15 +1526,40 @@ export default function SuperAdminPage() {
                                   disabled={!isEditModeUnlocked}
                                   onClick={() => {
                                     requestDangerAction({
-                                      title: `Remove Subject: ${s.title}`,
-                                      description: `Are you sure you want to delete ${s.code} - ${s.title}?`,
-                                      impactMessage: 'Historical logs referencing this code remain untouched.',
+                                      title: `Remove Subject Assignment: ${s.title}`,
+                                      description: `Are you sure you want to remove ${s.code} - ${s.title} from ${s.grade}?`,
+                                      impactMessage: 'Historical logs referencing this assignment are protected by foreign key constraints.',
                                       itemType: 'subject',
                                       itemId: s.code,
-                                      onConfirm: () => {
-                                        deleteSubject(s.code)
-                                        setDangerModal((prev) => ({ ...prev, isOpen: false }))
-                                        triggerToast(`Subject ${s.code} removed.`)
+                                      onConfirm: async () => {
+                                        if (s.classSubjectId) {
+                                          const res = await removeClassSubjectAction(s.classSubjectId)
+                                          setDangerModal((prev) => ({ ...prev, isOpen: false }))
+                                          if (res.success) {
+                                            triggerToast(`Subject assignment ${s.code} removed.`)
+                                            invalidateCacheByPrefix('subjects:')
+          invalidateCacheByPrefix('class-subjects:')
+          await loadSubjectsData()
+                                            window.dispatchEvent(new Event('subjects-updated'))
+                                          } else {
+                                            triggerToast(res.error || `Failed to remove subject ${s.code}.`)
+                                          }
+                                        } else if (s.subjectId) {
+                                          const res = await deactivateSubjectAction(s.subjectId)
+                                          setDangerModal((prev) => ({ ...prev, isOpen: false }))
+                                          if (res.success) {
+                                            triggerToast(`Catalog subject ${s.code} deactivated.`)
+                                            invalidateCacheByPrefix('subjects:')
+          invalidateCacheByPrefix('class-subjects:')
+          await loadSubjectsData()
+                                            window.dispatchEvent(new Event('subjects-updated'))
+                                          } else {
+                                            triggerToast(res.error || `Failed to deactivate subject ${s.code}.`)
+                                          }
+                                        } else {
+                                          setDangerModal((prev) => ({ ...prev, isOpen: false }))
+                                          triggerToast(`Subject ${s.code} removed.`)
+                                        }
                                       },
                                     })
                                   }}
@@ -1376,9 +1657,9 @@ export default function SuperAdminPage() {
                               onClick={() => {
                                 setEditingPeriod(p)
                                 setPeriodFormName(p.name)
-                                const parts = p.label.split('-')
-                                setPeriodFormStart(parts[0]?.trim() || '10:10')
-                                setPeriodFormEnd(parts[1]?.trim() || '11:00')
+                                const parsed = parseSlotTimeRange(p.label)
+                                setPeriodFormStart(formatTo24hInput(parsed.startTime))
+                                setPeriodFormEnd(formatTo24hInput(parsed.endTime))
                                 setIsAddPeriodOpen(true)
                               }}
                               className="h-7 px-2.5 text-xs font-semibold cursor-pointer"
@@ -1472,10 +1753,10 @@ export default function SuperAdminPage() {
                     size="sm"
                     onClick={() => {
                       setEditingClass(null)
-                      setClassFormName('Class 11')
-                      setClassFormSection('Section A')
-                      setClassFormCapacity(42)
-                      setClassFormStream('Science Stream')
+                      setClassFormName('')
+                      setClassFormSection('')
+                      setClassFormCapacity(40)
+                      setClassFormStream('')
                       setIsAddClassOpen(true)
                     }}
                     className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs gap-1.5 cursor-pointer shadow-xs"
@@ -1497,85 +1778,116 @@ export default function SuperAdminPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
-                    {classes.map((c) => {
-                      const enrolled = enrollmentStats[c.id] ?? enrollmentStats[c.id.toLowerCase().replace(/[\s-_]/g, '')] ?? 0
-                      return (
-                        <tr key={c.id} className="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40 transition-colors">
-                          <td className="py-3 px-4">
-                            <div className="admin-type-primary-label text-zinc-950 dark:text-white">{c.name}</div>
-                            <span className="admin-type-subtext block mt-0.5">{c.section}</span>
-                          </td>
-                          <td className="py-3 px-4 font-medium text-zinc-700 dark:text-slate-300">{c.stream}</td>
-                          <td className="py-3 px-4">
-                            {enrolled > 0 ? (
-                              <Badge variant="success" className="font-mono text-xs font-bold gap-1 px-2.5 py-0.5">
-                                <CheckCircle2 className="h-3 w-3" />
-                                <span>{enrolled} Enrolled</span>
-                              </Badge>
-                            ) : (
+                    {isLoadingClasses ? (
+                      <tr>
+                        <td colSpan={5} className="py-8 text-center text-zinc-400 text-xs font-sans">
+                          <Loader2 className="h-4 w-4 animate-spin inline-block mr-2" />
+                          Loading institutional classes from PostgreSQL...
+                        </td>
+                      </tr>
+                    ) : effectiveClasses.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="py-8 text-center text-zinc-400 text-xs font-sans">
+                          No academic classes found in database. Click &ldquo;Add Class&rdquo; to register a cohort.
+                        </td>
+                      </tr>
+                    ) : (
+                      effectiveClasses.map((c) => {
+                        const enrolled = enrollmentStats[c.id] ?? enrollmentStats[c.id.toLowerCase().replace(/[\s-_]/g, '')] ?? 0
+                        return (
+                          <tr key={c.id} className="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40 transition-colors">
+                            <td className="py-3 px-4">
                               <div className="flex items-center gap-2">
-                                <span className="text-zinc-400 dark:text-slate-500 font-mono text-xs">0 Enrolled</span>
-                                <button
-                                  type="button"
-                                  onClick={() => setCurriculumSubTab('roster')}
-                                  className="text-[11px] font-semibold text-indigo-400 hover:text-indigo-300 hover:underline cursor-pointer"
-                                >
-                                  Import Roster
-                                </button>
+                                <div className="admin-type-primary-label text-zinc-950 dark:text-white">{c.name}</div>
+                                {c.is_active === false && (
+                                  <Badge variant="outline" className="text-[10px] text-zinc-400 border-zinc-300 dark:border-zinc-700">Archived</Badge>
+                                )}
                               </div>
-                            )}
-                          </td>
-                          <td className="py-3 px-4 font-mono text-zinc-600 dark:text-slate-400 text-xs">
-                            {c.capacity} Max
-                          </td>
-                          <td className="py-3 px-4 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              disabled={!isEditModeUnlocked}
-                              onClick={() => {
-                                setEditingClass(c)
-                                setClassFormName(c.name)
-                                setClassFormSection(c.section)
-                                setClassFormCapacity(c.capacity)
-                                setClassFormStream(c.stream)
-                                setIsAddClassOpen(true)
-                              }}
-                              className="h-7 px-2.5 text-xs font-semibold cursor-pointer"
-                            >
-                              <Edit3 className="h-3 w-3 mr-1" />
-                              Edit
-                            </Button>
-                            <span title={!isEditModeUnlocked ? 'Unlock edit mode to unenroll class' : undefined}>
+                              {c.section && c.section.trim() !== '' && (
+                                <span className="admin-type-subtext block mt-0.5">
+                                  {c.section.replace(/^section\s+/i, '').replace(/^sec\s+/i, '')}
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 font-medium text-zinc-700 dark:text-slate-300">{c.stream}</td>
+                            <td className="py-3 px-4">
+                              {enrolled > 0 ? (
+                                <Badge variant="success" className="font-mono text-xs font-bold gap-1 px-2.5 py-0.5">
+                                  <CheckCircle2 className="h-3 w-3" />
+                                  <span>{enrolled} Enrolled</span>
+                                </Badge>
+                              ) : (
+                                <div className="flex items-center gap-2">
+                                  <span className="text-zinc-400 dark:text-slate-500 font-mono text-xs">0 Enrolled</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setCurriculumSubTab('roster')}
+                                    className="text-[11px] font-semibold text-indigo-400 hover:text-indigo-300 hover:underline cursor-pointer"
+                                  >
+                                    Import Roster
+                                  </button>
+                                </div>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 font-mono text-zinc-600 dark:text-slate-400 text-xs">
+                              {c.capacity} Max
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
                               <Button
                                 size="sm"
                                 variant="outline"
                                 disabled={!isEditModeUnlocked}
                                 onClick={() => {
-                                  requestDangerAction({
-                                    title: `Remove Class: ${c.name} - ${c.section}`,
-                                    description: `Are you sure you want to unenroll this class?`,
-                                    impactMessage: 'Associated student attendance history remains archived.',
-                                    itemType: 'class',
-                                    itemId: c.id,
-                                    onConfirm: () => {
-                                      deleteClass(c.id)
-                                      setDangerModal((prev) => ({ ...prev, isOpen: false }))
-                                      triggerToast(`Class ${c.name} removed.`)
-                                    },
-                                  })
+                                  setEditingClass(c)
+                                  setClassFormName(c.name)
+                                  setClassFormSection(c.section)
+                                  setClassFormCapacity(c.capacity)
+                                  setClassFormStream(c.stream)
+                                  setIsAddClassOpen(true)
                                 }}
-                                className="h-7 px-2 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border-rose-200 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                className="h-7 px-2.5 text-xs font-semibold cursor-pointer"
                               >
-                                <Trash2 className="h-3 w-3" />
+                                <Edit3 className="h-3 w-3 mr-1" />
+                                Edit
                               </Button>
-                            </span>
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
+                              <span title={!isEditModeUnlocked ? 'Unlock edit mode to deactivate class' : undefined}>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={!isEditModeUnlocked}
+                                  onClick={() => {
+                                    requestDangerAction({
+                                      title: `Deactivate Class: ${c.name} - ${c.section}`,
+                                      description: `Are you sure you want to deactivate ${c.name}?`,
+                                      impactMessage: 'Associated student attendance history remains archived in PostgreSQL.',
+                                      itemType: 'class',
+                                      itemId: c.id,
+                                      onConfirm: async () => {
+                                        const res = await deactivateClassAction(c.id)
+                                        setDangerModal((prev) => ({ ...prev, isOpen: false }))
+                                        if (res.success) {
+                                          triggerToast(`Class ${c.name} deactivated.`)
+                                          invalidateCacheByPrefix('classes:')
+          await loadClassesData()
+                                          window.dispatchEvent(new Event('classes-updated'))
+                                        } else {
+                                          triggerToast(res.error || `Failed to deactivate class ${c.name}.`)
+                                        }
+                                      },
+                                    })
+                                  }}
+                                  className="h-7 px-2 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border-rose-200 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })
+                  )}
                   </tbody>
                 </table>
               </CardContent>
@@ -1600,7 +1912,7 @@ export default function SuperAdminPage() {
                 <button
                   type="button"
                   onClick={() => {
-                    setActiveCategory('operations')
+                    handleCategoryChange('operations')
                     setOperationsSubTab('archive-hub')
                   }}
                   className="font-bold underline text-amber-900 dark:text-amber-200 hover:text-indigo-600 dark:hover:text-white cursor-pointer shrink-0"
@@ -1613,13 +1925,13 @@ export default function SuperAdminPage() {
                 isPrivileged={isEditModeUnlocked}
                 onOpenPromotion={() => setCurriculumSubTab('promotion')}
                 onDataUpdated={loadYearsAndStats}
-                initialClasses={classes.map((c) => ({
+                initialClasses={effectiveClasses.map((c) => ({
                   id: c.id,
                   name: c.name,
                   grade: parseInt(c.name.replace(/\D/g, '') || '0', 10) || 11,
                   section: c.section,
                   capacity: c.capacity,
-                  is_active: true,
+                  is_active: c.is_active !== false,
                 }))}
               />
             </div>
@@ -1633,13 +1945,13 @@ export default function SuperAdminPage() {
               onPrecautionWarning={() =>
                 triggerToast('🔒 Precaution Active: Unlock "Admin Edit Mode" at the top to execute cohort promotions.')
               }
-              initialClasses={classes.map((c) => ({
+              initialClasses={effectiveClasses.map((c) => ({
                 id: c.id,
                 name: c.name,
                 grade: parseInt(c.name.replace(/\D/g, '') || '0', 10) || 11,
                 section: c.section,
                 capacity: c.capacity,
-                is_active: true,
+                is_active: c.is_active !== false,
               }))}
             />
           )}
@@ -1686,6 +1998,17 @@ export default function SuperAdminPage() {
             </button>
             <button
               type="button"
+              onClick={() => setFacilitiesSubTab('workstation-faults')}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                facilitiesSubTab === 'workstation-faults'
+                  ? 'bg-white dark:bg-zinc-900 text-zinc-950 dark:text-white shadow-xs'
+                  : 'text-zinc-600 dark:text-slate-300 hover:text-zinc-900 dark:hover:text-white'
+              }`}
+            >
+              Workstation Faults
+            </button>
+            <button
+              type="button"
               onClick={() => setFacilitiesSubTab('categories')}
               className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                 facilitiesSubTab === 'categories'
@@ -1693,7 +2016,7 @@ export default function SuperAdminPage() {
                   : 'text-zinc-600 dark:text-slate-300 hover:text-zinc-900 dark:hover:text-white'
               }`}
             >
-              Incident Categories ({incidentCategories.length})
+              Incident Categories
             </button>
             <button
               type="button"
@@ -1848,16 +2171,18 @@ export default function SuperAdminPage() {
             />
           )}
 
+          {/* Workstation Fault Categories Manager */}
+          {facilitiesSubTab === 'workstation-faults' && (
+            <WorkstationFaultCategoriesManager
+              isEditModeUnlocked={isEditModeUnlocked}
+              triggerToast={triggerToast}
+            />
+          )}
+
           {/* Incident Categories Full Governance Manager */}
           {facilitiesSubTab === 'categories' && (
             <IncidentCategoriesManager
-              categories={incidentCategories}
               isEditModeUnlocked={isEditModeUnlocked}
-              onAddCategory={addIncidentCategory}
-              onUpdateCategory={updateIncidentCategory}
-              onDeleteCategory={deleteIncidentCategory}
-              onDeactivateCategory={deactivateIncidentCategory}
-              onResetCategories={resetIncidentCategories}
               labs={labs}
               historicalIncidents={incidents}
               triggerToast={triggerToast}
@@ -2368,7 +2693,7 @@ export default function SuperAdminPage() {
                         disabled={!isEditModeUnlocked}
                         className="w-full h-9 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 text-xs text-zinc-900 dark:text-white disabled:opacity-50"
                       >
-                        {classes.map((c) => (
+                        {effectiveClasses.map((c) => (
                           <option key={c.id} value={c.id}>
                             {c.name}
                           </option>
@@ -2541,12 +2866,19 @@ export default function SuperAdminPage() {
             </div>
 
             <form onSubmit={handleSaveClass} className="space-y-3 text-xs">
+              {classFormError && (
+                <div className="p-2.5 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400 text-xs font-semibold flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  <span>{classFormError}</span>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="font-bold text-zinc-700 dark:text-zinc-300">Grade Level *</label>
+                  <label className="font-bold text-zinc-700 dark:text-zinc-300">Class Name *</label>
                   <Input
                     required
-                    placeholder="e.g. Class 12"
+                    placeholder="e.g. 12 Eng or Class 12"
                     value={classFormName}
                     onChange={(e) => setClassFormName(e.target.value)}
                     className="h-8.5 text-xs font-sans"
@@ -2557,7 +2889,7 @@ export default function SuperAdminPage() {
                   <label className="font-bold text-zinc-700 dark:text-zinc-300">Section *</label>
                   <Input
                     required
-                    placeholder="e.g. Section C"
+                    placeholder="e.g. Eng or A"
                     value={classFormSection}
                     onChange={(e) => setClassFormSection(e.target.value)}
                     className="h-8.5 text-xs font-sans"
@@ -2579,9 +2911,9 @@ export default function SuperAdminPage() {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="font-bold text-zinc-700 dark:text-zinc-300">Stream</label>
+                  <label className="font-bold text-zinc-700 dark:text-zinc-300">Academic Stream</label>
                   <Input
-                    placeholder="e.g. Science Stream"
+                    placeholder="e.g. Computer Engineering, Management, General Science"
                     value={classFormStream}
                     onChange={(e) => setClassFormStream(e.target.value)}
                     className="h-8.5 text-xs font-sans"
@@ -2605,9 +2937,17 @@ export default function SuperAdminPage() {
                 <Button
                   type="submit"
                   size="sm"
+                  disabled={isSubmittingClass}
                   className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs"
                 >
-                  {editingClass ? 'Save Modifications' : 'Enroll Class'}
+                  {isSubmittingClass ? (
+                    <span className="flex items-center gap-1.5">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      <span>Saving...</span>
+                    </span>
+                  ) : (
+                    <span>{editingClass ? 'Save Modifications' : 'Enroll Class'}</span>
+                  )}
                 </Button>
               </div>
             </form>
@@ -2637,6 +2977,13 @@ export default function SuperAdminPage() {
             </div>
 
             <form onSubmit={handleSaveSubject} className="space-y-3 text-xs">
+              {subFormError && (
+                <div className="p-2.5 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400 text-xs font-semibold flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  <span>{subFormError}</span>
+                </div>
+              )}
+
               <div className="space-y-1">
                 <label className="font-bold text-zinc-700 dark:text-zinc-300">Subject Title *</label>
                 <Input
@@ -2667,9 +3014,9 @@ export default function SuperAdminPage() {
                     onChange={(e) => setSubFormGrade(e.target.value)}
                     className="h-8.5 text-xs font-sans"
                   >
-                    {classes.map((c) => (
-                      <option key={c.id || c.name} value={c.name}>
-                        {c.name} {c.stream ? `— ${c.stream}` : ''}
+                    {effectiveClasses.map((c) => (
+                      <option key={c.id || c.name} value={c.id}>
+                        {formatClassBatchLabel(c)}
                       </option>
                     ))}
                   </Select>
@@ -2699,9 +3046,9 @@ export default function SuperAdminPage() {
                     onChange={(e) => setSubFormTeacherId(e.target.value)}
                     className="h-8.5 text-xs font-sans"
                   >
-                    {faculty.map((f) => (
+                    {(dbTeachers.length > 0 ? dbTeachers : faculty).map((f: any) => (
                       <option key={f.id} value={f.id}>
-                        {f.name}
+                        {f.full_name || f.name}
                       </option>
                     ))}
                   </Select>
@@ -2736,9 +3083,17 @@ export default function SuperAdminPage() {
                 <Button
                   type="submit"
                   size="sm"
+                  disabled={isSubmittingSubject}
                   className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs"
                 >
-                  {editingSubject ? 'Save Modifications' : 'Register Subject'}
+                  {isSubmittingSubject ? (
+                    <span className="flex items-center gap-1.5">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      <span>Saving...</span>
+                    </span>
+                  ) : (
+                    <span>{editingSubject ? 'Save Modifications' : 'Register Subject'}</span>
+                  )}
                 </Button>
               </div>
             </form>
@@ -2800,6 +3155,15 @@ export default function SuperAdminPage() {
                   />
                 </div>
               </div>
+
+              {periodFormStart && periodFormEnd && (
+                <div className="px-2.5 py-1.5 rounded-md bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-[11px] text-zinc-600 dark:text-zinc-400 font-mono flex items-center justify-between">
+                  <span className="text-zinc-500 font-sans">Formatted Preview:</span>
+                  <span className="font-semibold text-indigo-600 dark:text-indigo-400">
+                    {formatPeriodRangeLabel(periodFormStart, periodFormEnd)}
+                  </span>
+                </div>
+              )}
 
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-100 dark:border-zinc-800">
                 <Button
@@ -2928,5 +3292,19 @@ export default function SuperAdminPage() {
       )}
 
     </div>
+  )
+}
+
+export default function SuperAdminPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center min-h-[400px] text-xs font-mono text-zinc-500">
+          Loading Super Admin Console...
+        </div>
+      }
+    >
+      <SuperAdminPageContent />
+    </Suspense>
   )
 }

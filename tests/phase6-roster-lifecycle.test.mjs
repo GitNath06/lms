@@ -27,6 +27,10 @@ assert.ok(dbUrl, 'DATABASE_URL must be defined in .env.local for roster lifecycl
 test('Phase 6: Unified Roster Lifecycle, Archival & Governance Test Suite', async (t) => {
   const pool = new pg.Pool({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } })
   const client = await pool.connect()
+  t.after(async () => {
+    client.release()
+    await pool.end()
+  })
 
   // Dynamic imports for actions under test
   const {
@@ -45,6 +49,7 @@ test('Phase 6: Unified Roster Lifecycle, Archival & Governance Test Suite', asyn
       full_name: 'System Administrator',
       role: 'super_admin',
       is_active: true,
+      approval_status: 'approved',
       permissions: { all: true },
     })
   }
@@ -56,6 +61,7 @@ test('Phase 6: Unified Roster Lifecycle, Archival & Governance Test Suite', asyn
       full_name: 'Dr. Prakash Adhikari',
       role: 'teacher',
       is_active: true,
+      approval_status: 'approved',
       permissions: {},
     })
   }
@@ -111,7 +117,7 @@ test('Phase 6: Unified Roster Lifecycle, Archival & Governance Test Suite', asyn
     setTeacherUser()
     const unprivRes = await restoreStudentEnrollmentAction('some-enrollment-id')
     assert.equal(unprivRes.success, false, 'Unprivileged teacher call rejected')
-    assert.match(unprivRes.error || '', /Access denied: Only administrators can restore archived students/i)
+    assert.match(unprivRes.error || '', /Access denied: Only (approved )?administrators can restore archived students/i)
 
     // Setup clean test cohort in 11mgt
     setAdminUser()
@@ -122,6 +128,10 @@ test('Phase 6: Unified Roster Lifecycle, Archival & Governance Test Suite', asyn
 
     try {
       // Clean previous 11mgt enrollments to ensure clean slate for roll calculation
+      await client.query(`
+        DELETE FROM public.log_attendance 
+        WHERE enrollment_id IN (SELECT id FROM public.student_enrollments WHERE class_id = $1 AND academic_year_id = $2);
+      `, [testClass, testYear])
       await client.query(`DELETE FROM public.workstation_seat_plans WHERE class_id = $1 AND academic_year_id = $2;`, [testClass, testYear])
       await client.query(`DELETE FROM public.student_enrollments WHERE class_id = $1 AND academic_year_id = $2;`, [testClass, testYear])
       await client.query(`DELETE FROM public.students WHERE id IN ($1, $2);`, [studentIdA, studentIdB])
@@ -176,7 +186,7 @@ test('Phase 6: Unified Roster Lifecycle, Archival & Governance Test Suite', asyn
     setTeacherUser()
     const unprivRes = await resequenceClassRollsAlphabeticallyAction({ classId: '12eng', academicYearId: '2083' })
     assert.equal(unprivRes.success, false, 'Unprivileged resequence rejected')
-    assert.match(unprivRes.error || '', /Access denied: Only administrators can resequence roll numbers/i)
+    assert.match(unprivRes.error || '', /Access denied: Only (approved )?administrators can resequence roll numbers/i)
 
     setAdminUser()
 
@@ -196,6 +206,10 @@ test('Phase 6: Unified Roster Lifecycle, Archival & Governance Test Suite', asyn
     const s3 = 'c0000000-0000-0000-0000-000000000003'
 
     try {
+      await client.query(`
+        DELETE FROM public.log_attendance 
+        WHERE enrollment_id IN (SELECT id FROM public.student_enrollments WHERE academic_year_id = $1 AND class_id = $2);
+      `, [testYear, testClass])
       await client.query(`DELETE FROM public.student_enrollments WHERE academic_year_id = $1 AND class_id = $2;`, [testYear, testClass])
       await client.query(`DELETE FROM public.students WHERE id IN ($1, $2, $3);`, [s1, s2, s3])
 
@@ -267,6 +281,10 @@ test('Phase 6: Unified Roster Lifecycle, Archival & Governance Test Suite', asyn
     const s2 = 'd0000000-0000-0000-0000-000000000002'
 
     try {
+      await client.query(`
+        DELETE FROM public.log_attendance 
+        WHERE enrollment_id IN (SELECT id FROM public.student_enrollments WHERE academic_year_id = $1 AND class_id = $2);
+      `, [testYear, testClass])
       await client.query(`DELETE FROM public.student_enrollments WHERE academic_year_id = $1 AND class_id = $2;`, [testYear, testClass])
       await client.query(`DELETE FROM public.students WHERE id IN ($1, $2);`, [s1, s2])
 
@@ -355,7 +373,7 @@ test('Phase 6: Unified Roster Lifecycle, Archival & Governance Test Suite', asyn
       confirmPhrase: 'WIPE 11MGT',
     })
     assert.equal(unprivRes.success, false, 'Unauthorized non-super_admin rejected')
-    assert.match(unprivRes.error || '', /restricted exclusively to Super Administrators/i)
+    assert.match(unprivRes.error || '', /restricted exclusively to (approved )?Super Administrators/i)
 
     setAdminUser()
 
@@ -375,6 +393,10 @@ test('Phase 6: Unified Roster Lifecycle, Archival & Governance Test Suite', asyn
     const s2 = 'e0000000-0000-0000-0000-000000000002'
 
     try {
+      await client.query(`
+        DELETE FROM public.log_attendance 
+        WHERE enrollment_id IN (SELECT id FROM public.student_enrollments WHERE academic_year_id = $1 AND class_id = $2);
+      `, [testYear, testClass])
       await client.query(`
         DELETE FROM public.workstation_seat_plans 
         WHERE enrollment_id IN (SELECT id FROM public.student_enrollments WHERE academic_year_id = $1 AND class_id = $2);
@@ -453,6 +475,116 @@ test('Phase 6: Unified Roster Lifecycle, Archival & Governance Test Suite', asyn
         DELETE FROM public.workstation_seat_plans 
         WHERE enrollment_id IN (SELECT id FROM public.student_enrollments WHERE student_id IN ($1, $2));
       `, [s1, s2])
+      await client.query(`DELETE FROM public.student_enrollments WHERE student_id IN ($1, $2);`, [s1, s2])
+      await client.query(`DELETE FROM public.students WHERE id IN ($1, $2);`, [s1, s2])
+    }
+  })
+
+  // =========================================================================
+  // SUBTEST 6: Database Engine Constraints: ON DELETE RESTRICT & DEFERRABLE ROLL
+  // =========================================================================
+  await t.test('6. Database Constraints: ON DELETE RESTRICT on log_attendance & DEFERRABLE uq_enrollment_roll', async () => {
+    // 6a. Verify constraint configuration in pg_catalog
+    const fkRes = await client.query(`
+      SELECT conname, confdeltype 
+      FROM pg_constraint 
+      WHERE conname = 'fk_log_attendance_enrollment_student';
+    `)
+    assert.equal(fkRes.rows[0]?.confdeltype, 'r', 'fk_log_attendance_enrollment_student must be ON DELETE RESTRICT ("r")')
+
+    const uqRes = await client.query(`
+      SELECT conname, condeferrable, condeferred 
+      FROM pg_constraint 
+      WHERE conname = 'uq_enrollment_roll';
+    `)
+    assert.equal(uqRes.rows[0]?.condeferrable, true, 'uq_enrollment_roll must be deferrable')
+    assert.equal(uqRes.rows[0]?.condeferred, true, 'uq_enrollment_roll must be initially deferred')
+
+    // 6b. Verify that attempting to delete an enrollment with attendance logs is blocked by ON DELETE RESTRICT
+    const testYear = '2083'
+    const testClass = '11mgt'
+    const s1 = 'f0000000-0000-0000-0000-000000000001'
+    const s2 = 'f0000000-0000-0000-0000-000000000002'
+    const logId = 'test-practical-log-restrict-001'
+
+    try {
+      await client.query(`DELETE FROM public.log_attendance WHERE log_id = $1;`, [logId])
+      await client.query(`DELETE FROM public.practical_logs WHERE id = $1;`, [logId])
+      await client.query(`DELETE FROM public.student_enrollments WHERE student_id IN ($1, $2);`, [s1, s2])
+      await client.query(`DELETE FROM public.students WHERE id IN ($1, $2);`, [s1, s2])
+
+      await client.query(`
+        INSERT INTO public.students (id, admission_no, full_name, is_active)
+        VALUES 
+          ($1, 'TEST-RESTRICT-1', 'Restrict Test 1', true),
+          ($2, 'TEST-RESTRICT-2', 'Restrict Test 2', true);
+      `, [s1, s2])
+
+      const enr1 = await client.query(`
+        INSERT INTO public.student_enrollments (academic_year_id, class_id, student_id, roll_number, status)
+        VALUES ($1, $2, $3, 201, 'active')
+        RETURNING id;
+      `, [testYear, testClass, s1])
+      const enr1Id = enr1.rows[0].id
+
+      const enr2 = await client.query(`
+        INSERT INTO public.student_enrollments (academic_year_id, class_id, student_id, roll_number, status)
+        VALUES ($1, $2, $3, 202, 'active')
+        RETURNING id;
+      `, [testYear, testClass, s2])
+      const enr2Id = enr2.rows[0].id
+
+      // Find a valid class_subject_id
+      const csRow = await client.query(`SELECT id FROM public.class_subjects LIMIT 1;`)
+      const testClassSubjectId = csRow.rows[0]?.id || null
+      const testSubjectName = csRow.rows[0]?.subject_name || 'Computer Science'
+
+      // Create dummy practical log
+      await client.query(`
+        INSERT INTO public.practical_logs (id, lab_id, teacher_id, date, practical_title, batch_group, period_label, subject_name, class_subject_id)
+        VALUES ($1, 'comp', '17d03665-dfaa-4edc-ab54-585057315a0b', '2026-10-30', 'Restrict Test', '11mgt', 'Period 1', $2, $3);
+      `, [logId, testSubjectName, testClassSubjectId])
+
+      // Insert log attendance linked to enr1
+      await client.query(`
+        INSERT INTO public.log_attendance (id, log_id, roll_number, is_present, student_id, enrollment_id)
+        VALUES (gen_random_uuid()::text, $1, 201, true, $2, $3);
+      `, [logId, s1, enr1Id])
+
+      // Attempting to delete student_enrollments row for enr1 MUST be blocked by RESTRICT
+      let restrictError = null
+      try {
+        await client.query(`DELETE FROM public.student_enrollments WHERE id = $1;`, [enr1Id])
+      } catch (err) {
+        restrictError = err
+        await client.query('ROLLBACK;').catch(() => {})
+      }
+
+      assert.ok(restrictError, 'Direct enrollment deletion was blocked when attendance logs exist')
+      assert.equal(restrictError.code, '23503', 'Violates foreign key constraint fk_log_attendance_enrollment_student')
+
+      // 6c. Verify DEFERRABLE roll swap in single transaction
+      try {
+        await client.query('BEGIN')
+        await client.query('SET CONSTRAINTS uq_enrollment_roll DEFERRED;')
+        // Swap rolls: 201 -> 202, 202 -> 201
+        await client.query(`UPDATE public.student_enrollments SET roll_number = 202 WHERE id = $1::uuid;`, [enr1Id])
+        await client.query(`UPDATE public.student_enrollments SET roll_number = 201 WHERE id = $1::uuid;`, [enr2Id])
+        await client.query('COMMIT')
+      } catch (swapErr) {
+        await client.query('ROLLBACK;').catch(() => {})
+        throw swapErr
+      }
+
+      const rollCheck1 = await client.query(`SELECT roll_number FROM public.student_enrollments WHERE id = $1::uuid;`, [enr1Id])
+      const rollCheck2 = await client.query(`SELECT roll_number FROM public.student_enrollments WHERE id = $1::uuid;`, [enr2Id])
+      assert.equal(rollCheck1.rows[0].roll_number, 202, 'Enr1 successfully swapped to roll 202')
+      assert.equal(rollCheck2.rows[0].roll_number, 201, 'Enr2 successfully swapped to roll 201')
+
+    } finally {
+      await client.query('ROLLBACK;').catch(() => {})
+      await client.query(`DELETE FROM public.log_attendance WHERE log_id = $1;`, [logId])
+      await client.query(`DELETE FROM public.practical_logs WHERE id = $1;`, [logId])
       await client.query(`DELETE FROM public.student_enrollments WHERE student_id IN ($1, $2);`, [s1, s2])
       await client.query(`DELETE FROM public.students WHERE id IN ($1, $2);`, [s1, s2])
     }

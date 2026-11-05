@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useTransition, useMemo } from 'react'
+import React, { useState, useTransition, useMemo, useCallback, useEffect } from 'react'
 import {
   Wrench,
   ShieldCheck,
@@ -31,6 +31,7 @@ import {
   PauseCircle,
   Users,
   LayoutGrid,
+  ArrowLeft,
 } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
@@ -43,6 +44,8 @@ import CreatePlanModal from './create-plan-modal'
 import FleetRoutineModal from './fleet-routine-modal'
 import { DiagnosticsTriageHub } from './diagnostics-triage-hub'
 import type { WorkstationBoardData, DiagnosticsTriageData } from '@/types/workstations'
+import { getDiagnosticsTriageData } from '@/app/actions/workstations'
+import { subscribeToSync } from '@/lib/sync-bus'
 import {
   MaintenanceOverviewData,
   MaintenanceReminderRecord,
@@ -50,9 +53,11 @@ import {
   MaintenancePlanRecord,
   getMaintenanceOverview,
 } from '@/app/actions/maintenance'
+import { MaintenanceSkeleton } from '@/components/ui/skeleton-loader'
+import { getCachedData, fetchWithClientCache } from '@/lib/cache/client-query-cache'
 
 interface MaintenanceClientPageProps {
-  initialData: MaintenanceOverviewData
+  initialData?: MaintenanceOverviewData
   initialWorkstationData?: WorkstationBoardData
   initialTriageData?: DiagnosticsTriageData
   initialSearch?: string
@@ -65,8 +70,13 @@ export default function MaintenanceClientPage({
   initialTriageData,
   initialSearch = '',
   initialTab = 'diagnostics',
-}: MaintenanceClientPageProps) {
-  const [data, setData] = useState<MaintenanceOverviewData>(initialData)
+}: MaintenanceClientPageProps = {}) {
+  const [data, setData] = useState<MaintenanceOverviewData | undefined>(() => {
+    return initialData || getCachedData<MaintenanceOverviewData>('maintenance:overview:all')
+  })
+  const [triageData, setTriageData] = useState<DiagnosticsTriageData | undefined>(() => {
+    return initialTriageData || getCachedData<DiagnosticsTriageData>('workstations:triage:comp')
+  })
   const [selectedLab, setSelectedLab] = useState<string>('comp')
   const [activeTab, setActiveTab] = useState<'diagnostics' | 'tasks' | 'history'>(initialTab)
   const [searchQuery, setSearchQuery] = useState<string>(initialSearch)
@@ -101,22 +111,65 @@ export default function MaintenanceClientPage({
   }
 
   // Refresh data from server
-  const handleRefresh = () => {
+  const handleRefresh = useCallback(() => {
     startTransition(async () => {
       try {
-        const fresh = await getMaintenanceOverview(selectedLab)
-        setData(fresh)
+        const [freshOverview, freshTriage] = await Promise.all([
+          fetchWithClientCache(`maintenance:overview:${selectedLab}`, () => getMaintenanceOverview(selectedLab), { force: true }),
+          fetchWithClientCache(`workstations:triage:${selectedLab}`, () => getDiagnosticsTriageData(selectedLab), { force: true }),
+        ])
+        if (freshOverview) setData(freshOverview)
+        if (freshTriage) setTriageData(freshTriage)
       } catch (err) {
         console.error('Failed to refresh maintenance data:', err)
       }
     })
-  }
+  }, [selectedLab])
+
+  // Hydrate data from client cache or fetch if not provided via props
+  useEffect(() => {
+    async function initData() {
+      try {
+        const [freshOverview, freshTriage] = await Promise.all([
+          fetchWithClientCache('maintenance:overview:all', () => getMaintenanceOverview('all'), { staleTimeMs: 60_000 }),
+          fetchWithClientCache('workstations:triage:comp', () => getDiagnosticsTriageData('comp'), { staleTimeMs: 30_000 }),
+        ])
+        if (freshOverview) setData(freshOverview)
+        if (freshTriage) setTriageData(freshTriage)
+      } catch (err) {
+        console.error('Error loading maintenance data:', err)
+      }
+    }
+    initData()
+  }, [])
+
+  // Real-time bus auto-sync across tabs/clients & focus/visibility listeners
+  useEffect(() => {
+    const unsubWs = subscribeToSync('workstations', () => handleRefresh())
+    const unsubAssist = subscribeToSync('assistance', () => handleRefresh())
+
+    const handleFocus = () => handleRefresh()
+    const handleVisibility = () => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        handleRefresh()
+      }
+    }
+    window.addEventListener('focus', handleFocus)
+    document.addEventListener('visibilitychange', handleVisibility)
+
+    return () => {
+      unsubWs()
+      unsubAssist()
+      window.removeEventListener('focus', handleFocus)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
+  }, [handleRefresh])
 
   // Open Log Modal for a specific plan or reminder
   const handleOpenLogForPlan = (plan: MaintenancePlanRecord) => {
     setSelectedPlanForLog(plan)
     // Find active reminder linked to this plan if any
-    const linkedReminder = data.reminders.find((r) => r.plan_id === plan.id)
+    const linkedReminder = data?.reminders?.find((r) => r.plan_id === plan.id)
     setSelectedReminderForLog(linkedReminder || null)
     setIsLogModalOpen(true)
   }
@@ -130,7 +183,7 @@ export default function MaintenanceClientPage({
 
   // Open Snooze Modal for a specific reminder
   const handleOpenSnooze = (plan: MaintenancePlanRecord) => {
-    const linkedReminder = data.reminders.find((r) => r.plan_id === plan.id)
+    const linkedReminder = data?.reminders?.find((r) => r.plan_id === plan.id)
     if (linkedReminder) {
       setSelectedReminderForSnooze(linkedReminder)
       setIsSnoozeModalOpen(true)
@@ -145,6 +198,7 @@ export default function MaintenanceClientPage({
 
   // Filtered Plans for Tab 1
   const filteredPlans = useMemo(() => {
+    if (!data?.plans) return []
     return data.plans.filter((p) => {
       if (selectedLab !== 'all' && p.lab_id !== selectedLab) return false
       if (searchQuery.trim()) {
@@ -157,10 +211,11 @@ export default function MaintenanceClientPage({
       }
       return true
     })
-  }, [data.plans, selectedLab, searchQuery])
+  }, [data?.plans, selectedLab, searchQuery])
 
   // Filtered History Logs for Tab 2
   const filteredLogs = useMemo(() => {
+    if (!data?.logs) return []
     return data.logs.filter((l) => {
       if (selectedLab !== 'all' && l.lab_id !== selectedLab) return false
       if (searchQuery.trim()) {
@@ -173,16 +228,48 @@ export default function MaintenanceClientPage({
       }
       return true
     })
-  }, [data.logs, selectedLab, searchQuery])
+  }, [data?.logs, selectedLab, searchQuery])
 
   // Summary counts
   const overdueCount = useMemo(() => {
+    if (!data?.reminders) return 0
     return data.reminders.filter((r) => r.is_overdue).length
-  }, [data.reminders])
+  }, [data?.reminders])
 
   const pendingCount = useMemo(() => {
-    return data.reminders.length
-  }, [data.reminders])
+    return data?.reminders?.length || 0
+  }, [data?.reminders])
+
+  if (data && !data.authorized) {
+    return (
+      <div className="max-w-md mx-auto my-16 p-6 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-center font-sans space-y-4 shadow-sm">
+        <div className="h-12 w-12 mx-auto rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center border border-amber-500/20">
+          <ShieldAlert className="h-6 w-6" />
+        </div>
+        <div>
+          <h2 className="text-base font-bold text-zinc-900 dark:text-white">
+            Restricted Lab Access
+          </h2>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed">
+            The Lab Maintenance module is restricted to Laboratory In-Charges,
+            Assigned Technicians, Academic Coordinators, and Administrators.
+          </p>
+        </div>
+        <div className="pt-2">
+          <Link href="/">
+            <Button variant="outline" size="sm" className="h-9 text-xs rounded-xl gap-1.5">
+              <ArrowLeft className="h-3.5 w-3.5" />
+              <span>Return to Dashboard</span>
+            </Button>
+          </Link>
+        </div>
+      </div>
+    )
+  }
+
+  if (!data) {
+    return <MaintenanceSkeleton />
+  }
 
   return (
     <div className="space-y-4 w-full pb-16 font-sans">
@@ -198,8 +285,8 @@ export default function MaintenanceClientPage({
           </span>
         }
         actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <Link href="/computer-lab">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+            <Link href="/computer-lab" className="hidden sm:inline-flex">
               <Button
                 type="button"
                 variant="outline"
@@ -217,13 +304,13 @@ export default function MaintenanceClientPage({
               size="sm"
               onClick={handleRefresh}
               disabled={isPending}
-              className="h-9 px-3 text-xs gap-1.5 rounded-xl text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
+              className="hidden sm:inline-flex h-9 px-3 text-xs gap-1.5 rounded-xl text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${isPending ? 'animate-spin' : ''}`} />
               <span>Refresh</span>
             </Button>
 
-            <Link href="/print/maintenance">
+            <Link href="/print/maintenance" className="hidden sm:inline-flex">
               <Button
                 type="button"
                 variant="outline"
@@ -235,53 +322,57 @@ export default function MaintenanceClientPage({
               </Button>
             </Link>
 
-            <Button
-              type="button"
-              size="sm"
-              onClick={handleOpenGeneralLogModal}
-              className="h-9 px-3.5 text-xs font-bold rounded-xl bg-zinc-900 text-white dark:bg-white dark:text-zinc-950 hover:opacity-90 shadow-xs cursor-pointer flex items-center gap-1.5"
-            >
-              <Wrench className="h-3.5 w-3.5" />
-              <span>Record Service</span>
-            </Button>
+            {/* Mobile 2-column action row (<640px) */}
+            <div className="grid grid-cols-2 gap-2 w-full sm:w-auto sm:flex sm:items-center">
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleOpenGeneralLogModal}
+                className="h-9 px-3 text-xs font-bold rounded-xl bg-zinc-900 text-white dark:bg-white dark:text-zinc-950 hover:opacity-90 shadow-xs cursor-pointer flex items-center justify-center gap-1.5 w-full sm:w-auto"
+              >
+                <Wrench className="h-3.5 w-3.5" />
+                <span>Record Service</span>
+              </Button>
 
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => {
-                setEditingPlan(null)
-                setIsCreatePlanOpen(true)
-              }}
-              className="h-9 px-3.5 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs cursor-pointer flex items-center gap-1.5"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              <span>Add Routine</span>
-            </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => {
+                  setEditingPlan(null)
+                  setIsCreatePlanOpen(true)
+                }}
+                className="h-9 px-3 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs cursor-pointer flex items-center justify-center gap-1.5 w-full sm:w-auto"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Add Routine</span>
+              </Button>
+            </div>
           </div>
         }
       />
 
-
-
-      {/* 3. MAIN WORKSPACE WITH 2 CLEAR TABS */}
+      {/* 3. MAIN WORKSPACE WITH 3 CLEAR TABS */}
       <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-[0_1px_3px_0_rgba(0,0,0,0.06),0_1px_2px_-1px_rgba(0,0,0,0.06)] overflow-hidden">
         {/* Tab Selector & Search Toolbar */}
         <div className="p-3 sm:p-4 border-b border-zinc-200/60 dark:border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-zinc-50/50 dark:bg-zinc-900/50">
-          <div className="flex items-center gap-2 p-1 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 w-fit flex-wrap">
+          <div className="flex items-center gap-1.5 p-1 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 w-full sm:w-fit overflow-x-auto no-scrollbar flex-nowrap">
             <button
               type="button"
               onClick={() => setActiveTab('diagnostics')}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ${
                 activeTab === 'diagnostics'
                   ? 'bg-white dark:bg-zinc-900 text-zinc-950 dark:text-white shadow-xs'
                   : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
               }`}
             >
               <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
-              <span>Diagnostics &amp; Triage</span>
-              {initialTriageData && (
-                <span className="font-mono text-[11px] px-1.5 py-0.2 rounded-full bg-amber-500/15 text-amber-500 font-bold">
-                  {initialTriageData.metrics.open_count + initialTriageData.metrics.in_progress_count}
+              <span>
+                <span className="sm:hidden">Diagnose</span>
+                <span className="hidden sm:inline">Diagnostics &amp; Triage</span>
+              </span>
+              {triageData && (
+                <span className="font-mono text-[10px] sm:text-[11px] px-1.5 py-0.2 rounded-full bg-amber-500/15 text-amber-500 font-bold">
+                  {triageData.metrics.open_count + triageData.metrics.in_progress_count}
                 </span>
               )}
             </button>
@@ -289,15 +380,18 @@ export default function MaintenanceClientPage({
             <button
               type="button"
               onClick={() => setActiveTab('tasks')}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ${
                 activeTab === 'tasks'
                   ? 'bg-white dark:bg-zinc-900 text-zinc-950 dark:text-white shadow-xs'
                   : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
               }`}
             >
               <Wrench className="h-3.5 w-3.5 text-indigo-500" />
-              <span>Routine Tasks</span>
-              <span className="font-mono text-[11px] px-1.5 py-0.2 rounded-full bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300">
+              <span>
+                <span className="sm:hidden">Routines</span>
+                <span className="hidden sm:inline">Routine Tasks</span>
+              </span>
+              <span className="font-mono text-[10px] sm:text-[11px] px-1.5 py-0.2 rounded-full bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300">
                 {filteredPlans.length}
               </span>
             </button>
@@ -305,15 +399,18 @@ export default function MaintenanceClientPage({
             <button
               type="button"
               onClick={() => setActiveTab('history')}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ${
                 activeTab === 'history'
                   ? 'bg-white dark:bg-zinc-900 text-zinc-950 dark:text-white shadow-xs'
                   : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
               }`}
             >
               <FileCheck2 className="h-3.5 w-3.5 text-emerald-500" />
-              <span>Maintenance History</span>
-              <span className="font-mono text-[11px] px-1.5 py-0.2 rounded-full bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300">
+              <span>
+                <span className="sm:hidden">History</span>
+                <span className="hidden sm:inline">Maintenance History</span>
+              </span>
+              <span className="font-mono text-[10px] sm:text-[11px] px-1.5 py-0.2 rounded-full bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300">
                 {filteredLogs.length}
               </span>
             </button>
@@ -340,9 +437,9 @@ export default function MaintenanceClientPage({
         {/* TAB 1: ACTIVE DIAGNOSTICS & RESOLUTION HUB */}
         {activeTab === 'diagnostics' && (
           <div className="p-4 sm:p-5">
-            {initialTriageData ? (
+            {triageData ? (
               <DiagnosticsTriageHub
-                initialData={initialTriageData}
+                initialData={triageData}
                 initialSearchQuery={initialSearch}
                 onRefresh={handleRefresh}
               />

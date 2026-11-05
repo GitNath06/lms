@@ -22,10 +22,10 @@ import {
   Monitor,
 } from 'lucide-react'
 import { useTheme } from 'next-themes'
-import { MASTER_ROUTINE } from '@/lib/master-data'
 import { useUserScope } from '@/hooks/use-user-scope'
 import { useCommandPalette } from '@/hooks/use-command-palette'
 import { useAcademicYear } from '@/lib/context/academic-year-context'
+import { useRoutineState } from '@/hooks/use-routine-state'
 
 export default function CommandPalette() {
   const { isOpen, close, toggle } = useCommandPalette()
@@ -34,6 +34,7 @@ export default function CommandPalette() {
   const { setTheme, theme } = useTheme()
   const { scope: userScope, isTeacher } = useUserScope()
   const { systemActiveYearName } = useAcademicYear()
+  const { routines } = useRoutineState()
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -52,7 +53,9 @@ export default function CommandPalette() {
 
   if (!isOpen) return null
 
-  const filteredRoutines = MASTER_ROUTINE.filter((item) => {
+  const routineList = routines || []
+
+  const filteredRoutines = routineList.filter((item) => {
     if (!query) return false
     return (
       item.subjectCode.toLowerCase().includes(query.toLowerCase()) ||

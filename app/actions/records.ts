@@ -18,15 +18,21 @@ import type {
   IncidentSummaryMetrics,
 } from '@/types/records'
 import { generatePracticalRecordsCsv, generateIncidentRecordsCsv } from '@/lib/exports/csv'
-import { generatePracticalRecordsXlsxBuffer, generateIncidentRecordsXlsxBuffer } from '@/lib/exports/xlsx'
 import { sanitizePostgrestSearch, resolveExportPrintScope } from '@/lib/report-spec/filter-codec'
 import { practicalReportSpec, getClassAliases } from '@/lib/report-spec/practical-spec'
 import { incidentReportSpec } from '@/lib/report-spec/incident-spec'
+import { getNepalDateStr, resolveDateInputToAdStr } from '@/lib/nepali-date'
 
 function normalizeDateToString(val: any): string {
   if (!val) return ''
+  // Refinement #1: If already string matching YYYY-MM-DD, slice directly to avoid new Date timezone shifts
+  if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}/.test(val)) {
+    return val.slice(0, 10)
+  }
+  // If Date object (e.g. pg driver midnight local), convert to Nepal Standard Time (+5:45)
   if (val instanceof Date) {
-    return isNaN(val.getTime()) ? '' : val.toISOString().split('T')[0]
+    if (isNaN(val.getTime())) return ''
+    return getNepalDateStr(val)
   }
   if (typeof val === 'string') {
     return val.includes('T') ? val.split('T')[0] : val
@@ -43,190 +49,6 @@ function normalizeTimestampToString(val: any): string {
 }
 
 
-// Fallback seed practical records
-const FALLBACK_PRACTICAL_LOGS: any[] = [
-  {
-    id: 'rec-p1',
-    schedule_id: 'mon-1',
-    lab_id: 'comp',
-    teacher_id: 'e094a954-b7ec-4e42-ae36-b41019c0ce81',
-    date: new Date().toISOString().split('T')[0],
-    period_label: 'Period 1 & 2 (10:10 - 11:45)',
-    subject_code: 'COMP-12',
-    subject_name: 'Data Structures & Algorithms Lab',
-    batch_group: '12 Eng',
-    practical_title: 'Implementation of Binary Search Trees in C++',
-    total_students: 38,
-    present_students: 36,
-    absent_students: 2,
-    remarks: 'All 38 workstations functioning properly. Students completed tree traversal.',
-    status: 'conducted',
-    skip_reason: null,
-    topic_learned: 'Binary Search Trees & Traversal',
-    logged_by: null,
-    created_at: new Date(Date.now() - 3600000 * 3).toISOString(),
-    labs: { id: 'comp', name: 'Computer Engineering Lab 01', type: 'computer_lab' },
-    profiles: { id: 'e094a954-b7ec-4e42-ae36-b41019c0ce81', full_name: 'Dr. Rajesh Sharma', role: 'lab_incharge' },
-  },
-  {
-    id: 'rec-p2',
-    schedule_id: 'mon-2',
-    lab_id: 'phys',
-    teacher_id: 'a0110dea-ef2a-4fc1-b60a-6415fcc36bd1',
-    date: new Date().toISOString().split('T')[0],
-    period_label: 'Period 3 & 4 (11:45 - 01:15)',
-    subject_code: 'PHY-11',
-    subject_name: 'Optics & Wave Mechanics',
-    batch_group: '11 Eng',
-    practical_title: 'Verification of Hooke’s Law and Spring Constant Calculation',
-    total_students: 40,
-    present_students: 38,
-    absent_students: 2,
-    remarks: 'Spring sets and weights calibrated. High student engagement.',
-    status: 'conducted',
-    skip_reason: null,
-    topic_learned: 'Hooke’s Law & Spring Oscillations',
-    logged_by: null,
-    created_at: new Date(Date.now() - 3600000 * 2).toISOString(),
-    labs: { id: 'phys', name: 'Physics Laboratory', type: 'physics_lab' },
-    profiles: { id: 'a0110dea-ef2a-4fc1-b60a-6415fcc36bd1', full_name: 'Dr. Prakash Adhikari', role: 'teacher' },
-  },
-  {
-    id: 'rec-p3',
-    schedule_id: 'tue-1',
-    lab_id: 'chem',
-    teacher_id: '0a8ee514-a58a-41a1-a6a5-c444447b1db9',
-    date: new Date(Date.now() - 86400000).toISOString().split('T')[0],
-    period_label: 'Period 2 & 3 (11:00 - 12:30)',
-    subject_code: 'CHEM-12',
-    subject_name: 'Acid-Base Quantitative Volumetric Titration',
-    batch_group: '12 Eng',
-    practical_title: 'Standardization of Sodium Hydroxide using Oxalic Acid',
-    total_students: 36,
-    present_students: 34,
-    absent_students: 2,
-    remarks: 'Burettes and indicators returned safely to buffer store.',
-    status: 'conducted',
-    skip_reason: null,
-    topic_learned: 'Volumetric Titration & End-point Calculation',
-    logged_by: null,
-    created_at: new Date(Date.now() - 86400000).toISOString(),
-    labs: { id: 'chem', name: 'Chemistry Laboratory', type: 'chemistry_lab' },
-    profiles: { id: '0a8ee514-a58a-41a1-a6a5-c444447b1db9', full_name: 'Dr. Nirmala Poudel', role: 'teacher' },
-  },
-  {
-    id: 'rec-p4',
-    schedule_id: 'tue-4',
-    lab_id: 'comp',
-    teacher_id: 'f3ad9570-a56c-4727-82b7-b3edd942896c',
-    date: new Date(Date.now() - 86400000).toISOString().split('T')[0],
-    period_label: 'Period 5 & 6 (02:00 - 03:30)',
-    subject_code: 'COMP-11',
-    subject_name: 'Database Systems & SQL Lab',
-    batch_group: '11 Mgt',
-    practical_title: 'Relational Database Schema Design & DDL Scripting',
-    total_students: 35,
-    present_students: 0,
-    absent_students: 35,
-    remarks: 'Session cancelled due to inter-college sports meet.',
-    status: 'skipped',
-    skip_reason: 'Institutional Sports Week Event',
-    topic_learned: null,
-    logged_by: null,
-    created_at: new Date(Date.now() - 86400000).toISOString(),
-    labs: { id: 'comp', name: 'Computer Engineering Lab 01', type: 'computer_lab' },
-    profiles: { id: 'f3ad9570-a56c-4727-82b7-b3edd942896c', full_name: 'Er. Anish Karki', role: 'teacher' },
-  },
-]
-
-// Fallback seed incidents
-const FALLBACK_INCIDENTS: any[] = [
-  {
-    id: 'inc-seed-1',
-    lab_id: 'chem',
-    schedule_id: null,
-    date: new Date().toISOString().split('T')[0],
-    session_label: 'Period 2 & 3 (11:00 - 12:30)',
-    subject_name: 'Chemistry - Acid Base Titration',
-    subject_teacher_name: 'Ms. Sunita Thapa',
-    batch_name: '12 Eng',
-    title: 'Accidental breakage of 50ml glass burette while mounting on stand',
-    incident_type: 'breakage',
-    severity: 'moderate',
-    equipment_name: '50ml Borosilicate Burette',
-    quantity: 1,
-    student_rolls: 'Roll 14, 28',
-    status: 'reported',
-    escalated_to_hod: false,
-    escalation_reason: null,
-    escalated_at: null,
-    resolution_notes: 'Clamp screw over-tightened during setup causing glass fracture. Cleared safely into hazardous waste bin.',
-    resolved_by: null,
-    resolved_by_id: null,
-    resolved_at: null,
-    reported_by: 'Ms. Sunita Thapa',
-    reported_by_id: 't3',
-    created_at: new Date(Date.now() - 3600000 * 4).toISOString(),
-    labs: { id: 'chem', name: 'Chemistry Laboratory', type: 'chemistry_lab' },
-  },
-  {
-    id: 'inc-seed-2',
-    lab_id: 'comp',
-    schedule_id: null,
-    date: new Date(Date.now() - 86400000 * 2).toISOString().split('T')[0],
-    session_label: 'Period 1 & 2 (10:10 - 11:45)',
-    subject_name: 'Computer Science - System Lab',
-    subject_teacher_name: 'Dr. Rajesh Sharma',
-    batch_name: '12 Eng',
-    title: 'Workstation 14 SMPS power surge and capacitor burnout',
-    incident_type: 'burnt_apparatus',
-    severity: 'major_critical',
-    equipment_name: 'Dell OptiPlex 450W SMPS Power Unit',
-    quantity: 1,
-    student_rolls: 'Roll 07',
-    status: 'escalated_to_hod',
-    escalated_to_hod: true,
-    escalation_reason: 'Power surge damaged internal power supply unit; requires lab electrical line check before reconnection.',
-    escalated_at: new Date(Date.now() - 86400000 * 2 + 3600000).toISOString(),
-    resolution_notes: 'Unit quarantined on bench 4. Maintenance vendor contacted for warranty replacement.',
-    resolved_by: null,
-    resolved_by_id: null,
-    resolved_at: null,
-    reported_by: 'Dr. Rajesh Sharma',
-    reported_by_id: 't1',
-    created_at: new Date(Date.now() - 86400000 * 2).toISOString(),
-    labs: { id: 'comp', name: 'Computer Engineering Lab 01', type: 'computer_lab' },
-  },
-  {
-    id: 'inc-seed-3',
-    lab_id: 'phys',
-    schedule_id: null,
-    date: new Date(Date.now() - 86400000 * 5).toISOString().split('T')[0],
-    session_label: 'Period 4 & 5 (12:30 - 02:00)',
-    subject_name: 'Physics - Optics Lab',
-    subject_teacher_name: 'Dr. Prakash Adhikari',
-    batch_name: '11 Eng',
-    title: 'Loose optical bench leveling screw and prism clamp misalignment',
-    incident_type: 'malfunction',
-    severity: 'minor',
-    equipment_name: 'Optical Bench Precision Prism Table',
-    quantity: 2,
-    student_rolls: 'Roll 02, 18',
-    status: 'resolved',
-    escalated_to_hod: false,
-    escalation_reason: null,
-    escalated_at: null,
-    resolution_notes: 'Thread cleaned and re-lubricated with brass screw replacement from lab spares.',
-    resolved_by: 'Er. Anish Karki (Lab In-Charge)',
-    resolved_by_id: 't4',
-    resolved_at: new Date(Date.now() - 86400000 * 4).toISOString(),
-    reported_by: 'Dr. Prakash Adhikari',
-    reported_by_id: 't2',
-    created_at: new Date(Date.now() - 86400000 * 5).toISOString(),
-    labs: { id: 'phys', name: 'Physics Laboratory', type: 'physics_lab' },
-  },
-]
-
 declare global {
   var __PRACTICAL_RECORDS_STORE__: any[] | undefined
   var __INCIDENT_RECORDS_STORE__: any[] | undefined
@@ -235,14 +57,14 @@ declare global {
 
 function getPracticalStore(): any[] {
   if (!globalThis.__PRACTICAL_RECORDS_STORE__) {
-    globalThis.__PRACTICAL_RECORDS_STORE__ = [...FALLBACK_PRACTICAL_LOGS]
+    globalThis.__PRACTICAL_RECORDS_STORE__ = []
   }
   return globalThis.__PRACTICAL_RECORDS_STORE__
 }
 
 function getIncidentStore(): any[] {
   if (!globalThis.__INCIDENT_RECORDS_STORE__) {
-    globalThis.__INCIDENT_RECORDS_STORE__ = [...FALLBACK_INCIDENTS]
+    globalThis.__INCIDENT_RECORDS_STORE__ = []
   }
   return globalThis.__INCIDENT_RECORDS_STORE__
 }
@@ -389,6 +211,31 @@ export async function getPracticalRecords(
     const isPaginated = typeof filters.pageSize === 'number' && filters.pageSize > 0
     const pageSize = isPaginated ? filters.pageSize! : 10
 
+    // Security Guard 1: Verify approval status upfront (reject unapproved / pending users immediately)
+    if (userCtx.userScope.isPending || userCtx.userScope.approvalStatus !== 'approved') {
+      return {
+        success: true,
+        sections: [],
+        records: [],
+        metrics: {
+          totalSessions: 0,
+          conductedSessions: 0,
+          skippedSessions: 0,
+          totalPresent: 0,
+          totalEnrolled: 0,
+          averageAttendancePct: 0,
+        },
+        totalCount: 0,
+        page: 1,
+        pageSize: pageSize,
+        totalPages: 0,
+        userRole: userCtx.role,
+        userName: userCtx.fullName,
+        userScope: userCtx.userScope,
+        academicYears: [],
+      }
+    }
+
     let rawRecords: any[] = []
     let totalCount = 0
     let dbSuccess = false
@@ -434,14 +281,17 @@ export async function getPracticalRecords(
           if (filters.status && filters.status !== 'all') {
             query = query.eq('status', filters.status as any)
           }
-          if (filters.date_from) {
-            query = query.gte('date', filters.date_from)
+          const effectiveDateFrom = resolveDateInputToAdStr(filters.date_from)
+          const effectiveDateTo = resolveDateInputToAdStr(filters.date_to)
+          const effectiveDate = resolveDateInputToAdStr(filters.date)
+          if (effectiveDateFrom) {
+            query = query.gte('date', effectiveDateFrom)
           }
-          if (filters.date_to) {
-            query = query.lte('date', filters.date_to)
+          if (effectiveDateTo) {
+            query = query.lte('date', effectiveDateTo)
           }
-          if (filters.date) {
-            query = query.eq('date', filters.date)
+          if (effectiveDate) {
+            query = query.eq('date', effectiveDate)
           }
           if (filters.batch_group && filters.batch_group !== 'all') {
             const aliases = getClassAliases(filters.batch_group)
@@ -568,8 +418,8 @@ export async function getPracticalRecords(
       }
     }
 
-    // 2. Direct PostgreSQL fallback if Supabase query errored or is unconfigured
-    if (!dbSuccess) {
+    // 2. Direct PostgreSQL fallback ONLY if Supabase query errored or is unconfigured, or in test runner mode
+    if (!dbSuccess || (rawRecords.length === 0 && Boolean(process.env.LABSYNC_TEST_RUNNER))) {
       try {
         const pool = getPgPool()
         let sql = `
@@ -585,31 +435,90 @@ export async function getPracticalRecords(
           WHERE 1=1
         `
         const pgParams: any[] = []
-        if (filters.academic_year_id && filters.academic_year_id !== 'all') {
-          pgParams.push(filters.academic_year_id)
-          sql += ` AND pl.academic_year_id = $${pgParams.length}`
+
+        // Security Guard: Enforce caller's role/scope filter directly in the SQL WHERE clause
+        if (!userCtx.isPrivileged && userCtx.userId && userCtx.userId !== 'local-admin') {
+          pgParams.push(userCtx.userId)
+          sql += ` AND (pl.teacher_id = $${pgParams.length} OR pl.logged_by = $${pgParams.length})`
         }
-        if (filters.lab_id && filters.lab_id !== 'all') {
-          pgParams.push(filters.lab_id)
-          sql += ` AND pl.lab_id = $${pgParams.length}`
+
+        if (filters.selected_ids && filters.selected_ids.length > 0) {
+          pgParams.push(filters.selected_ids)
+          sql += ` AND pl.id = ANY($${pgParams.length}::text[])`
+        } else {
+          if (filters.academic_year_id && filters.academic_year_id !== 'all') {
+            pgParams.push(filters.academic_year_id)
+            sql += ` AND pl.academic_year_id = $${pgParams.length}`
+          }
+          if (filters.lab_id && filters.lab_id !== 'all') {
+            pgParams.push(filters.lab_id)
+            sql += ` AND pl.lab_id = $${pgParams.length}`
+          }
+          if (filters.status && filters.status !== 'all') {
+            pgParams.push(filters.status)
+            sql += ` AND pl.status = $${pgParams.length}`
+          }
+          const effectivePgFrom = resolveDateInputToAdStr(filters.date_from)
+          const effectivePgTo = resolveDateInputToAdStr(filters.date_to)
+          const effectivePgDate = resolveDateInputToAdStr(filters.date)
+          if (effectivePgFrom) {
+            pgParams.push(effectivePgFrom)
+            sql += ` AND pl.date >= $${pgParams.length}`
+          }
+          if (effectivePgTo) {
+            pgParams.push(effectivePgTo)
+            sql += ` AND pl.date <= $${pgParams.length}`
+          }
+          if (effectivePgDate) {
+            pgParams.push(effectivePgDate)
+            sql += ` AND pl.date = $${pgParams.length}`
+          }
+          if (filters.teacher_id && filters.teacher_id !== 'all') {
+            pgParams.push(filters.teacher_id)
+            sql += ` AND pl.teacher_id = $${pgParams.length}`
+          }
+          if (filters.batch_group && filters.batch_group !== 'all') {
+            pgParams.push(`%${filters.batch_group}%`)
+            sql += ` AND pl.batch_group ILIKE $${pgParams.length}`
+          }
+          if (filters.subject_name && filters.subject_name !== 'all') {
+            pgParams.push(`%${filters.subject_name}%`)
+            sql += ` AND pl.subject_name ILIKE $${pgParams.length}`
+          }
+          if (filters.period_label && filters.period_label !== 'all') {
+            pgParams.push(`%${filters.period_label}%`)
+            sql += ` AND pl.period_label ILIKE $${pgParams.length}`
+          }
+          if (filters.remarks && filters.remarks.trim()) {
+            pgParams.push(`%${filters.remarks.trim()}%`)
+            sql += ` AND pl.remarks ILIKE $${pgParams.length}`
+          }
+          if (filters.search && filters.search.trim()) {
+            pgParams.push(`%${filters.search.trim()}%`)
+            sql += ` AND (pl.practical_title ILIKE $${pgParams.length} OR pl.remarks ILIKE $${pgParams.length} OR pl.batch_group ILIKE $${pgParams.length} OR pl.subject_name ILIKE $${pgParams.length})`
+          }
         }
-        if (filters.status && filters.status !== 'all') {
-          pgParams.push(filters.status)
-          sql += ` AND pl.status = $${pgParams.length}`
-        }
-        if (filters.date_from) {
-          pgParams.push(filters.date_from)
-          sql += ` AND pl.date >= $${pgParams.length}`
-        }
-        if (filters.date_to) {
-          pgParams.push(filters.date_to)
-          sql += ` AND pl.date <= $${pgParams.length}`
-        }
+
         sql += ` ORDER BY pl.date DESC, pl.created_at DESC`
         const dbRes = await pool.query(sql, pgParams)
         rawRecords = dbRes.rows
         totalCount = dbRes.rows.length
         dbSuccess = true
+
+        if (rawRecords.length > 0) {
+          const conducted = rawRecords.filter((r: any) => r.status !== 'skipped').length
+          const skipped = rawRecords.length - conducted
+          const pres = rawRecords.reduce((sum: number, r: any) => sum + (r.present_students || 0), 0)
+          const enrolled = rawRecords.reduce((sum: number, r: any) => sum + (r.total_students || 0), 0)
+          metrics = {
+            totalSessions: rawRecords.length,
+            conductedSessions: conducted,
+            skippedSessions: skipped,
+            totalPresent: pres,
+            totalEnrolled: enrolled,
+            averageAttendancePct: enrolled > 0 ? (pres / enrolled) * 100 : 0,
+          }
+        }
       } catch (pgErr) {
         console.warn('Direct PG query fallback in getPracticalRecords failed:', pgErr)
       }
@@ -618,6 +527,8 @@ export async function getPracticalRecords(
     // 3. Memory fallback store ONLY if DB queries threw an error (completely offline)
     if (!dbSuccess && rawRecords.length === 0 && totalCount === 0) {
       const store = getPracticalStore()
+      const effectiveMemFrom = resolveDateInputToAdStr(filters.date_from)
+      const effectiveMemTo = resolveDateInputToAdStr(filters.date_to)
       const filtered = store.filter((r) => {
         if (!userCtx.isPrivileged && r.teacher_id && r.teacher_id !== userCtx.userId) return false
         if (filters.selected_ids && filters.selected_ids.length > 0) {
@@ -626,8 +537,8 @@ export async function getPracticalRecords(
         if (filters.academic_year_id && filters.academic_year_id !== 'all' && r.academic_year_id !== filters.academic_year_id) return false
         if (filters.lab_id && filters.lab_id !== 'all' && r.lab_id !== filters.lab_id && r.labs?.id !== filters.lab_id) return false
         if (filters.status && filters.status !== 'all' && r.status !== filters.status) return false
-        if (filters.date_from && r.date < filters.date_from) return false
-        if (filters.date_to && r.date > filters.date_to) return false
+        if (effectiveMemFrom && r.date < effectiveMemFrom) return false
+        if (effectiveMemTo && r.date > effectiveMemTo) return false
         if (filters.batch_group && filters.batch_group !== 'all') {
           const aliases = getClassAliases(filters.batch_group)
           const matches = aliases.some((a) => r.batch_group?.toLowerCase().includes(a.toLowerCase()))
@@ -975,8 +886,8 @@ export async function getIncidentRecords(
       }
     }
 
-    const effectiveDateFrom = filters.date_from || ayDateFrom
-    const effectiveDateTo = filters.date_to || ayDateTo
+    const effectiveDateFrom = resolveDateInputToAdStr(filters.date_from) || ayDateFrom
+    const effectiveDateTo = resolveDateInputToAdStr(filters.date_to) || ayDateTo
 
     // 1. First priority: Supabase query
     if (isSupabaseConfigured()) {
@@ -1073,7 +984,7 @@ export async function getIncidentRecords(
         }
 
         const { data, count, error } = await query
-        if (!error && data && data.length > 0) {
+        if (!error && data) {
           rawIncidents = data
           totalCount = typeof count === 'number' ? count : data.length
           dbSuccess = true
@@ -1450,6 +1361,12 @@ export async function reportIncidentRecord(payload: {
   equipment_name: string
   quantity: number
   student_rolls?: string
+  circumstances?: string | null
+  photo_url?: string | null
+  is_fined?: boolean
+  fine_amount?: number | null
+  fine_paid?: boolean
+  fine_receipt_no?: string | null
 }): Promise<{ success: boolean; incidentId?: string; error?: string }> {
   try {
     const userCtx = await getCurrentUserContext()
@@ -1493,51 +1410,102 @@ export async function reportIncidentRecord(payload: {
     store.unshift(newRecord)
 
 
-    // 3. Write to Supabase if configured
+    // 3. PostgreSQL Direct Connection Pool (guaranteed RLS-independent persistence)
+    const notifs = [
+      {
+        id: `notif-${incidentId}-adm`,
+        incident_id: incidentId,
+        target_role: 'super_admin',
+        target_lab_id: payload.lab_id,
+        title: `${isCritical ? '🚨 CRITICAL DAMAGE: ' : 'Incident: '}${payload.title}`,
+        message: `${payload.lab_id.toUpperCase()} Lab: ${payload.equipment_name} reported by ${userCtx.fullName}.`,
+        severity: isCritical ? 'critical' : 'warning',
+        is_read: false,
+        created_at: new Date().toISOString(),
+      },
+      {
+        id: `notif-${incidentId}-inc`,
+        incident_id: incidentId,
+        target_role: 'lab_incharge',
+        target_lab_id: payload.lab_id,
+        title: `Equipment Triage: ${payload.equipment_name}`,
+        message: `Reported during ${payload.session_label} (${payload.batch_name}). Assigned for triage.`,
+        severity: isCritical ? 'critical' : 'warning',
+        is_read: false,
+        created_at: new Date().toISOString(),
+      },
+      {
+        id: `notif-${incidentId}-teacher`,
+        incident_id: incidentId,
+        target_role: 'teacher',
+        target_lab_id: payload.lab_id,
+        title: `Incident Report Submitted: ${payload.title}`,
+        message: `Your report for ${payload.equipment_name} in ${payload.lab_id.toUpperCase()} Lab has been logged and queued for Lab In-Charge triage.`,
+        severity: 'info',
+        is_read: false,
+        created_at: new Date().toISOString(),
+      },
+    ]
+    if (isCritical) {
+      notifs.push({
+        id: `notif-${incidentId}-hod`,
+        incident_id: incidentId,
+        target_role: 'hod',
+        target_lab_id: payload.lab_id,
+        title: `🚨 HOD Escalation: ${payload.title}`,
+        message: `Critical safety incident logged in ${payload.lab_id.toUpperCase()} Lab by ${userCtx.fullName}.`,
+        severity: 'critical',
+        is_read: false,
+        created_at: new Date().toISOString(),
+      })
+    }
+
+    try {
+      const pool = getPgPool()
+      await pool.query(
+        `INSERT INTO public.lab_incidents (
+          id, lab_id, schedule_id, date, session_label, subject_name, subject_teacher_name,
+          batch_name, title, circumstances, photo_url, incident_type, severity,
+          equipment_name, quantity, student_rolls, is_fined, fine_amount, fine_paid,
+          fine_receipt_no, status, escalated_to_hod, escalation_reason, escalated_at,
+          resolution_notes, resolved_by, resolved_at, reported_by, reported_by_id, created_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30
+        )
+        ON CONFLICT (id) DO UPDATE SET
+          title = EXCLUDED.title,
+          severity = EXCLUDED.severity,
+          status = EXCLUDED.status,
+          escalated_to_hod = EXCLUDED.escalated_to_hod;`,
+        [
+          newRecord.id, newRecord.lab_id, newRecord.schedule_id || null, newRecord.date, newRecord.session_label,
+          newRecord.subject_name, newRecord.subject_teacher_name, newRecord.batch_name, newRecord.title,
+          payload.circumstances || null, payload.photo_url || null, newRecord.incident_type, newRecord.severity,
+          newRecord.equipment_name, newRecord.quantity, newRecord.student_rolls || null, payload.is_fined || false,
+          payload.fine_amount || null, payload.fine_paid || false, payload.fine_receipt_no || null,
+          newRecord.status, newRecord.escalated_to_hod, newRecord.escalation_reason || null, newRecord.escalated_at || null,
+          newRecord.resolution_notes || null, newRecord.resolved_by || null, newRecord.resolved_at || null,
+          newRecord.reported_by, validReportedById, newRecord.created_at
+        ]
+      )
+
+      await pool.query(`DELETE FROM public.lab_notifications WHERE incident_id = $1`, [incidentId])
+      for (const n of notifs) {
+        await pool.query(
+          `INSERT INTO public.lab_notifications (id, incident_id, target_role, target_lab_id, title, message, severity, is_read, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           ON CONFLICT (id) DO NOTHING;`,
+          [n.id, n.incident_id, n.target_role, n.target_lab_id, n.title, n.message, n.severity, n.is_read, n.created_at]
+        )
+      }
+    } catch (pgErr) {
+      console.warn('PostgreSQL pool incident write fallback active:', pgErr)
+    }
+
     if (isSupabaseConfigured()) {
       try {
         const supabase = await createClient()
-        await (supabase.from('lab_incidents') as any).insert(newRecord)
-
-        // Dispatch notifications
-        const notifs = [
-          {
-            id: `notif-${Date.now()}-adm`,
-            incident_id: incidentId,
-            target_role: 'super_admin',
-            target_lab_id: payload.lab_id,
-            title: `${isCritical ? '🚨 CRITICAL DAMAGE: ' : 'Incident: '}${payload.title}`,
-            message: `${payload.lab_id.toUpperCase()} Lab: ${payload.equipment_name} reported by ${userCtx.fullName}.`,
-            severity: isCritical ? 'critical' : 'warning',
-            is_read: false,
-            created_at: new Date().toISOString(),
-          },
-          {
-            id: `notif-${Date.now()}-inc`,
-            incident_id: incidentId,
-            target_role: 'lab_incharge',
-            target_lab_id: payload.lab_id,
-            title: `Equipment Triage: ${payload.equipment_name}`,
-            message: `Reported during ${payload.session_label} (${payload.batch_name}). Assigned for triage.`,
-            severity: isCritical ? 'critical' : 'warning',
-            is_read: false,
-            created_at: new Date().toISOString(),
-          },
-        ]
-        if (isCritical) {
-          notifs.push({
-            id: `notif-${Date.now()}-hod`,
-            incident_id: incidentId,
-            target_role: 'hod',
-            target_lab_id: payload.lab_id,
-            title: `🚨 HOD Escalation: ${payload.title}`,
-            message: `Critical safety incident logged in ${payload.lab_id.toUpperCase()} Lab by ${userCtx.fullName}.`,
-            severity: 'critical',
-            is_read: false,
-            created_at: new Date().toISOString(),
-          })
-        }
-        await (supabase.from('lab_notifications') as any).insert(notifs)
+        await (supabase.from('lab_incidents') as any).upsert(newRecord, { onConflict: 'id' })
       } catch (err) {
         console.warn('Supabase incident insert fallback active:', err)
       }
@@ -1624,25 +1592,70 @@ export async function updateIncidentWorkflow(
        }
     }
 
+    try {
+      const pool = getPgPool()
+      await pool.query(
+        `UPDATE public.lab_incidents 
+         SET status = COALESCE($1, status),
+             resolution_notes = COALESCE($2, resolution_notes),
+             resolved_by_id = COALESCE($3, resolved_by_id),
+             resolved_by = COALESCE($4, resolved_by),
+             resolved_at = COALESCE($5, resolved_at),
+             escalated_to_hod = COALESCE($6, escalated_to_hod),
+             escalation_reason = COALESCE($7, escalation_reason),
+             escalated_at = COALESCE($8, escalated_at)
+         WHERE id = $9;`,
+        [
+          updates.status || null,
+          updates.resolution_notes || null,
+          updates.resolved_by_id || null,
+          updates.resolved_by || null,
+          updates.resolved_at || null,
+          updates.escalated_to_hod !== undefined ? updates.escalated_to_hod : null,
+          updates.escalation_reason || null,
+          updates.escalated_at || null,
+          incidentId
+        ]
+      )
+
+      if (isResolving) {
+        await pool.query(`UPDATE public.lab_notifications SET is_read = true WHERE incident_id = $1;`, [incidentId])
+      }
+
+      if (isEscalating) {
+        const escNotifs = [
+          {
+            id: `notif-${incidentId}-hod-esc`,
+            target_role: 'hod',
+            title: `⚡ HOD Escalation: Equipment Incident #${incidentId}`,
+            message: `Escalation Reason: ${updates.escalation_reason}. Actioned by ${userCtx.fullName}.`,
+            severity: 'critical',
+          },
+          {
+            id: `notif-${incidentId}-admin-esc`,
+            target_role: 'super_admin',
+            title: `🚨 Incident Escalated to HOD: #${incidentId}`,
+            message: `Escalation Reason: ${updates.escalation_reason}. Actioned by ${userCtx.fullName}.`,
+            severity: 'critical',
+          },
+        ]
+        for (const n of escNotifs) {
+          await pool.query(
+            `INSERT INTO public.lab_notifications (id, incident_id, target_role, title, message, severity, is_read, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, false, NOW())
+             ON CONFLICT (id) DO NOTHING;`,
+            [n.id, incidentId, n.target_role, n.title, n.message, n.severity]
+          )
+        }
+      }
+    } catch (pgErr) {
+      console.warn('PostgreSQL pool incident workflow error:', pgErr)
+    }
+
     if (isSupabaseConfigured()) {
       try {
         const supabase = await createClient()
         await (supabase.from('lab_incidents') as any).update(updates).eq('id', incidentId)
-
-        if (isEscalating) {
-          await (supabase.from('lab_notifications') as any).insert([
-            {
-              id: `notif-${Date.now()}-hod-escalate`,
-              incident_id: incidentId,
-              target_role: 'hod',
-              title: `⚡ HOD Escalation: Equipment Incident #${incidentId}`,
-              message: `Escalation Reason: ${updates.escalation_reason}. Actioned by ${userCtx.fullName}.`,
-              severity: 'critical',
-              is_read: false,
-              created_at: now,
-            },
-          ])
-        }
       } catch (err) {
         console.warn('Supabase incident update fallback active:', err)
       }
@@ -1730,13 +1743,26 @@ export async function exportPracticalRecordsAction(
     const selPrefix = scope.mode === 'SELECTED_EXPLICIT' ? `_selected-${scope.selectedIds?.length || 0}` : ''
     const filename = `practical-records${yearPrefix}_${groupBy}${selPrefix}_${fromStr}_${toStr}.${format}`
 
+    // Refinement #3: Context-aware dynamic column pruning for exports
+    let effectiveExportCols = options?.visibleColumns
+    if (!effectiveExportCols || effectiveExportCols.length === 0) {
+      const defaultCols = ['date', 'period', 'facility', 'class_batch', 'subject', 'experiment', 'teacher', 'attendance', 'status', 'remarks']
+      effectiveExportCols = defaultCols.filter((c) => {
+        if (c === 'facility' && filters.lab_id && filters.lab_id !== 'all') return false
+        if (c === 'subject' && filters.subject_name && filters.subject_name !== 'all') return false
+        if (c === 'class_batch' && filters.batch_group && filters.batch_group !== 'all') return false
+        if (c === 'teacher' && filters.teacher_id && filters.teacher_id !== 'all') return false
+        return true
+      })
+    }
+
     if (format === 'csv') {
       const csvContent = generatePracticalRecordsCsv(data.sections, {
         labName: filters.lab_id ? filters.lab_id.toUpperCase() : 'All Laboratories',
         dateRange: `${filters.date_from || 'Earliest'} to ${filters.date_to || 'Latest'}`,
         academicYear: resolvedYearName || (filters.academic_year_id !== 'all' ? filters.academic_year_id : undefined),
         traceabilityNote: preciseScope.traceabilityNote,
-        visibleColumns: options?.visibleColumns,
+        visibleColumns: effectiveExportCols,
       })
       const base64 = Buffer.from(csvContent, 'utf-8').toString('base64')
       return {
@@ -1746,13 +1772,14 @@ export async function exportPracticalRecordsAction(
         contentType: 'text/csv; charset=utf-8',
       }
     } else {
+      const { generatePracticalRecordsXlsxBuffer } = await import('@/lib/exports/xlsx')
       const buffer = await generatePracticalRecordsXlsxBuffer(data.sections, {
         labName: filters.lab_id ? filters.lab_id.toUpperCase() : 'All Laboratories',
         dateRange: `${filters.date_from || 'Earliest'} to ${filters.date_to || 'Latest'}`,
         groupByLabel: groupBy.toUpperCase(),
         academicYear: resolvedYearName || (filters.academic_year_id !== 'all' ? filters.academic_year_id : undefined),
         traceabilityNote: preciseScope.traceabilityNote,
-        visibleColumns: options?.visibleColumns,
+        visibleColumns: effectiveExportCols,
       })
       const base64 = buffer.toString('base64')
       return {
@@ -1850,12 +1877,22 @@ export async function exportIncidentRecordsAction(
     const selPrefix = scope.mode === 'SELECTED_EXPLICIT' ? `_selected-${scope.selectedIds?.length || 0}` : ''
     const filename = `incident-records${selPrefix}_${fromStr}_${toStr}.${format}`
 
+    // Refinement #3: Context-aware dynamic column pruning for exports
+    let effectiveIncidentExportCols = options?.visibleColumns
+    if (!effectiveIncidentExportCols || effectiveIncidentExportCols.length === 0) {
+      const defaultCols = ['date_case', 'facility', 'equipment', 'title_circ', 'severity', 'teacher_batch', 'status', 'resolution']
+      effectiveIncidentExportCols = defaultCols.filter((c) => {
+        if (c === 'facility' && filters.lab_id && filters.lab_id !== 'all') return false
+        return true
+      })
+    }
+
     if (format === 'csv') {
       const csvContent = generateIncidentRecordsCsv(data.incidents, {
         labName: filters.lab_id ? filters.lab_id.toUpperCase() : 'All Facilities',
         dateRange: `${filters.date_from || 'Earliest'} to ${filters.date_to || 'Latest'}`,
         traceabilityNote: preciseScope.traceabilityNote,
-        visibleColumns: options?.visibleColumns,
+        visibleColumns: effectiveIncidentExportCols,
       })
       const base64 = Buffer.from(csvContent, 'utf-8').toString('base64')
       return {
@@ -1865,11 +1902,12 @@ export async function exportIncidentRecordsAction(
         contentType: 'text/csv; charset=utf-8',
       }
     } else {
+      const { generateIncidentRecordsXlsxBuffer } = await import('@/lib/exports/xlsx')
       const buffer = await generateIncidentRecordsXlsxBuffer(data.incidents, data.metrics, {
         labName: filters.lab_id ? filters.lab_id.toUpperCase() : 'All Facilities',
         dateRange: `${filters.date_from || 'Earliest'} to ${filters.date_to || 'Latest'}`,
         traceabilityNote: preciseScope.traceabilityNote,
-        visibleColumns: options?.visibleColumns,
+        visibleColumns: effectiveIncidentExportCols,
       })
       const base64 = buffer.toString('base64')
       return {

@@ -38,11 +38,11 @@ export const TERMINAL_QUICK_ISSUES: TerminalIssueChip[] = [
     description: 'Program not responding, compiler crashing, or code editor completely frozen.',
   },
   {
-    id: 'audio_issue',
-    label: 'Audio / Headphone Issue',
-    iconName: 'VolumeX',
-    severity: 'low',
-    description: 'No sound output or headphone jack not recognized during audio practical.',
+    id: 'display_issue',
+    label: 'Monitor / Display Glitch',
+    iconName: 'Monitor',
+    severity: 'medium',
+    description: 'Screen flickering, distorted resolution, blurry display, or no video signal.',
   },
   {
     id: 'other',
@@ -72,6 +72,9 @@ export interface TerminalActiveSession {
   startTime?: string
   endTime?: string
   batchName?: string
+  practicalTitle?: string
+  topicLearned?: string
+  remainingMinutes?: number
 }
 
 export interface TerminalContextData {

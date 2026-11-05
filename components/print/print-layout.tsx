@@ -1,16 +1,46 @@
 'use client'
 
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Printer, ArrowLeft, LucideIcon } from 'lucide-react'
+import * as PopoverPrimitive from '@radix-ui/react-popover'
+import {
+  Printer,
+  ArrowLeft,
+  LucideIcon,
+  Stamp,
+  Check,
+  RotateCcw,
+  Shield,
+  SlidersHorizontal,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { INSTITUTION_CONFIG } from '@/lib/institution'
-
 import { FootnoteEntry, PrintDensityMode } from '@/types/report-spec'
 
 export interface SignatoryItem {
   title: string
   subtitle: string
+}
+
+export type SignatoryRoleKey = 'teacher' | 'incharge' | 'hod' | 'principal'
+
+export const STANDARD_SIGNATORIES: Record<SignatoryRoleKey, SignatoryItem> = {
+  teacher: {
+    title: 'SUBJECT INSTRUCTOR / TEACHER',
+    subtitle: 'Practical Session & Syllabus Endorsement',
+  },
+  incharge: {
+    title: 'LABORATORY IN-CHARGE',
+    subtitle: 'Technical Verification & Attendance Audit',
+  },
+  hod: {
+    title: 'HEAD OF DEPARTMENT (HOD)',
+    subtitle: 'Academic Oversight & Curricular Verification',
+  },
+  principal: {
+    title: 'CAMPUS CHIEF / PRINCIPAL',
+    subtitle: 'Institutional Certification & Endorsement',
+  },
 }
 
 export interface PrintLayoutProps {
@@ -83,19 +113,21 @@ export default function PrintLayout({
   footerNote = 'Certified Institutional Audit Copy',
   fontSerif = false,
 }: PrintLayoutProps) {
-  const [internalDensity, setInternalDensity] = React.useState<PrintDensityMode>(() => {
-    if (densityMode) return densityMode
-    if (typeof window !== 'undefined') {
+  // Refinement #4: Deterministic SSR hydration
+  const [internalDensity, setInternalDensity] = useState<PrintDensityMode>(densityMode || 'detailed')
+
+  useEffect(() => {
+    if (!densityMode && typeof window !== 'undefined') {
       try {
         const saved = localStorage.getItem('lmr_print_density_mode') as PrintDensityMode | null
-        if (saved === 'compact' || saved === 'detailed') return saved
+        if (saved === 'compact' || saved === 'detailed') {
+          setInternalDensity(saved)
+        }
       } catch {}
     }
-    return 'detailed'
-  })
+  }, [densityMode])
 
-  // Synchronize internal density when controlled densityMode changes
-  React.useEffect(() => {
+  useEffect(() => {
     if (densityMode && densityMode !== internalDensity) {
       setInternalDensity(densityMode)
     }
@@ -113,45 +145,37 @@ export default function PrintLayout({
     onDensityModeChange?.(mode)
   }
 
-  // Determine default signatories if not explicitly passed
+  // Dual orientation switch
+  const [orientation, setOrientation] = useState<'landscape' | 'portrait'>('landscape')
+
+  // Configurable Signatories State
+  const [selectedSignatoryKeys, setSelectedSignatoryKeys] = useState<SignatoryRoleKey[]>(() => {
+    if (signatureTier === '3-tier') return ['teacher', 'incharge', 'hod']
+    return ['incharge', 'hod']
+  })
+  const [isSignatoryMenuOpen, setIsSignatoryMenuOpen] = useState<boolean>(false)
+
+  const toggleSignatory = (key: SignatoryRoleKey) => {
+    setSelectedSignatoryKeys((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+    )
+  }
+
+  // Resolved Signatories List
   const resolvedSignatories: SignatoryItem[] =
-    signatories && signatories.length > 0
+    signatories && signatories.length > 0 && selectedSignatoryKeys.length === 0
       ? signatories
-      : signatureTier === '3-tier'
-      ? [
-          {
-            title: 'LABORATORY IN-CHARGE',
-            subtitle: 'Technical Verification & Servicing Audit',
-          },
-          {
-            title: 'ACADEMIC COORDINATOR',
-            subtitle: 'Curricular Oversight & Schedule Verification',
-          },
-          {
-            title: 'CAMPUS CHIEF / PRINCIPAL',
-            subtitle: 'Institutional Endorsement & Certification',
-          },
-        ]
-      : [
-          {
-            title: INSTITUTION_CONFIG.signatures.left.title.toUpperCase(),
-            subtitle: INSTITUTION_CONFIG.signatures.left.subtitle,
-          },
-          {
-            title: INSTITUTION_CONFIG.signatures.right.title.toUpperCase(),
-            subtitle: INSTITUTION_CONFIG.signatures.right.subtitle,
-          },
-        ]
+      : selectedSignatoryKeys.map((k) => STANDARD_SIGNATORIES[k])
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-16 font-sans print:p-0 print:m-0 print:max-w-none print:w-full print:space-y-0">
-      {/* Universal Print CSS for Landscape A4 & Register Density */}
+      {/* Universal Dynamic Print CSS for Orientation & Register Density */}
       <style
         dangerouslySetInnerHTML={{
           __html: `
             @page {
-              size: A4 landscape;
-              margin: 6mm 8mm;
+              size: A4 ${orientation};
+              margin: ${orientation === 'landscape' ? '6mm 8mm' : '8mm 8mm'};
             }
             @media print {
               html, body {
@@ -178,72 +202,49 @@ export default function PrintLayout({
               html.dark {
                 --bg-canvas: #ffffff !important;
                 --background: #ffffff !important;
-                --surface-1: #ffffff !important;
-                --surface-2: #ffffff !important;
-                --surface-3: #ffffff !important;
                 --foreground: #000000 !important;
-                color-scheme: light !important;
+                --color-surface-elevated: #ffffff !important;
+                --color-surface-sunken: #f8fafc !important;
+                --color-border: #cbd5e1 !important;
+                --color-text-main: #000000 !important;
+                --color-text-sub: #334155 !important;
+                --color-text-muted: #64748b !important;
               }
-              html,
-              body,
-              main,
-              .bg-canvas,
-              [class*="bg-canvas"],
-              .dark,
-              .dark body,
-              .dark main,
-              .dark [class*="bg-canvas"],
-              .dark div {
-                background: #ffffff !important;
-                background-color: #ffffff !important;
-                color: #000000 !important;
-                box-shadow: none !important;
+              .print-dense-table table {
+                border-collapse: collapse !important;
+                width: 100% !important;
               }
-              main {
-                padding: 0 !important;
-                margin: 0 !important;
-                border: none !important;
-                height: auto !important;
-                overflow: visible !important;
-                max-height: none !important;
+              .print-dense-table th,
+              .print-dense-table td {
+                border-color: #94a3b8 !important;
               }
-              thead {
-                display: table-header-group !important;
+              .print-dense-table th {
+                background-color: #f1f5f9 !important;
+                color: #0f172a !important;
               }
-              tr {
-                break-inside: avoid !important;
-                page-break-inside: avoid !important;
-              }
-              .signature-block,
-              .footnotes-block,
-              .break-inside-avoid {
-                break-inside: avoid !important;
-                page-break-inside: avoid !important;
-              }
-
               /* Compact Ledger Density Mode */
               .print-mode-compact table th,
               .print-mode-compact table td {
-                padding-top: 1.5px !important;
-                padding-bottom: 1.5px !important;
-                padding-left: 3.5px !important;
-                padding-right: 3.5px !important;
+                padding-top: 2px !important;
+                padding-bottom: 2px !important;
+                padding-left: 4px !important;
+                padding-right: 4px !important;
                 font-size: 7.5pt !important;
                 line-height: 1.15 !important;
               }
-              .print-mode-compact .subtext-line {
-                font-size: 6.8pt !important;
-              }
-
               /* Detailed Audit Density Mode */
               .print-mode-detailed table th,
               .print-mode-detailed table td {
-                padding-top: 3.5px !important;
-                padding-bottom: 3.5px !important;
-                padding-left: 5px !important;
-                padding-right: 5px !important;
+                padding-top: 5px !important;
+                padding-bottom: 5px !important;
+                padding-left: 6px !important;
+                padding-right: 6px !important;
                 font-size: 8.5pt !important;
-                line-height: 1.25 !important;
+                line-height: 1.35 !important;
+              }
+              .break-inside-avoid {
+                break-inside: avoid !important;
+                page-break-inside: avoid !important;
               }
             }
           `,
@@ -253,16 +254,48 @@ export default function PrintLayout({
       {/* Interactive Controls Bar (Hidden during window.print()) */}
       <div className="bg-white dark:bg-zinc-900 p-5 rounded-2xl border border-zinc-200/90 dark:border-zinc-800 shadow-xs flex flex-col md:flex-row justify-between items-start md:items-center gap-4 print:hidden backdrop-blur-md">
         <div>
-          <h2 className="text-lg font-bold tracking-tight text-zinc-950 dark:text-white flex items-center gap-2 font-mono">
-            <Icon className="h-5 w-5 text-indigo-500" />
-            {title}
-          </h2>
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900/40">
+              <Icon className="h-5 w-5" />
+            </div>
+            <h1 className="text-lg font-bold font-heading text-zinc-900 dark:text-zinc-50 tracking-tight">
+              {title}
+            </h1>
+          </div>
           <p className="text-xs text-subtext text-zinc-500 dark:text-slate-300 mt-0.5">
             {subtitle}
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Orientation Switcher */}
+          <div className="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-800/80 p-1 rounded-xl border border-zinc-200 dark:border-zinc-700/60">
+            <button
+              type="button"
+              onClick={() => setOrientation('landscape')}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                orientation === 'landscape'
+                  ? 'bg-white dark:bg-zinc-700 text-zinc-950 dark:text-white shadow-xs font-semibold'
+                  : 'text-zinc-600 dark:text-slate-300 hover:text-zinc-950 dark:hover:text-white'
+              }`}
+              title="A4 Landscape Orientation"
+            >
+              Landscape
+            </button>
+            <button
+              type="button"
+              onClick={() => setOrientation('portrait')}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                orientation === 'portrait'
+                  ? 'bg-white dark:bg-zinc-700 text-zinc-950 dark:text-white shadow-xs font-semibold'
+                  : 'text-zinc-600 dark:text-slate-300 hover:text-zinc-950 dark:hover:text-white'
+              }`}
+              title="A4 Portrait Orientation"
+            >
+              Portrait
+            </button>
+          </div>
+
           {/* Density Mode Switcher */}
           {showDensityToggle && (
             <div className="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-800/80 p-1 rounded-xl border border-zinc-200 dark:border-zinc-700/60">
@@ -291,6 +324,111 @@ export default function PrintLayout({
             </div>
           )}
 
+          {/* Signatories Configurator Popover */}
+          <PopoverPrimitive.Root open={isSignatoryMenuOpen} onOpenChange={setIsSignatoryMenuOpen}>
+            <PopoverPrimitive.Trigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 px-3 text-xs gap-1.5 rounded-xl cursor-pointer border-zinc-200 dark:border-zinc-700"
+              >
+                <Shield className="h-3.5 w-3.5 text-indigo-500" />
+                <span>Signatures ({selectedSignatoryKeys.length})</span>
+              </Button>
+            </PopoverPrimitive.Trigger>
+            <PopoverPrimitive.Portal>
+              <PopoverPrimitive.Content
+                align="end"
+                sideOffset={6}
+                className="z-50 w-72 p-3.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-xl space-y-3 text-xs font-sans animate-in fade-in zoom-in-95"
+              >
+                <div className="flex items-center justify-between pb-2 border-b border-zinc-100 dark:border-zinc-800">
+                  <div className="flex items-center gap-1.5">
+                    <Shield className="h-4 w-4 text-indigo-500" />
+                    <span className="font-bold text-zinc-900 dark:text-white font-heading">
+                      Signatory Blocks
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-mono text-zinc-400">NEB Official</span>
+                </div>
+
+                {/* Checkbox Options */}
+                <div className="space-y-1.5">
+                  <label className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-800/60 cursor-pointer text-zinc-800 dark:text-zinc-200">
+                    <input
+                      type="checkbox"
+                      checked={selectedSignatoryKeys.includes('teacher')}
+                      onChange={() => toggleSignatory('teacher')}
+                      className="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span>Subject Teacher / Instructor</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-800/60 cursor-pointer text-zinc-800 dark:text-zinc-200">
+                    <input
+                      type="checkbox"
+                      checked={selectedSignatoryKeys.includes('incharge')}
+                      onChange={() => toggleSignatory('incharge')}
+                      className="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span>Laboratory In-Charge</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-800/60 cursor-pointer text-zinc-800 dark:text-zinc-200">
+                    <input
+                      type="checkbox"
+                      checked={selectedSignatoryKeys.includes('hod')}
+                      onChange={() => toggleSignatory('hod')}
+                      className="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span>Head of Department (HOD)</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-800/60 cursor-pointer text-zinc-800 dark:text-zinc-200">
+                    <input
+                      type="checkbox"
+                      checked={selectedSignatoryKeys.includes('principal')}
+                      onChange={() => toggleSignatory('principal')}
+                      className="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span>Campus Chief / Principal</span>
+                  </label>
+                </div>
+
+                {/* Preset shortcuts */}
+                <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between gap-1 text-[10px]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedSignatoryKeys(['teacher', 'incharge', 'hod', 'principal'])
+                    }}
+                    className="px-2 py-1 rounded bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 cursor-pointer font-medium"
+                  >
+                    All 4 (Complete)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedSignatoryKeys(['incharge', 'hod'])
+                    }}
+                    className="px-2 py-1 rounded bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 cursor-pointer font-medium"
+                  >
+                    2-Tier (Default)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedSignatoryKeys([])
+                    }}
+                    className="px-2 py-1 rounded bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 cursor-pointer font-medium"
+                  >
+                    None (Draft)
+                  </button>
+                </div>
+              </PopoverPrimitive.Content>
+            </PopoverPrimitive.Portal>
+          </PopoverPrimitive.Root>
+
           <Link href={backHref}>
             <Button variant="outline" size="sm" className="h-9 px-3 text-xs gap-1.5 rounded-xl cursor-pointer">
               <ArrowLeft className="h-3.5 w-3.5" />
@@ -308,114 +446,122 @@ export default function PrintLayout({
         </div>
       </div>
 
-      {/* Formal Printable Document Body */}
-      <div
-        className={`bg-white text-zinc-950 p-6 sm:p-10 rounded-2xl border border-zinc-200/90 shadow-xs print-sheet print-light-surface print:border-none print:shadow-none print:p-0 print:m-0 print:max-w-none print:w-full ${
-          activeDensity === 'compact' ? 'print-mode-compact' : 'print-mode-detailed'
-        } ${fontSerif ? 'font-serif' : 'font-sans'}`}
-      >
-        {/* Unified Institutional Letterhead Header (Single Source of Truth) */}
-        <div className="text-center border-b-2 border-zinc-900 pb-5 mb-5 print:pb-2 print:mb-2">
-          <div className="text-[11px] uppercase tracking-widest font-bold text-zinc-600 mb-1 font-sans print:text-[7pt] print:mb-0.5">
-            {headerSubtitle || INSTITUTION_CONFIG.systemSubtitle}
-          </div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold uppercase tracking-wide text-zinc-950 font-serif print:text-[13pt] print:leading-tight">
-            {INSTITUTION_CONFIG.name}
-          </h1>
-          {nepaliName && (
-            <div className="text-sm font-serif text-zinc-800 font-bold mt-0.5 print:text-[8pt] print:mt-0">
-              {nepaliName}
-            </div>
-          )}
-          <p className="text-xs text-zinc-600 mt-1 font-sans print:text-[7.5pt] print:mt-0.5">
-            {INSTITUTION_CONFIG.department} • {INSTITUTION_CONFIG.location}
-          </p>
-          <div className="inline-block mt-3 px-4 py-1 border border-zinc-900 rounded-md text-xs font-bold uppercase tracking-wider bg-zinc-50 font-mono print:mt-1 print:px-2.5 print:py-0.5 print:text-[7.5pt] print:bg-transparent print:border-zinc-800 print:rounded-xs">
-            {documentTitleBadge}
-          </div>
-
-          {(headerFacilityName || headerAcademicYear) && (
-            <div className="mt-4 pt-2 border-t border-zinc-300 flex flex-wrap justify-between items-center text-xs font-medium text-zinc-700 font-sans print:mt-1.5 print:pt-1 print:text-[7pt]">
-              {headerFacilityName && (
-                <span>
-                  FACILITY: <strong className="text-zinc-950 uppercase">{headerFacilityName}</strong>
-                </span>
-              )}
-              {headerAcademicYear && (
-                <span>
-                  ACADEMIC YEAR: <strong>{headerAcademicYear}</strong>
-                </span>
-              )}
-              <span suppressHydrationWarning>
-                GENERATED: {new Date().toISOString().split('T')[0]}
-              </span>
-            </div>
-          )}
-        </div>
-
-        {/* Metadata Grid (Unified for Screen & Print) */}
-        {metadataGrid}
-
-        {/* Sub-Header / Summary Banner */}
-        {subHeaderBanner}
-
-        {/* Main Records Content (Table) */}
-        {children}
-
-        {/* Audit Footnotes Annex (Rendered immediately above signatures) */}
-        {footnotes && footnotes.length > 0 && (
-          <div className="mt-6 pt-3 border-t-2 border-zinc-900 footnotes-block break-inside-avoid print:break-inside-avoid font-sans">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-[11px] font-bold uppercase tracking-wider text-zinc-900 font-mono">
-                Audit Trail Footnotes &amp; Extended Narrative Notes
-              </h3>
-              <span className="text-[9px] text-zinc-500 font-mono">
-                {footnotes.length} Annotated {footnotes.length === 1 ? 'Record' : 'Records'}
-              </span>
-            </div>
-            <div className="space-y-1.5 text-xs text-zinc-700">
-              {footnotes.map((fn) => (
-                <div key={fn.index} className="flex items-start gap-1.5">
-                  <span className="font-mono font-bold text-indigo-700 print:text-zinc-950 text-xs shrink-0">
-                    [{fn.index}]
-                  </span>
-                  <div className="text-[10px] print:text-[8pt] leading-relaxed">
-                    <strong className="text-zinc-900 font-semibold">{fn.rowIdentifier} — {fn.fieldName}:</strong>{' '}
-                    <span className="text-zinc-700 italic font-serif">"{fn.fullText}"</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Institutional Signatures Block */}
+      {/* Printable Sheet Viewport */}
+      {/* Printable Sheet Viewport Canvas (WYSIWYG on-screen dimensions matching A4) */}
+      <div className="flex justify-center w-full overflow-x-auto pb-12 pt-2 print:p-0 print:m-0 print:overflow-visible">
         <div
-          className={`grid ${
-            resolvedSignatories.length === 3 ? 'grid-cols-3' : 'grid-cols-2'
-          } gap-8 pt-8 px-6 mt-8 font-sans signature-block break-inside-avoid print:break-inside-avoid print:pt-4 print:mt-4 print:px-4`}
+          className={`bg-white text-zinc-950 p-6 sm:p-8 rounded-xl shadow-2xl transition-all duration-300 print:p-0 print:shadow-none print:rounded-none border border-zinc-200/80 print:border-none ${
+            orientation === 'portrait'
+              ? 'w-full max-w-[794px] min-h-[1122px]'
+              : 'w-full max-w-[1122px] min-h-[794px]'
+          } ${activeDensity === 'compact' ? 'print-mode-compact' : 'print-mode-detailed'} ${fontSerif ? 'font-serif' : 'font-sans'}`}
         >
-          {resolvedSignatories.map((sig, idx) => (
-            <div key={idx} className="text-center">
-              <div className="border-t-2 border-zinc-900 pt-1.5 mx-auto w-52 print:w-44">
-                <p className="text-xs print:text-[10px] font-bold uppercase tracking-wider text-zinc-900">
-                  {sig.title}
-                </p>
-                <p className="text-[10px] print:text-[8px] text-zinc-500 mt-0.5">
-                  {sig.subtitle}
-                </p>
+          {/* Official Institutional Letterhead */}
+          <div className="text-center pb-3 border-b-2 border-zinc-900 mb-3 print:pb-2 print:mb-2 font-sans">
+            {nepaliName ? (
+              <h2 className="text-base font-extrabold font-heading text-zinc-800 uppercase tracking-wide">
+                {nepaliName}
+              </h2>
+            ) : (
+              <h2 className="text-base font-extrabold font-heading text-zinc-800 uppercase tracking-wide">
+                {INSTITUTION_CONFIG.nameNepali}
+              </h2>
+            )}
+            <h1 className="text-xl sm:text-2xl font-black font-heading text-zinc-950 uppercase tracking-wider mt-0.5">
+              {INSTITUTION_CONFIG.name}
+            </h1>
+            <p className="text-xs text-zinc-600 font-medium mt-0.5">
+              {INSTITUTION_CONFIG.department}
+            </p>
+            <p className="text-xs text-zinc-500 font-mono mt-0.5">
+              {INSTITUTION_CONFIG.location}
+            </p>
+
+            <div className="mt-2.5 inline-block px-4 py-1.5 bg-zinc-900 text-white text-[11px] font-mono font-bold uppercase tracking-widest rounded-sm print:bg-zinc-950 print:text-[8pt]">
+              {documentTitleBadge}
+            </div>
+
+            {headerAcademicYear && (
+              <div className="text-[10px] font-mono text-zinc-600 mt-1 print:text-[7pt]">
+                Academic Cycle: <span className="font-semibold text-zinc-900">{headerAcademicYear}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Optional Scope / Filter Banner */}
+          {subHeaderBanner && <div className="mb-4 print:mb-2">{subHeaderBanner}</div>}
+
+          {/* Optional Summary Metric Grid */}
+          {metadataGrid && <div className="mb-4 print:mb-2">{metadataGrid}</div>}
+
+          {/* Main Records Content (Table / Routine Grid / Incidents) */}
+          <div className="w-full">{children}</div>
+
+          {/* Audit Footnotes Annex (Rendered if any footnotes exist) */}
+          {footnotes && footnotes.length > 0 && (
+            <div className="mt-4 pt-3 border-t-2 border-zinc-800 break-inside-avoid print:break-inside-avoid print:mt-2 print:pt-2 font-sans footnotes-block">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-[11px] font-mono font-bold uppercase tracking-wider text-zinc-900">
+                  Audit Trail Footnotes &amp; Extended Narrative Notes
+                </h3>
+                <span className="text-[9px] text-zinc-500 font-mono">
+                  {footnotes.length} Annotated {footnotes.length === 1 ? 'Record' : 'Records'}
+                </span>
+              </div>
+              <div className="space-y-1.5 text-xs text-zinc-700">
+                {footnotes.map((fn) => (
+                  <div key={fn.index} className="flex items-start gap-1.5">
+                    <span className="font-mono font-bold text-indigo-700 print:text-zinc-950 text-xs shrink-0">
+                      [{fn.index}]
+                    </span>
+                    <div className="text-[10px] print:text-[8pt] leading-relaxed">
+                      <strong className="text-zinc-900 font-semibold">{fn.rowIdentifier} — {fn.fieldName}:</strong>{' '}
+                      <span className="text-zinc-700 italic font-serif">"{fn.fullText}"</span>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
-          ))}
-        </div>
+          )}
 
-        {/* Verification Footer */}
-        <div
-          suppressHydrationWarning
-          className="text-center mt-8 pt-3 border-t border-zinc-200 text-[10px] print:text-[8px] text-zinc-400 font-mono print:mt-3 print:pt-1"
-        >
-          {INSTITUTION_CONFIG.systemTitle} • {footerNote} • Generated:{' '}
-          {new Date().toISOString().split('T')[0]}
+          {/* Institutional Signatures Block (Full-Width Justified) */}
+          {resolvedSignatories.length > 0 && (
+            <div className="pt-6 px-2 mt-6 font-sans signature-block break-inside-avoid print:break-inside-avoid print:pt-4 print:mt-4 border-t border-zinc-200">
+              <div
+                className={`grid gap-6 print:gap-3 w-full ${
+                  resolvedSignatories.length === 1
+                    ? 'grid-cols-1 max-w-xs mx-auto'
+                    : resolvedSignatories.length === 2
+                    ? 'grid-cols-2 justify-between'
+                    : resolvedSignatories.length === 3
+                    ? 'grid-cols-3 justify-between'
+                    : 'grid-cols-2 sm:grid-cols-4 justify-between'
+                }`}
+              >
+                {resolvedSignatories.map((sig, idx) => (
+                  <div key={idx} className="text-center w-full px-2">
+                    <div className="border-t-2 border-zinc-900 pt-1.5 w-full max-w-[200px] mx-auto">
+                      <p className="text-[11px] print:text-[8pt] font-bold uppercase tracking-wider text-zinc-900 leading-tight">
+                        {sig.title}
+                      </p>
+                      <p className="text-[9px] print:text-[7pt] text-zinc-500 mt-0.5 leading-tight">
+                        {sig.subtitle}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Verification Footer */}
+          <div
+            suppressHydrationWarning
+            className="text-center mt-6 pt-2 border-t border-zinc-200 text-[10px] print:text-[8px] text-zinc-400 font-mono print:mt-2 print:pt-1"
+          >
+            {INSTITUTION_CONFIG.systemTitle} • {footerNote} • Generated:{' '}
+            {new Date().toISOString().split('T')[0]}
+          </div>
         </div>
       </div>
     </div>

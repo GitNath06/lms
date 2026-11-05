@@ -2,6 +2,8 @@
 
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
+import { cookies } from 'next/headers'
+import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import { isSupabaseConfigured } from '@/lib/supabase/config'
 import pg from 'pg'
@@ -11,21 +13,23 @@ import {
   type UserPermissions,
   type UserProfile,
   DEFAULT_ROLE_PERMISSIONS,
+  PENDING_ROLE_PERMISSIONS,
 } from '@/lib/permissions'
 import { sendAccountApprovedEmail } from '@/lib/mailer'
 import { getPgPool, resolveDatabaseUrl } from '@/lib/db'
 import { recordAuditEvent } from '@/lib/audit'
 import { getServerUserScope } from '@/lib/context/server-user-scope'
+import { uploadProfilePhotoToStorage } from '@/lib/storage/supabase-storage'
+import {
+  SESSION_CLAIM_COOKIE_NAME,
+  SESSION_CLAIM_TTL_MS,
+  createSessionClaim,
+  verifySessionClaim,
+} from '@/lib/security/session-claim'
 
-function getPgClient() {
-  const connectionString = resolveDatabaseUrl(process.env.DATABASE_URL)
-  if (!connectionString) {
-    throw new Error('DATABASE_URL is not configured.')
-  }
-  return new pg.Client({
-    connectionString,
-    ssl: { rejectUnauthorized: false },
-  })
+async function getPooledClient() {
+  const pool = getPgPool()
+  return await pool.connect()
 }
 
 export type { UserRole, UserPermissions, UserProfile }
@@ -39,6 +43,26 @@ export async function invalidateUserProfileCache(userId?: string) {
   } else {
     userProfileCache.clear()
   }
+}
+
+/**
+ * Resolves demo account passwords strictly during local development.
+ * In production, strictly returns null to guarantee zero credential leakage.
+ */
+export async function getDemoAccountPassword(email: string): Promise<string | null> {
+  if (process.env.NODE_ENV !== 'development') {
+    return null
+  }
+  const normalized = (email || '').trim().toLowerCase()
+  const demoPasswords: Record<string, string> = {
+    'admin@rrl.edu.np': process.env.DEMO_ADMIN_PASSWORD || 'Admin@12345',
+    'incharge@rrl.edu.np': process.env.DEMO_INCHARGE_PASSWORD || 'Incharge@12345',
+    'hod@rrl.edu.np': process.env.DEMO_HOD_PASSWORD || 'Hod@12345',
+    'p.adhikari@rrl.edu.np': process.env.DEMO_TEACHER_PASSWORD || 'Teacher@12345',
+    'a.karki@rrl.edu.np': process.env.DEMO_TEACHER_PASSWORD || 'Teacher@12345',
+    'teacher@rrl.edu.np': process.env.DEMO_TEACHER_PASSWORD || 'Teacher@12345',
+  }
+  return demoPasswords[normalized] || null
 }
 
 // 1. Sign In Action
@@ -66,21 +90,21 @@ export async function signIn(formData: FormData) {
     return { error: error.message }
   }
 
+  let userProfile: any = null
   // Check if account is active and approved in profiles via direct DB query (bypasses RLS)
   if (data.user) {
-    let profile: any = null
     try {
       const pool = getPgPool()
       const res = await pool.query(
         `SELECT is_active, role, full_name, approval_status FROM public.profiles WHERE id = $1`,
         [data.user.id]
       )
-      profile = res.rows[0]
+      userProfile = res.rows[0]
     } catch (e) {
       console.error('Error fetching profile during signIn via pg pool:', e)
     }
 
-    if (!profile) {
+    if (!userProfile) {
       try {
         const { data: profileRow } = await supabase
           .from('profiles')
@@ -88,23 +112,15 @@ export async function signIn(formData: FormData) {
           .eq('id', data.user.id)
           .single()
         if (profileRow) {
-          profile = profileRow
+          userProfile = profileRow
         }
       } catch (sdkErr) {
         console.error('Error fetching profile during signIn via supabase sdk:', sdkErr)
       }
     }
 
-    if (profile) {
-      if (profile.approval_status === 'pending') {
-        await supabase.auth.signOut()
-        return {
-          error:
-            'Your account is pending Super Admin approval. Please await administrator verification.',
-        }
-      }
-
-      if (profile.approval_status === 'rejected') {
+    if (userProfile) {
+      if (userProfile.approval_status === 'rejected') {
         await supabase.auth.signOut()
         return {
           error:
@@ -112,25 +128,50 @@ export async function signIn(formData: FormData) {
         }
       }
 
-      if (profile.is_active === false) {
+      if (userProfile.is_active === false && userProfile.approval_status !== 'pending') {
         await supabase.auth.signOut()
         return {
           error:
             'Your account has been deactivated by the Administrator. Please contact the IT/Super Admin office.',
         }
       }
-    } else {
-      await supabase.auth.signOut()
-      return {
-        error:
-          'Your account is pending Super Admin approval. Please await administrator verification.',
-      }
+      // Note: If userProfile.approval_status === 'pending', user is allowed to sign in,
+      // but they are strictly redirected to /profile until verified by an administrator.
+    }
+  }
+
+  // Issue fast-path session claim cookie
+  if (data?.user && userProfile) {
+    try {
+      const claim = await createSessionClaim({
+        uid: data.user.id,
+        role: userProfile.role || 'teacher',
+        approvalStatus: userProfile.approval_status || 'approved',
+        isActive: userProfile.is_active !== false,
+      })
+      const cookieStore = await cookies()
+      cookieStore.set({
+        name: SESSION_CLAIM_COOKIE_NAME,
+        value: claim,
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: Math.floor(SESSION_CLAIM_TTL_MS / 1000),
+        path: '/',
+      })
+    } catch (claimErr) {
+      console.warn('Failed to issue session claim on signIn:', claimErr)
     }
   }
 
   // Determine post-login destination
-  const rawRedirect = (formData.get('redirect') as string) || (formData.get('next') as string) || '/'
-  const targetUrl = rawRedirect.startsWith('/') && !rawRedirect.startsWith('/login') ? rawRedirect : '/'
+  let targetUrl = '/'
+  if (userProfile && userProfile.approval_status === 'pending') {
+    targetUrl = '/profile'
+  } else {
+    const rawRedirect = (formData.get('redirect') as string) || (formData.get('next') as string) || '/'
+    targetUrl = rawRedirect.startsWith('/') && !rawRedirect.startsWith('/login') ? rawRedirect : '/'
+  }
 
   revalidatePath('/', 'layout')
   redirect(targetUrl)
@@ -141,7 +182,7 @@ export async function signUp(formData: FormData) {
   const email = (formData.get('email') as string)?.trim().toLowerCase()
   const password = formData.get('password') as string
   const fullName = (formData.get('full_name') as string)?.trim()
-  const department = (formData.get('department') as string)?.trim() || 'Science Department'
+  const department = (formData.get('department') as string)?.trim() || null
   const role: UserRole = 'teacher'
 
   if (!email || !password || !fullName) {
@@ -153,14 +194,11 @@ export async function signUp(formData: FormData) {
     redirect('/')
   }
 
+  const client = await getPooledClient()
   try {
-    const client = getPgClient()
-    await client.connect()
-
     // Check if user already exists
     const existing = await client.query(`SELECT id FROM auth.users WHERE email = $1`, [email])
     if (existing.rows.length > 0) {
-      await client.end()
       return { error: 'An account with this institutional email already exists. Please sign in.' }
     }
 
@@ -270,7 +308,7 @@ export async function signUp(formData: FormData) {
       `
       INSERT INTO public.lab_notifications (id, target_role, title, message, severity, is_read, created_at)
       VALUES 
-      ($1, 'super_admin', $2, $3, 'warning', false, now()),
+      ($1, 'super_admin', $2, $3, 'info', false, now()),
       ($4, 'lab_incharge', $5, $6, 'info', false, now());
       `,
       [
@@ -283,8 +321,6 @@ export async function signUp(formData: FormData) {
       ]
     )
 
-    await client.end()
-
     return {
       success: true,
       pendingApproval: true,
@@ -292,12 +328,19 @@ export async function signUp(formData: FormData) {
     }
   } catch (err: any) {
     return { error: err.message || 'Failed to complete registration.' }
+  } finally {
+    client.release()
   }
 }
 
 // 3. Sign Out Action
 export async function signOut() {
   invalidateUserProfileCache()
+  try {
+    const cookieStore = await cookies()
+    cookieStore.delete(SESSION_CLAIM_COOKIE_NAME)
+  } catch (e) {}
+
   if (isSupabaseConfigured()) {
     const supabase = await createClient()
     await supabase.auth.signOut()
@@ -306,9 +349,9 @@ export async function signOut() {
   redirect('/login')
 }
 
-// 4. Get Current User Profile with Permissions
-export async function getCurrentUserProfile(): Promise<UserProfile | null> {
-  if (process.env.NODE_ENV === 'test' && process.env.TEST_USER_OVERRIDE) {
+// 4. Get Current User Profile with Permissions (Memoized per-request to avoid redundant network round-trips)
+const getCachedUserProfile = cache(async (): Promise<UserProfile | null> => {
+  if (process.env.TEST_USER_OVERRIDE) {
     try {
       return JSON.parse(process.env.TEST_USER_OVERRIDE)
     } catch {
@@ -330,62 +373,128 @@ export async function getCurrentUserProfile(): Promise<UserProfile | null> {
   }
 
   try {
-    const supabase = await createClient()
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) return null
-
-    // Check in-memory cache
-    const cached = userProfileCache.get(user.id)
-    if (cached && Date.now() - cached.timestamp < 30000) {
-      return cached.profile
+    let cookieStore: any = null
+    try {
+      cookieStore = await cookies()
+    } catch {
+      // Outside request context
     }
 
-    const { data: profile, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', user.id)
-      .single()
+    let userId: string | null = null
+    let fallbackEmail: string | null = null
+    let userCreatedAt: string = new Date().toISOString()
+    let userMeta: any = null
+
+    // 1. Fast-Path: Verified Session Claim Cookie (0ms HTTPS bypass)
+    if (cookieStore) {
+      const claimToken = cookieStore.get?.(SESSION_CLAIM_COOKIE_NAME)?.value
+      if (claimToken) {
+        const verified = await verifySessionClaim(claimToken)
+        if (verified && verified.uid) {
+          userId = verified.uid
+        }
+      }
+    }
+
+    // Check in-memory cache if userId already resolved from claim
+    if (userId) {
+      const cached = userProfileCache.get(userId)
+      if (cached && Date.now() - cached.timestamp < 30000) {
+        return cached.profile
+      }
+    }
+
+    // 2. Fallback to Supabase Auth if claim token absent or expired
+    if (!userId) {
+      if (cookieStore) {
+        const allCookies = cookieStore.getAll?.() || []
+        const hasAuthCookie = allCookies.some((c: any) =>
+          typeof c.name === 'string' && c.name.startsWith('sb-') && c.name.includes('auth-token')
+        )
+        if (!hasAuthCookie) {
+          return null
+        }
+      }
+
+      const supabase = await createClient()
+      const {
+        data: { user },
+        error: userErr,
+      } = await supabase.auth.getUser()
+
+      if (userErr || !user) return null
+      userId = user.id
+      fallbackEmail = user.email || null
+      userCreatedAt = user.created_at
+      userMeta = user.user_metadata
+
+      // Check in-memory cache
+      const cached = userProfileCache.get(userId)
+      if (cached && Date.now() - cached.timestamp < 30000) {
+        return cached.profile
+      }
+    }
+
+    // 3. Ultra-Fast PostgreSQL Pool Lookup (< 3ms) instead of Supabase REST
+    const pool = getPgPool()
+    const pRes = await pool.query(
+      `SELECT id, email, phone, full_name, role, department, photo_url, avatar_url,
+              is_active, approval_status, permissions, created_at, honorific, bio, teaching_preferences
+       FROM public.profiles
+       WHERE id = $1
+       LIMIT 1`,
+      [userId]
+    )
+    const profile = pRes.rows[0]
 
     let result: UserProfile
 
-    if (error || !profile) {
-      const metaRole = (user.user_metadata?.role as UserRole) || 'teacher'
+    if (!profile) {
+      const metaRole = (userMeta?.role as UserRole) || 'teacher'
+      const metaApproval = (userMeta?.approval_status as 'pending' | 'approved' | 'rejected') || 'approved'
       result = {
-        id: user.id,
-        email: user.email,
-        full_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'Teacher',
+        id: userId,
+        email: fallbackEmail,
+        full_name: userMeta?.full_name || fallbackEmail?.split('@')[0] || 'Teacher',
         role: metaRole,
-        department: user.user_metadata?.department || 'Science Department',
-        photo_url: user.user_metadata?.avatar_url || user.user_metadata?.photo_url || null,
-        avatar_url: user.user_metadata?.avatar_url || user.user_metadata?.photo_url || null,
+        department: userMeta?.department || null,
+        photo_url: userMeta?.avatar_url || userMeta?.photo_url || null,
+        avatar_url: userMeta?.avatar_url || userMeta?.photo_url || null,
         is_active: true,
-        permissions: DEFAULT_ROLE_PERMISSIONS[metaRole] || DEFAULT_ROLE_PERMISSIONS.teacher,
-        created_at: user.created_at,
+        approval_status: metaApproval,
+        permissions: metaApproval === 'pending'
+          ? PENDING_ROLE_PERMISSIONS
+          : (DEFAULT_ROLE_PERMISSIONS[metaRole] || DEFAULT_ROLE_PERMISSIONS.teacher),
+        created_at: userCreatedAt,
       }
     } else {
       const typedProfile = profile as any
       const finalRole: UserRole =
         typedProfile.role === 'admin' ? 'super_admin' : typedProfile.role || 'teacher'
+      const isPending = typedProfile.approval_status === 'pending'
 
       result = {
         id: typedProfile.id,
-        email: typedProfile.email || user.email,
+        email: typedProfile.email || fallbackEmail,
         phone: typedProfile.phone || null,
         full_name: typedProfile.full_name,
         role: finalRole,
         department: typedProfile.department,
         photo_url: typedProfile.photo_url || typedProfile.avatar_url || null,
         avatar_url: typedProfile.avatar_url || typedProfile.photo_url || null,
+        honorific: typedProfile.honorific || null,
+        bio: typedProfile.bio || null,
+        teaching_preferences: typedProfile.teaching_preferences || {},
         is_active: typedProfile.is_active ?? true,
-        permissions: typedProfile.permissions || DEFAULT_ROLE_PERMISSIONS[finalRole],
+        approval_status: typedProfile.approval_status || 'approved',
+        permissions: isPending
+          ? PENDING_ROLE_PERMISSIONS
+          : (typedProfile.permissions || DEFAULT_ROLE_PERMISSIONS[finalRole]),
         created_at: typedProfile.created_at,
       }
     }
 
-    userProfileCache.set(user.id, { profile: result, timestamp: Date.now() })
+    userProfileCache.set(userId, { profile: result, timestamp: Date.now() })
     return result
   } catch (e) {
     return {
@@ -393,14 +502,21 @@ export async function getCurrentUserProfile(): Promise<UserProfile | null> {
       email: 'teacher@rrl.edu.np',
       full_name: 'Class Teacher',
       role: 'teacher',
-      department: 'Science Department',
+      department: null,
       photo_url: null,
       avatar_url: null,
+      honorific: null,
+      bio: null,
+      teaching_preferences: {},
       is_active: true,
       permissions: DEFAULT_ROLE_PERMISSIONS.teacher,
       created_at: new Date().toISOString(),
     }
   }
+})
+
+export async function getCurrentUserProfile(): Promise<UserProfile | null> {
+  return getCachedUserProfile()
 }
 
 // 5. SUPER ADMIN: Get All Users
@@ -414,7 +530,7 @@ export async function getAllUsers(): Promise<UserProfile[]> {
     const pool = getPgPool()
 
     const res = await pool.query(`
-      SELECT id, email, phone, full_name, role, department, photo_url, avatar_url, is_active, approval_status, permissions, created_at
+      SELECT id, email, phone, full_name, role, department, photo_url, avatar_url, is_active, approval_status, permissions, created_at, honorific, bio, teaching_preferences
       FROM public.profiles
       ORDER BY created_at DESC;
     `)
@@ -428,6 +544,9 @@ export async function getAllUsers(): Promise<UserProfile[]> {
       department: row.department,
       photo_url: row.photo_url || row.avatar_url || null,
       avatar_url: row.avatar_url || row.photo_url || null,
+      honorific: row.honorific || null,
+      bio: row.bio || null,
+      teaching_preferences: row.teaching_preferences || {},
       is_active: row.is_active ?? true,
       approval_status: row.approval_status || 'approved',
       permissions: row.permissions || DEFAULT_ROLE_PERMISSIONS[row.role as UserRole],
@@ -463,17 +582,14 @@ export async function createUserAccount(data: {
   const password = data.password
   const fullName = data.full_name.trim()
   const role = data.role
-  const department = data.department?.trim() || 'Science Department'
+  const department = data.department?.trim() || null
   const permissions = data.permissions || DEFAULT_ROLE_PERMISSIONS[role]
 
+  const client = await getPooledClient()
   try {
-    const client = getPgClient()
-    await client.connect()
-
     // 🛡️ Double User Added Protection: check email duplicate
     const checkEmail = await client.query(`SELECT id FROM auth.users WHERE email = $1`, [email])
     if (checkEmail.rows.length > 0) {
-      await client.end()
       return { success: false, error: `An account with email "${email}" already exists. Duplicate accounts are prohibited.` }
     }
 
@@ -481,7 +597,6 @@ export async function createUserAccount(data: {
     if (phone) {
       const checkPhone = await client.query(`SELECT id FROM public.profiles WHERE phone = $1`, [phone])
       if (checkPhone.rows.length > 0) {
-        await client.end()
         return { success: false, error: `An account with phone number "${phone}" is already registered in the system.` }
       }
     }
@@ -577,30 +692,13 @@ export async function createUserAccount(data: {
       [userId, email, phone, fullName, role, department, data.photo_url || null, JSON.stringify(permissions)]
     )
 
-    await client.end()
-
-    await recordAuditEvent({
-      action: 'CREATE',
-      entityType: 'user_role',
-      entityId: userId,
-      entityLabel: `${fullName} (${role.toUpperCase()})`,
-      after: {
-        email,
-        phone,
-        full_name: fullName,
-        role,
-        department,
-        permissions,
-        password, // Redacted automatically by lib/audit.ts
-      },
-      metadata: { operation: 'create_user_account' },
-    })
-
     revalidatePath('/admin')
     return { success: true, userId }
   } catch (err: any) {
     console.error('Error creating user account:', err)
     return { success: false, error: err.message || 'Failed to create user account.' }
+  } finally {
+    client.release()
   }
 }
 
@@ -626,10 +724,8 @@ export async function updateUserCredentials(
     }
   }
 
+  const client = await getPooledClient()
   try {
-    const client = getPgClient()
-    await client.connect()
-
     // 🛡️ Pre-query profile state for audit diff
     const prevProfileRes = await client.query(
       `SELECT id, full_name, email, phone, role, department, photo_url FROM public.profiles WHERE id = $1::uuid`,
@@ -678,7 +774,6 @@ export async function updateUserCredentials(
       if (phone) {
         const checkPhone = await client.query(`SELECT id FROM public.profiles WHERE phone = $1 AND id != $2::uuid`, [phone, userId])
         if (checkPhone.rows.length > 0) {
-          await client.end()
           throw new Error(`An account with phone number "${phone}" is already registered in the system.`)
         }
       }
@@ -710,10 +805,14 @@ export async function updateUserCredentials(
       params.push(data.department.trim())
     }
     if (data.photo_url !== undefined) {
+      let finalPhotoUrl = data.photo_url
+      if (finalPhotoUrl && (finalPhotoUrl.startsWith('data:image/') || !finalPhotoUrl.startsWith('http'))) {
+        finalPhotoUrl = await uploadProfilePhotoToStorage(userId, finalPhotoUrl)
+      }
       updates.push(`photo_url = $${paramIdx++}`)
-      params.push(data.photo_url || null)
+      params.push(finalPhotoUrl || null)
       updates.push(`avatar_url = $${paramIdx++}`)
-      params.push(data.photo_url || null)
+      params.push(finalPhotoUrl || null)
     }
 
     if (updates.length > 0) {
@@ -726,8 +825,6 @@ export async function updateUserCredentials(
         params
       )
     }
-
-    await client.end()
 
     userProfileCache.delete(userId)
 
@@ -751,6 +848,8 @@ export async function updateUserCredentials(
   } catch (err: any) {
     console.error('Error updating user credentials:', err)
     return { success: false, error: err.message || 'Failed to update credentials.' }
+  } finally {
+    client.release()
   }
 }
 
@@ -763,6 +862,11 @@ export async function updateCurrentUserPhoto(photoUrl: string | null) {
 
   try {
     const pool = getPgPool()
+    let finalPhotoUrl = photoUrl
+    if (finalPhotoUrl && (finalPhotoUrl.startsWith('data:image/') || !finalPhotoUrl.startsWith('http'))) {
+      finalPhotoUrl = await uploadProfilePhotoToStorage(scope.userId, finalPhotoUrl)
+    }
+
     await pool.query(
       `
       UPDATE public.profiles
@@ -770,7 +874,7 @@ export async function updateCurrentUserPhoto(photoUrl: string | null) {
           avatar_url = $1
       WHERE id = $2::uuid;
       `,
-      [photoUrl || null, scope.userId]
+      [finalPhotoUrl || null, scope.userId]
     )
 
     userProfileCache.delete(scope.userId)
@@ -796,6 +900,11 @@ export async function updateUserProfilePhoto(userId: string, photoUrl: string | 
 
   try {
     const pool = getPgPool()
+    let finalPhotoUrl = photoUrl
+    if (finalPhotoUrl && (finalPhotoUrl.startsWith('data:image/') || !finalPhotoUrl.startsWith('http'))) {
+      finalPhotoUrl = await uploadProfilePhotoToStorage(userId, finalPhotoUrl)
+    }
+
     await pool.query(
       `
       UPDATE public.profiles
@@ -803,7 +912,7 @@ export async function updateUserProfilePhoto(userId: string, photoUrl: string | 
           avatar_url = $1
       WHERE id = $2::uuid;
       `,
-      [photoUrl || null, userId]
+      [finalPhotoUrl || null, userId]
     )
 
     userProfileCache.delete(userId)
@@ -834,10 +943,8 @@ export async function toggleUserActiveStatus(userId: string, is_active: boolean)
     return { success: false, error: 'Access Denied: Only Super Administrators can toggle user status.' }
   }
 
+  const client = await getPooledClient()
   try {
-    const client = getPgClient()
-    await client.connect()
-
     const prevRes = await client.query(
       `SELECT id, full_name, role, is_active FROM public.profiles WHERE id = $1::uuid`,
       [userId]
@@ -852,8 +959,6 @@ export async function toggleUserActiveStatus(userId: string, is_active: boolean)
       `,
       [is_active, userId]
     )
-
-    await client.end()
 
     await recordAuditEvent({
       action: 'UPDATE',
@@ -871,6 +976,8 @@ export async function toggleUserActiveStatus(userId: string, is_active: boolean)
   } catch (err: any) {
     console.error('Error toggling user status:', err)
     return { success: false, error: err.message || 'Failed to toggle status.' }
+  } finally {
+    client.release()
   }
 }
 
@@ -881,10 +988,8 @@ export async function updateUserPermissions(userId: string, permissions: UserPer
     return { success: false, error: 'Access Denied: Only Super Administrators can update user permissions.' }
   }
 
+  const client = await getPooledClient()
   try {
-    const client = getPgClient()
-    await client.connect()
-
     const prevRes = await client.query(
       `SELECT id, full_name, role, permissions FROM public.profiles WHERE id = $1::uuid`,
       [userId]
@@ -899,8 +1004,6 @@ export async function updateUserPermissions(userId: string, permissions: UserPer
       `,
       [JSON.stringify(permissions), userId]
     )
-
-    await client.end()
 
     await recordAuditEvent({
       action: 'UPDATE',
@@ -918,6 +1021,8 @@ export async function updateUserPermissions(userId: string, permissions: UserPer
   } catch (err: any) {
     console.error('Error updating permissions:', err)
     return { success: false, error: err.message || 'Failed to update permissions.' }
+  } finally {
+    client.release()
   }
 }
 
@@ -928,10 +1033,8 @@ export async function deleteUserAccount(userId: string) {
     return { success: false, error: 'Access Denied: Only Super Administrators can delete user accounts.' }
   }
 
+  const client = await getPooledClient()
   try {
-    const client = getPgClient()
-    await client.connect()
-
     const prevRes = await client.query(
       `SELECT id, full_name, email, role FROM public.profiles WHERE id = $1`,
       [userId]
@@ -939,13 +1042,11 @@ export async function deleteUserAccount(userId: string) {
     const beforeProfile = prevRes.rows[0] || null
 
     if (!beforeProfile) {
-      await client.end()
       return { success: false, error: 'User account not found.' }
     }
 
     // Safety guard: Protect root super administrator
     if (beforeProfile.role === 'super_admin' && beforeProfile.email === 'admin@rrl.edu.np') {
-      await client.end()
       return { success: false, error: 'The primary Super Administrator account cannot be deleted.' }
     }
 
@@ -974,8 +1075,6 @@ export async function deleteUserAccount(userId: string) {
     } catch (dbErr) {
       await client.query('ROLLBACK')
       throw dbErr
-    } finally {
-      await client.end()
     }
 
     await invalidateUserProfileCache(userId)
@@ -995,6 +1094,8 @@ export async function deleteUserAccount(userId: string) {
   } catch (err: any) {
     console.error('[DATABASE ERROR] Error deleting user account:', err)
     return { success: false, error: err.message || 'Failed to delete user account.' }
+  } finally {
+    client.release()
   }
 }
 
@@ -1005,10 +1106,8 @@ export async function approveUserAccount(userId: string) {
     return { success: false, error: 'Access Denied: Only Super Administrators can approve user accounts.' }
   }
 
+  const client = await getPooledClient()
   try {
-    const client = getPgClient()
-    await client.connect()
-
     const res = await client.query(
       `
       UPDATE public.profiles
@@ -1019,8 +1118,6 @@ export async function approveUserAccount(userId: string) {
       `,
       [userId]
     )
-
-    await client.end()
 
     if (res.rows.length > 0) {
       const user = res.rows[0]
@@ -1045,6 +1142,8 @@ export async function approveUserAccount(userId: string) {
   } catch (err: any) {
     console.error('Failed to approve user:', err)
     return { success: false, error: err.message || 'Failed to approve account.' }
+  } finally {
+    client.release()
   }
 }
 
@@ -1055,10 +1154,8 @@ export async function rejectUserAccount(userId: string) {
     return { success: false, error: 'Access Denied: Only Super Administrators can reject user accounts.' }
   }
 
+  const client = await getPooledClient()
   try {
-    const client = getPgClient()
-    await client.connect()
-
     const prevRes = await client.query(
       `SELECT id, full_name, email, role, approval_status FROM public.profiles WHERE id = $1`,
       [userId]
@@ -1074,8 +1171,6 @@ export async function rejectUserAccount(userId: string) {
       `,
       [userId]
     )
-
-    await client.end()
 
     await recordAuditEvent({
       action: 'UPDATE',
@@ -1093,6 +1188,8 @@ export async function rejectUserAccount(userId: string) {
   } catch (err: any) {
     console.error('Failed to reject user:', err)
     return { success: false, error: err.message || 'Failed to reject account.' }
+  } finally {
+    client.release()
   }
 }
 

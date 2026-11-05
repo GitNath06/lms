@@ -30,13 +30,13 @@ export function LabOccupancyTab() {
   return (
     <div className="space-y-4 font-sans text-zinc-900 dark:text-zinc-100">
       {/* Overview Banner */}
-      <div className="p-4 rounded-2xl bg-[#101726] border border-white/[0.08] shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="p-4 rounded-2xl bg-white dark:bg-[#101726] border border-zinc-200 dark:border-white/[0.08] shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="space-y-1">
-          <h3 className="font-heading font-extrabold text-sm text-white flex items-center gap-2">
-            <Building2 className="h-4 w-4 text-indigo-400" />
+          <h3 className="font-heading font-extrabold text-sm text-zinc-900 dark:text-white flex items-center gap-2">
+            <Building2 className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
             <span>Institutional Laboratory Occupancy &amp; Capacity Utilization</span>
           </h3>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-zinc-600 dark:text-slate-400">
             Operating baseline: 36 instructional hours / week (10:00 AM – 4:00 PM, Sunday–Friday).
           </p>
         </div>
@@ -44,8 +44,8 @@ export function LabOccupancyTab() {
 
       {/* Lab Cards Grid */}
       {loading ? (
-        <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-2">
-          <Loader2 className="h-6 w-6 animate-spin text-indigo-400" />
+        <div className="flex flex-col items-center justify-center py-16 text-zinc-500 dark:text-slate-400 gap-2">
+          <Loader2 className="h-6 w-6 animate-spin text-indigo-600 dark:text-indigo-400" />
           <span className="text-xs">Computing facility utilization indices...</span>
         </div>
       ) : (
@@ -53,42 +53,42 @@ export function LabOccupancyTab() {
           {records.map((r) => (
             <div
               key={r.lab_id}
-              className="rounded-2xl border border-white/[0.08] bg-[#101726] p-4 space-y-3.5 shadow-md"
+              className="rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] p-4 space-y-3.5 shadow-sm"
             >
-              <div className="flex items-center justify-between border-b border-white/[0.06] pb-2.5">
+              <div className="flex items-center justify-between border-b border-zinc-200 dark:border-white/[0.06] pb-2.5">
                 <div className="flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]" />
-                  <h4 className="font-heading font-extrabold text-sm text-white">
+                  <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 shadow-[0_0_8px_#34d399]" />
+                  <h4 className="font-heading font-extrabold text-sm text-zinc-900 dark:text-white">
                     {r.lab_name}
                   </h4>
                 </div>
-                <Badge className="bg-indigo-500/10 text-indigo-300 font-mono text-[10px]">
+                <Badge className="bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 font-mono text-[10px] border border-indigo-200 dark:border-indigo-500/20">
                   Cap: {r.lab_capacity} Students
                 </Badge>
               </div>
 
               {/* Metrics Row */}
               <div className="grid grid-cols-2 gap-2.5 text-xs">
-                <div className="p-2.5 rounded-xl bg-[#151E32] border border-white/5 space-y-1">
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                <div className="p-2.5 rounded-xl bg-zinc-50 dark:bg-[#151E32] border border-zinc-200 dark:border-white/5 space-y-1">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-slate-400">
                     Timetable Booked Hours
                   </div>
-                  <div className="font-heading text-lg font-extrabold text-white tabular-nums">
+                  <div className="font-heading text-lg font-extrabold text-zinc-900 dark:text-white tabular-nums">
                     {r.scheduled_weekly_hours}h / 36h
                   </div>
-                  <div className="text-[10px] text-indigo-300 font-semibold">
+                  <div className="text-[10px] text-indigo-700 dark:text-indigo-300 font-semibold">
                     {r.occupancy_rate_pct}% Room Occupancy
                   </div>
                 </div>
 
-                <div className="p-2.5 rounded-xl bg-[#151E32] border border-white/5 space-y-1">
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                <div className="p-2.5 rounded-xl bg-zinc-50 dark:bg-[#151E32] border border-zinc-200 dark:border-white/5 space-y-1">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-slate-400">
                     Avg Student Volume
                   </div>
-                  <div className="font-heading text-lg font-extrabold text-emerald-400 tabular-nums">
+                  <div className="font-heading text-lg font-extrabold text-emerald-600 dark:text-emerald-400 tabular-nums">
                     {r.avg_students_per_session} Students
                   </div>
-                  <div className="text-[10px] text-emerald-300 font-semibold">
+                  <div className="text-[10px] text-emerald-700 dark:text-emerald-300 font-semibold">
                     {r.capacity_utilization_pct}% Capacity Used
                   </div>
                 </div>
@@ -96,14 +96,14 @@ export function LabOccupancyTab() {
 
               {/* Utilization Bar */}
               <div className="space-y-1">
-                <div className="flex justify-between text-[11px] text-slate-400">
+                <div className="flex justify-between text-[11px] text-zinc-500 dark:text-slate-400">
                   <span>Weekly Operating Density</span>
-                  <span className="font-mono text-white">{r.occupancy_rate_pct}%</span>
+                  <span className="font-mono text-zinc-900 dark:text-white">{r.occupancy_rate_pct}%</span>
                 </div>
-                <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+                <div className="h-1.5 w-full bg-zinc-100 dark:bg-white/5 rounded-full overflow-hidden">
                   <div
                     style={{ width: `${r.occupancy_rate_pct}%` }}
-                    className="h-full bg-indigo-500 rounded-full transition-all"
+                    className="h-full bg-indigo-600 dark:bg-indigo-500 rounded-full transition-all"
                   />
                 </div>
               </div>

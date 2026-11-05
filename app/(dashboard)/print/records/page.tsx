@@ -6,9 +6,17 @@ import { INSTITUTION_CONFIG } from '@/lib/institution'
 import { getPracticalRecords, getPrintSelectionSessionAction } from '@/app/actions/records'
 import { PracticalGroupedSection, PracticalSummaryMetrics } from '@/types/records'
 import PrintLayout from '@/components/print/print-layout'
-import { practicalReportSpec, formatClassCode, sanitizeSubjectTitle } from '@/lib/report-spec/practical-spec'
+import {
+  practicalReportSpec,
+  formatClassCode,
+  sanitizeSubjectTitle,
+  cleanSubjectCode,
+  cleanPracticalTitle,
+  formatFacilityShortCode,
+} from '@/lib/report-spec/practical-spec'
 import { searchParamsToFilters, truncateAtWordBoundary, resolveExportPrintScope } from '@/lib/report-spec/filter-codec'
 import { FootnoteEntry, PrintDensityMode } from '@/types/report-spec'
+import { formatToNepaliMiti } from '@/lib/nepali-date'
 
 interface PrintRecordsPageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>
@@ -25,17 +33,19 @@ export default function PrintRecordsPage({ searchParams }: PrintRecordsPageProps
   const [academicYears, setAcademicYears] = useState<Array<{ id: string; name: string; isCurrent: boolean }>>([])
   const [activeAcademicYearId, setActiveAcademicYearId] = useState<string | null>(null)
 
-  // Density mode state: honors URL param > localStorage > default 'detailed'
-  const [densityMode, setDensityMode] = useState<PrintDensityMode>(() => {
-    if (filters.density) return filters.density
-    if (typeof window !== 'undefined') {
+  // Refinement #4: Clean SSR hydration: initialize deterministically, read localStorage only on mount
+  const [densityMode, setDensityMode] = useState<PrintDensityMode>(filters.density || 'detailed')
+
+  useEffect(() => {
+    if (!filters.density && typeof window !== 'undefined') {
       try {
         const saved = localStorage.getItem('lmr_print_density_mode') as PrintDensityMode | null
-        if (saved === 'compact' || saved === 'detailed') return saved
+        if (saved === 'compact' || saved === 'detailed') {
+          setDensityMode(saved)
+        }
       } catch {}
     }
-    return 'detailed'
-  })
+  }, [filters.density])
 
   const academicYearId = filters.academic_year_id || (filters as any).year || 'all'
   const labId = filters.lab_id || 'all'
@@ -43,13 +53,18 @@ export default function PrintRecordsPage({ searchParams }: PrintRecordsPageProps
   const dateTo = filters.date_to || ''
   const groupBy = (filters.groupBy as any) || 'none'
 
-  // Resolve active visible columns
+  // Resolve active visible columns with Refinement #3: Context-aware dynamic column pruning
   const visibleColSet = useMemo(() => {
     if (filters.cols && filters.cols.trim()) {
       return new Set(filters.cols.split(',').map((s) => s.trim()).filter(Boolean))
     }
-    return new Set(['date', 'period', 'facility', 'class_batch', 'subject', 'experiment', 'teacher', 'attendance', 'status', 'remarks'])
-  }, [filters.cols])
+    const defaultCols = new Set(['date', 'period', 'facility', 'class_batch', 'subject', 'experiment', 'teacher', 'attendance', 'status', 'remarks'])
+    if (labId !== 'all') defaultCols.delete('facility')
+    if (filters.subject_name && filters.subject_name !== 'all') defaultCols.delete('subject')
+    if (filters.batch_group && filters.batch_group !== 'all') defaultCols.delete('class_batch')
+    if (filters.teacher_id && filters.teacher_id !== 'all') defaultCols.delete('teacher')
+    return defaultCols
+  }, [filters.cols, labId, filters.subject_name, filters.batch_group, filters.teacher_id])
 
   useEffect(() => {
     async function loadData() {
@@ -205,13 +220,14 @@ export default function PrintRecordsPage({ searchParams }: PrintRecordsPageProps
   }, [sections, densityMode, colRemarks])
 
   const headerAcademicYear = useMemo(() => {
+    const formatAy = (name: string) => (name.includes('B.S.') ? name : `${name} (B.S.)`)
     if (academicYearId && academicYearId !== 'all') {
       const matched = academicYears.find((ay) => ay.id === academicYearId)
-      return matched ? `${matched.name} (B.S.)` : `${academicYearId} (B.S.)`
+      return matched ? formatAy(matched.name) : formatAy(academicYearId)
     }
     if (activeAcademicYearId) {
       const active = academicYears.find((ay) => ay.id === activeAcademicYearId)
-      if (active) return `All Cycles (Active: ${active.name} B.S.)`
+      if (active) return `All Cycles (Active: ${formatAy(active.name)})`
     }
     return `Academic Year: ${INSTITUTION_CONFIG.academicYear}`
   }, [academicYearId, academicYears, activeAcademicYearId])
@@ -238,78 +254,79 @@ export default function PrintRecordsPage({ searchParams }: PrintRecordsPageProps
       footerNote={scope.traceabilityNote}
       footnotes={footnotes}
       metadataGrid={
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 rounded-lg bg-zinc-50 border border-zinc-200 mb-5 text-xs font-sans print:grid-cols-4 print:gap-2 print:p-1.5 print:mb-2 print:bg-transparent print:border-y print:border-zinc-800 print:rounded-none print:text-[7.5pt]">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3 rounded-lg bg-zinc-50 border border-zinc-200 mb-4 text-xs font-sans print:grid-cols-4 print:gap-2 print:p-1.5 print:mb-2 print:bg-transparent print:border-y print:border-zinc-800 print:rounded-none print:text-[7.5pt]">
           <div>
-            <span className="text-zinc-500 block font-mono text-[10px] uppercase print:text-[6.5pt] print:text-zinc-600">Facility</span>
-            <strong className="text-zinc-900 text-sm print:text-[8pt]">{labDisplayName}</strong>
+            <span className="text-zinc-500 block font-mono text-[9.5px] uppercase print:text-[6.5pt] print:text-zinc-600">Facility</span>
+            <strong className="text-zinc-900 text-sm print:text-[8pt] font-semibold">{labDisplayName}</strong>
           </div>
           <div>
-            <span className="text-zinc-500 block font-mono text-[10px] uppercase print:text-[6.5pt] print:text-zinc-600">Audit Period</span>
+            <span className="text-zinc-500 block font-mono text-[9.5px] uppercase print:text-[6.5pt] print:text-zinc-600">Audit Period</span>
             <strong className="text-zinc-900 font-mono print:text-[8pt]">{dateRangeLabel}</strong>
           </div>
           <div>
-            <span className="text-zinc-500 block font-mono text-[10px] uppercase print:text-[6.5pt] print:text-zinc-600">Conducted Sessions</span>
+            <span className="text-zinc-500 block font-mono text-[9.5px] uppercase print:text-[6.5pt] print:text-zinc-600">Conducted Sessions</span>
             <strong className="text-zinc-900 font-mono print:text-[8pt]">
               {metrics ? `${metrics.conductedSessions} / ${metrics.totalSessions} Slots` : '...'}
             </strong>
           </div>
           <div>
-            <span className="text-zinc-500 block font-mono text-[10px] uppercase print:text-[6.5pt] print:text-zinc-600">Student Attendance</span>
+            <span className="text-zinc-500 block font-mono text-[9.5px] uppercase print:text-[6.5pt] print:text-zinc-600">Student Attendance</span>
             <strong className="text-zinc-900 font-mono print:text-[8pt]">
               {metrics
                 ? `${metrics.totalPresent} / ${metrics.totalEnrolled} (${metrics.averageAttendancePct.toFixed(1)}%)`
                 : '...'}
             </strong>
           </div>
-          <div className="col-span-2 sm:col-span-4 pt-2 border-t border-zinc-200 text-zinc-600 font-mono text-[11px] flex items-center justify-between print:col-span-4 print:pt-0.5 print:mt-0.5 print:border-t print:border-zinc-300 print:text-[7pt]">
+          <div className="col-span-2 sm:col-span-4 pt-1.5 border-t border-zinc-200 text-zinc-600 font-mono text-[10.5px] flex items-center justify-between print:col-span-4 print:pt-0.5 print:mt-0.5 print:border-t print:border-zinc-300 print:text-[7pt]">
             <span>{scope.traceabilityNote}</span>
+            <span className="text-zinc-500">Report Scope: {scope.filterSummary}</span>
           </div>
         </div>
       }
     >
       {/* Main Practical Records Table */}
-      <div className="border border-zinc-900 rounded-md overflow-x-auto mb-6 print:border print:border-zinc-800 print:rounded-none print:overflow-visible print-dense-table">
+      <div className="border border-zinc-900 rounded-md overflow-x-auto mb-6 print:border-0 print:m-0 print:rounded-none print:overflow-visible print-dense-table">
         <table className="w-full text-left border-collapse text-xs print:text-[8.5pt]">
           <thead className="print:table-header-group">
             <tr className="bg-zinc-100 border-b border-zinc-900 text-zinc-900 uppercase font-mono font-bold text-[11px] print:text-[8pt] print:bg-zinc-200/90 print:border-b print:border-zinc-800 print:h-6">
               {visibleColSet.has('date') && (
                 <th
                   style={{ width: `${colDate.print[densityMode].widthPercent}%` }}
-                  className="py-2 px-2.5 print:py-0.5 print:px-1.5 border-r border-zinc-300 print:border-zinc-400 whitespace-nowrap"
+                  className="py-2 px-2 print:py-0.5 print:px-1 border-r border-zinc-300 print:border-zinc-400 whitespace-nowrap"
                 >
-                  {colDate.label}
+                  DATE
                 </th>
               )}
               {visibleColSet.has('period') && (
                 <th
                   style={{ width: `${colPeriod.print[densityMode].widthPercent}%` }}
-                  className="py-2 px-2.5 print:py-0.5 print:px-1.5 border-r border-zinc-300 print:border-zinc-400 whitespace-nowrap"
+                  className="py-2 px-2 print:py-0.5 print:px-1 border-r border-zinc-300 print:border-zinc-400 whitespace-nowrap"
                 >
-                  {colPeriod.label}
+                  PERIOD
                 </th>
               )}
               {visibleColSet.has('facility') && (
                 <th
-                  style={{ width: '10%' }}
-                  className="py-2 px-2.5 print:py-0.5 print:px-1.5 border-r border-zinc-300 print:border-zinc-400 whitespace-nowrap"
+                  style={{ width: '6%' }}
+                  className="py-2 px-2 print:py-0.5 print:px-1 border-r border-zinc-300 print:border-zinc-400 whitespace-nowrap"
                 >
-                  Facility
+                  FACILITY
                 </th>
               )}
               {visibleColSet.has('class_batch') && (
                 <th
                   style={{ width: `${colBatch.print[densityMode].widthPercent}%` }}
-                  className="py-2 px-2.5 print:py-0.5 print:px-1.5 border-r border-zinc-300 print:border-zinc-400 whitespace-nowrap"
+                  className="py-2 px-2 print:py-0.5 print:px-1 border-r border-zinc-300 print:border-zinc-400 whitespace-nowrap"
                 >
-                  {colBatch.label}
+                  CLASS
                 </th>
               )}
               {visibleColSet.has('subject') && (
                 <th
                   style={{ width: `${colSubject.print[densityMode].widthPercent}%` }}
-                  className="py-2 px-2.5 print:py-0.5 print:px-1.5 border-r border-zinc-300 print:border-zinc-400"
+                  className="py-2 px-2 print:py-0.5 print:px-1 border-r border-zinc-300 print:border-zinc-400 whitespace-nowrap"
                 >
-                  {colSubject.label}
+                  SUBJECT
                 </th>
               )}
               {visibleColSet.has('experiment') && (
@@ -317,7 +334,7 @@ export default function PrintRecordsPage({ searchParams }: PrintRecordsPageProps
                   style={{ width: `${colExperiment.print[densityMode].widthPercent}%` }}
                   className="py-2 px-2.5 print:py-0.5 print:px-1.5 border-r border-zinc-300 print:border-zinc-400"
                 >
-                  {colExperiment.label}
+                  PRACTICALS
                 </th>
               )}
               {visibleColSet.has('teacher') && (
@@ -325,23 +342,23 @@ export default function PrintRecordsPage({ searchParams }: PrintRecordsPageProps
                   style={{ width: `${colTeacher.print[densityMode].widthPercent}%` }}
                   className="py-2 px-2.5 print:py-0.5 print:px-1.5 border-r border-zinc-300 print:border-zinc-400 whitespace-nowrap"
                 >
-                  {colTeacher.label}
+                  SUBJECT TEACHER
                 </th>
               )}
               {visibleColSet.has('attendance') && (
                 <th
                   style={{ width: `${colAttendance.print[densityMode].widthPercent}%` }}
-                  className="py-2 px-2.5 print:py-0.5 print:px-1.5 border-r border-zinc-300 print:border-zinc-400 text-center whitespace-nowrap font-mono"
+                  className="py-2 px-2 print:py-0.5 print:px-1 border-r border-zinc-300 print:border-zinc-400 text-center whitespace-nowrap font-mono"
                 >
-                  {colAttendance.label}
+                  ATTENDANCE
                 </th>
               )}
               {visibleColSet.has('status') && (
                 <th
                   style={{ width: `${colStatus.print[densityMode].widthPercent}%` }}
-                  className="py-2 px-2.5 print:py-0.5 print:px-1.5 border-r border-zinc-300 print:border-zinc-400 text-center whitespace-nowrap"
+                  className="py-2 px-2 print:py-0.5 print:px-1 border-r border-zinc-300 print:border-zinc-400 text-center whitespace-nowrap"
                 >
-                  {colStatus.label}
+                  STATUS
                 </th>
               )}
               {visibleColSet.has('remarks') && (
@@ -349,7 +366,7 @@ export default function PrintRecordsPage({ searchParams }: PrintRecordsPageProps
                   style={{ width: `${colRemarks.print[densityMode].widthPercent}%` }}
                   className="py-2 px-2.5 print:py-0.5 print:px-1.5"
                 >
-                  {colRemarks.label}
+                  REMARK
                 </th>
               )}
             </tr>
@@ -410,20 +427,34 @@ export default function PrintRecordsPage({ searchParams }: PrintRecordsPageProps
                           className="hover:bg-zinc-50/60 break-inside-avoid print:break-inside-avoid print:leading-[1.15]"
                         >
                           {/* 1. Date */}
-                          {visibleColSet.has('date') && (
-                            <td className="py-2 px-2.5 print:py-0.5 print:px-1.5 border-r border-zinc-300 print:border-zinc-300 font-mono font-medium align-top whitespace-nowrap">
-                              {log.date}
-                            </td>
-                          )}
+                          {visibleColSet.has('date') && (() => {
+                            const miti = formatToNepaliMiti(log.date)
+                            return (
+                              <td className="py-2 px-2.5 print:py-0.5 print:px-1.5 border-r border-zinc-300 print:border-zinc-300 font-mono font-medium align-top whitespace-nowrap">
+                                {miti ? (
+                                  <div className="flex flex-col">
+                                    <span className="font-bold print:text-[8pt] text-zinc-900 font-heading">
+                                      {miti.bsFormattedNp}
+                                    </span>
+                                    <span className="text-[9px] print:text-[6.5pt] text-zinc-500 font-mono">
+                                      {miti.adDateStr}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  log.date
+                                )}
+                              </td>
+                            )
+                          })()}
 
-                          {/* 2. Slot */}
+                          {/* 2. Period */}
                           {visibleColSet.has('period') && (
-                            <td className="py-2 px-2.5 print:py-0.5 print:px-1.5 border-r border-zinc-300 print:border-zinc-300 font-mono text-[11px] print:text-[7.5pt] align-top">
+                            <td className="py-2 px-2 print:py-0.5 print:px-1 border-r border-zinc-300 print:border-zinc-300 font-mono text-[10.5px] print:text-[7pt] align-top whitespace-nowrap">
                               <div className="font-semibold text-zinc-900 leading-tight">
                                 {log.period_label ? log.period_label.replace(/\s*\([^)]*\)/, '') : '—'}
                               </div>
                               {log.period_label && log.period_label.includes('(') && (
-                                <div className="text-[10px] print:text-[6.5pt] text-zinc-500 font-mono mt-0.5 leading-tight">
+                                <div className="text-[9.5px] print:text-[6pt] text-zinc-500 font-mono mt-0.5 leading-tight">
                                   {log.period_label.match(/\(([^)]+)\)/)?.[1]}
                                 </div>
                               )}
@@ -432,15 +463,15 @@ export default function PrintRecordsPage({ searchParams }: PrintRecordsPageProps
 
                           {/* 3. Facility */}
                           {visibleColSet.has('facility') && (
-                            <td className="py-2 px-2.5 print:py-0.5 print:px-1.5 border-r border-zinc-300 print:border-zinc-300 align-top font-medium text-zinc-900 whitespace-nowrap">
-                              {log.labs?.name || log.lab_id || '—'}
+                            <td className="py-2 px-2 print:py-0.5 print:px-1 border-r border-zinc-300 print:border-zinc-300 align-top font-mono font-medium text-zinc-900 whitespace-nowrap text-[10.5px] print:text-[7.5pt]">
+                              {formatFacilityShortCode(log.labs?.name || log.lab_id)}
                             </td>
                           )}
 
                           {/* 4. Class / Batch */}
                           {visibleColSet.has('class_batch') && (
                             <td
-                              className="py-2 px-2.5 print:py-0.5 print:px-1.5 border-r border-zinc-300 print:border-zinc-300 align-top font-semibold text-zinc-900 whitespace-nowrap font-mono"
+                              className="py-2 px-2 print:py-0.5 print:px-1 border-r border-zinc-300 print:border-zinc-300 align-top font-semibold text-zinc-900 whitespace-nowrap font-mono text-[10.5px] print:text-[7.5pt]"
                               title={log.batch_group || undefined}
                             >
                               {formatClassCode(log.batch_group)}
@@ -449,22 +480,15 @@ export default function PrintRecordsPage({ searchParams }: PrintRecordsPageProps
 
                           {/* 5. Subject */}
                           {visibleColSet.has('subject') && (
-                            <td className="py-2 px-2.5 print:py-0.5 print:px-1.5 border-r border-zinc-300 print:border-zinc-300 align-top text-zinc-950 text-[11px] print:text-[8pt]">
-                              <div className="font-bold leading-tight">
-                                {sanitizeSubjectTitle(log.subject_name)}
-                              </div>
-                              {log.subject_code && (
-                                <div className="font-mono text-[9.5px] print:text-[6.5pt] text-zinc-600 mt-0.5 font-semibold">
-                                  {log.subject_code}
-                                </div>
-                              )}
+                            <td className="py-2 px-2 print:py-0.5 print:px-1 border-r border-zinc-300 print:border-zinc-300 align-top text-zinc-950 font-mono font-bold text-[10.5px] print:text-[8pt] whitespace-nowrap">
+                              {cleanSubjectCode(log.subject_code, log.subject_name)}
                             </td>
                           )}
 
-                          {/* 6. Practical Experiment */}
+                          {/* 6. Practicals */}
                           {visibleColSet.has('experiment') && (
-                            <td className="py-2 px-2.5 print:py-0.5 print:px-1.5 border-r border-zinc-300 print:border-zinc-300 align-top text-zinc-900 font-medium text-[11px] print:text-[8pt]">
-                              {log.practical_title}
+                            <td className="py-2 px-2.5 print:py-0.5 print:px-1.5 border-r border-zinc-300 print:border-zinc-300 align-top text-zinc-900 font-medium text-[11px] print:text-[8pt] leading-snug">
+                              {cleanPracticalTitle(log.practical_title)}
                             </td>
                           )}
 

@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { isSupabaseConfigured } from '@/lib/supabase/config'
+import { getServerUserScope } from '@/lib/context/server-user-scope'
 import { getSchedules } from './schedules'
 
 export interface TeacherSubstitutionRecord {
@@ -45,7 +46,13 @@ export async function assignSubstitute(data: {
   reason?: string
 }): Promise<{ success: boolean; substitution?: TeacherSubstitutionRecord; error?: string }> {
   try {
+    const scope = await getServerUserScope()
+    if (scope.approvalStatus !== 'approved' || !scope.userId) {
+      return { success: false, error: 'Unauthorized: Approved instructor login required.' }
+    }
+
     // 1. COLLISION ENGINE: Verify substitute teacher isn't double-booked in another lab
+
     const allSchedules = await getSchedules()
     const targetSlotId = data.slot_id
     
@@ -151,7 +158,7 @@ export async function getSubstitutions(filters?: {
       if (filters?.lab_id && filters.lab_id !== 'all') query = query.eq('lab_id', filters.lab_id)
 
       const { data, error } = await query
-      if (!error && data && data.length > 0) {
+      if (!error && data) {
         return data as TeacherSubstitutionRecord[]
       }
     } catch (e) {}
@@ -170,19 +177,28 @@ export async function getSubstitutions(filters?: {
   return list
 }
 
-export async function cancelSubstitution(id: string): Promise<{ success: boolean }> {
-  const store = getSubStore()
-  ;(globalThis as any).__TEACHER_SUBSTITUTIONS__ = store.filter((s) => s.id !== id)
+export async function cancelSubstitution(id: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const scope = await getServerUserScope()
+    if (scope.approvalStatus !== 'approved' || !scope.userId) {
+      return { success: false, error: 'Unauthorized: Approved instructor login required.' }
+    }
 
-  if (isSupabaseConfigured()) {
-    try {
-      const supabase = await createClient()
-      await (supabase.from('teacher_substitutions') as any).delete().eq('id', id)
-    } catch (e) {}
+    const store = getSubStore()
+    ;(globalThis as any).__TEACHER_SUBSTITUTIONS__ = store.filter((s) => s.id !== id)
+
+    if (isSupabaseConfigured()) {
+      try {
+        const supabase = await createClient()
+        await (supabase.from('teacher_substitutions') as any).delete().eq('id', id)
+      } catch (e) {}
+    }
+
+    revalidatePath('/schedules')
+    revalidatePath('/')
+
+    return { success: true }
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Failed to cancel substitution' }
   }
-
-  revalidatePath('/schedules')
-  revalidatePath('/')
-
-  return { success: true }
 }

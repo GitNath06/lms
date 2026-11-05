@@ -287,3 +287,35 @@ export async function deleteLabFacility(
   }
 }
 
+/**
+ * Returns all laboratory facilities directly from public.labs table in PostgreSQL.
+ */
+export async function getLabFacilitiesAction(): Promise<{
+  success: boolean
+  data: LabFacilityPayload[]
+  error?: string
+}> {
+  try {
+    const pool = getPgPool()
+    const res = await pool.query(
+      `SELECT id, name, code, capacity, type, status, is_active FROM public.labs ORDER BY name ASC;`
+    )
+    return {
+      success: true,
+      data: res.rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        code: r.code || r.id.toUpperCase(),
+        capacity: Number(r.capacity || 40),
+        type: r.type || 'computer_lab',
+        status: r.status || 'Operational',
+        is_active: Boolean(r.is_active),
+      })),
+    }
+  } catch (err: any) {
+    console.error('Failed to get lab facilities from PostgreSQL:', err)
+    return { success: false, data: [], error: err?.message || 'Failed to get laboratories' }
+  }
+}
+
+

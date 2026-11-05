@@ -1,6 +1,13 @@
 import type { PracticalGroupedSection, IncidentRecordItem, MaintenanceRecordItem } from '@/types/records'
 import { INSTITUTION_CONFIG } from '../institution'
-import { formatClassCode, sanitizeSubjectTitle } from '@/lib/report-spec/practical-spec'
+import {
+  formatClassCode,
+  sanitizeSubjectTitle,
+  cleanSubjectCode,
+  cleanPracticalTitle,
+  formatFacilityShortCode,
+} from '@/lib/report-spec/practical-spec'
+import { formatToNepaliMiti } from '@/lib/nepali-date'
 
 function escapeCsvCell(val: any): string {
   if (val === null || val === undefined) return '""'
@@ -15,17 +22,44 @@ interface CsvColDef<T> {
 }
 
 const ALL_PRACTICAL_CSV_COLS: CsvColDef<any>[] = [
-  { id: 'date', header: 'Date', getValue: (r) => r.date },
-  { id: 'period', header: 'Period / Slot', getValue: (r) => r.period_label || '—' },
-  { id: 'facility', header: 'Laboratory', getValue: (r) => r.labs?.name || r.lab_id || '—' },
-  { id: 'class_batch', header: 'Class', getValue: (r) => formatClassCode(r.batch_group) },
+  {
+    id: 'date',
+    header: 'Date (मिति)',
+    getValue: (r) => {
+      const miti = formatToNepaliMiti(r.date)
+      return miti ? `${miti.bsDateStr} B.S. (${miti.adDateStr})` : r.date
+    },
+  },
+  {
+    id: 'period',
+    header: 'Period',
+    getValue: (r) => (r.period_label ? r.period_label.replace(/\s*\([^)]*\)/, '') : '—'),
+  },
+  {
+    id: 'facility',
+    header: 'Facility',
+    getValue: (r) => formatFacilityShortCode(r.labs?.name || r.lab_id),
+  },
+  {
+    id: 'class_batch',
+    header: 'Class',
+    getValue: (r) => formatClassCode(r.batch_group),
+  },
   {
     id: 'subject',
     header: 'Subject',
-    getValue: (r) => sanitizeSubjectTitle(r.subject_name) + (r.subject_code ? ` (${r.subject_code})` : ''),
+    getValue: (r) => cleanSubjectCode(r.subject_code, r.subject_name),
   },
-  { id: 'experiment', header: 'Practical Title', getValue: (r) => r.practical_title || '—' },
-  { id: 'teacher', header: 'Subject Teacher', getValue: (r) => r.profiles?.full_name || 'Assigned Subject Teacher' },
+  {
+    id: 'experiment',
+    header: 'Practicals',
+    getValue: (r) => cleanPracticalTitle(r.practical_title),
+  },
+  {
+    id: 'teacher',
+    header: 'Subject Teacher',
+    getValue: (r) => r.profiles?.full_name || 'Assigned Subject Teacher',
+  },
   {
     id: 'attendance',
     header: 'Attendance',
@@ -37,7 +71,7 @@ const ALL_PRACTICAL_CSV_COLS: CsvColDef<any>[] = [
   { id: 'status', header: 'Status', getValue: (r) => (r.status === 'skipped' ? 'SKIPPED' : 'CONDUCTED') },
   {
     id: 'remarks',
-    header: 'Remarks / Skip Reason',
+    header: 'Remark',
     getValue: (r) => (r.status === 'skipped' ? r.skip_reason || 'Skipped' : r.remarks || ''),
   },
 ]
@@ -128,7 +162,17 @@ export function generatePracticalRecordsCsv(
 }
 
 const ALL_INCIDENT_CSV_COLS: CsvColDef<IncidentRecordItem>[] = [
-  { id: 'date_case', header: 'Date & Case #', getValue: (inc) => `${inc.date || inc.created_at?.split('T')[0]} (${inc.id})` },
+  {
+    id: 'date_case',
+    header: 'Date & Case #',
+    getValue: (inc) => {
+      const rawDate = inc.date || inc.created_at?.split('T')[0]
+      const miti = formatToNepaliMiti(rawDate)
+      const datePart = miti ? `${miti.bsDateStr} B.S.` : rawDate
+      const caseSuffix = `#${inc.id.slice(-6).toUpperCase()}`
+      return `${datePart} (${caseSuffix})`
+    },
+  },
   { id: 'facility', header: 'Laboratory Facility', getValue: (inc) => inc.labs?.name || inc.lab_id || '—' },
   {
     id: 'equipment',

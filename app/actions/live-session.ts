@@ -43,6 +43,7 @@ export interface LiveSessionContext {
     admissionNo: string
     gender?: string
     photoUrl?: string | null
+    hasPhoto?: boolean
     status: string
   }>
   seatPlan: Record<string, {
@@ -51,6 +52,7 @@ export interface LiveSessionContext {
     rollNumber: number
     fullName: string
     photoUrl?: string | null
+    hasPhoto?: boolean
     isOverride: boolean
     originalWorkstationLabel?: string | null
     originalWorkstationId?: string | null
@@ -68,7 +70,7 @@ export interface LiveSessionContext {
     skipReason?: string | null
     seatingSnapshot?: SeatingSnapshotEntry[] | null
   } | null
-  existingAttendance?: Record<number, boolean>
+  existingAttendance?: Record<string | number, boolean>
 }
 
 /**
@@ -165,7 +167,8 @@ export async function getLiveSessionContext(
       fullName: e.students?.full_name || `Roll ${e.roll_number}`,
       admissionNo: e.students?.admission_no || '',
       gender: e.students?.gender,
-      photoUrl: e.students?.photo_url || null,
+      photoUrl: null,
+      hasPhoto: Boolean(e.students?.photo_url),
       status: e.status,
     }))
 
@@ -203,7 +206,8 @@ export async function getLiveSessionContext(
             studentId: student.studentId,
             rollNumber: student.rollNumber,
             fullName: student.fullName,
-            photoUrl: student.photoUrl,
+            photoUrl: null,
+            hasPhoto: Boolean(student.hasPhoto),
             isOverride: false,
             originalWorkstationLabel: wsLabelMap.get(row.workstation_id) || null,
             originalWorkstationId: row.workstation_id,
@@ -249,7 +253,8 @@ export async function getLiveSessionContext(
             studentId: student.studentId,
             rollNumber: student.rollNumber,
             fullName: student.fullName,
-            photoUrl: student.photoUrl,
+            photoUrl: null,
+            hasPhoto: Boolean(student.hasPhoto),
             isOverride: true,
             originalWorkstationLabel: originalWsLabel || null,
             originalWorkstationId: originalWsId || null,
@@ -264,6 +269,8 @@ export async function getLiveSessionContext(
       .select('id, practical_title, present_students, absent_students, absent_rolls, created_at, seating_snapshot, status, skip_reason')
       .eq('schedule_id', scheduleId)
       .eq('date', activeDate)
+      .order('created_at', { ascending: false })
+      .limit(1)
       .maybeSingle()
 
     let existingLog: LiveSessionContext['existingLog'] = null
@@ -293,13 +300,16 @@ export async function getLiveSessionContext(
       // Fetch attendance rows
       const { data: attRows } = await (supabase
         .from('log_attendance') as any)
-        .select('roll_number, is_present')
+        .select('roll_number, is_present, enrollment_id')
         .eq('log_id', existingLogData.id)
 
       if (attRows) {
         existingAttendance = {}
         for (const row of attRows as any[]) {
-          existingAttendance[row.roll_number] = row.is_present
+          if (row.enrollment_id) existingAttendance[row.enrollment_id] = row.is_present
+          if (row.roll_number !== null && row.roll_number !== undefined) {
+            existingAttendance[row.roll_number] = row.is_present
+          }
         }
       }
     }
@@ -361,6 +371,9 @@ export async function createAdHocSession(params: {
   try {
     const supabase = await createClient()
     const scope = await getServerUserScope()
+    if (scope.isPending || scope.approvalStatus !== 'approved') {
+      return { success: false, error: 'Unauthorized: Your faculty account is pending verification and not approved.' }
+    }
 
     if (!scope.isPrivileged && !scope.isTeacher) {
       return { success: false, error: 'Unauthorized: Only faculty members and administrators can start sessions.' }
@@ -417,6 +430,7 @@ export async function createAdHocSession(params: {
       dayKey,
       startTime: params.startTime,
       endTime: params.endTime,
+      date: params.date,
     })
 
     if (conflictCheck.hasConflict) {
@@ -493,6 +507,12 @@ export async function submitLiveSession(params: {
   try {
     const supabase = await createClient()
     const scope = await getServerUserScope()
+    if (scope.isPending || scope.approvalStatus !== 'approved') {
+      return {
+        success: false,
+        error: 'Action Rejected: Your faculty account is pending verification and not approved. Practical sessions cannot be submitted.',
+      }
+    }
 
     // 0. Authoritative Server-Side Holiday & Recess Guard
     const suspension = await checkServerDateSuspension(params.date)

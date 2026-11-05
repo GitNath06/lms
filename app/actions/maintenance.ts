@@ -3,18 +3,17 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { getServerUserScope } from '@/lib/context/server-user-scope'
-import {
+import type {
   MaintenancePlanRow,
   MaintenancePlanUpdate,
   MaintenanceReminderRow,
   MaintenanceLogRow,
 } from '@/types/database'
-import {
+import type {
   MaintenanceRecordItem,
   MaintenanceSummaryMetrics,
 } from '@/types/records'
 import { generateMaintenanceRecordsCsv } from '@/lib/exports/csv'
-import { generateMaintenanceRecordsXlsxBuffer } from '@/lib/exports/xlsx'
 
 export interface MaintenancePlanRecord {
   id: string
@@ -141,14 +140,32 @@ interface PlanJoinedRow extends MaintenancePlanRow {
  * for Lab Maintenance (super_admin, lab_incharge, hod, or privileged scope).
  */
 async function getAuthorizedProfile() {
-  const scope = await getServerUserScope()
-  const isPrivileged =
-    scope.isPrivileged ||
-    scope.role === 'super_admin' ||
-    scope.role === 'lab_incharge' ||
-    scope.role === 'hod' ||
-    process.env.NODE_ENV === 'development'
-  return { scope, isPrivileged }
+  try {
+    const scope = await getServerUserScope()
+    const isPrivileged =
+      !scope.isPending &&
+      scope.approvalStatus === 'approved' &&
+      (scope.isPrivileged ||
+        scope.role === 'super_admin' ||
+        scope.role === 'lab_incharge' ||
+        scope.role === 'hod')
+    return { scope, isPrivileged }
+  } catch {
+    return {
+      scope: {
+        role: 'teacher',
+        userId: '',
+        fullName: 'Guest User',
+        isPending: true,
+        approvalStatus: 'pending',
+        isPrivileged: false,
+        assignedLabs: [],
+        assignedClasses: [],
+        assignedSubjects: [],
+      } as any,
+      isPrivileged: false,
+    }
+  }
 }
 
 /**
@@ -817,6 +834,7 @@ export async function exportMaintenanceRecordsAction(
         contentType: 'text/csv; charset=utf-8',
       }
     } else {
+      const { generateMaintenanceRecordsXlsxBuffer } = await import('@/lib/exports/xlsx')
       const buffer = await generateMaintenanceRecordsXlsxBuffer(
         formattedRecords,
         summaryMetrics,

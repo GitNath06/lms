@@ -175,7 +175,6 @@ export function AcademicYearsManager({
       })
 
       if (res.success) {
-        showToast(`🎉 Academic Year ${cleanName} created successfully.`)
         setIsCreateModalOpen(false)
         setNewYearId('')
         setNewName('')
@@ -183,6 +182,7 @@ export function AcademicYearsManager({
         setNewEndDate('')
         setSetAsCurrentOnCreate(false)
         await fetchYears()
+        showToast(`🎉 Academic Year ${cleanName} created successfully.`)
       } else {
         setCreateError(res.error || 'Failed to create academic year.')
       }
@@ -235,10 +235,10 @@ export function AcademicYearsManager({
       })
 
       if (res.success) {
-        showToast(`✅ Academic Year ${cleanName} updated successfully.`)
         setIsEditModalOpen(false)
         setEditingYear(null)
         await fetchYears()
+        showToast(`✅ Academic Year ${cleanName} updated successfully.`)
       } else {
         setEditError(res.error || 'Failed to update academic year.')
       }
@@ -683,7 +683,7 @@ export function AcademicYearsManager({
                   ) : (
                     <CheckCircle2 className="h-4 w-4" />
                   )}
-                  <span>Create Academic Year</span>
+                  <span>{isSubmittingCreate ? 'Saving...' : 'Create Academic Year'}</span>
                 </Button>
               </div>
             </form>
@@ -803,7 +803,7 @@ export function AcademicYearsManager({
                   ) : (
                     <CheckCircle2 className="h-4 w-4" />
                   )}
-                  <span>Save Changes</span>
+                  <span>{isSubmittingEdit ? 'Saving...' : 'Save Changes'}</span>
                 </Button>
               </div>
             </form>

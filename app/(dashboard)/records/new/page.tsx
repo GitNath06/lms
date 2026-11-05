@@ -1,16 +1,9 @@
 import { ClipboardList, ShieldCheck } from 'lucide-react'
 import { BackButton } from '@/components/ui/back-button'
 import LogForm from './log-form'
-import { getActiveLabs, getTeachers, getScopedLogFormOptions } from '@/app/actions/logs'
 import { Badge } from '@/components/ui/badge'
 
-export default async function NewLogPage() {
-  const [labs, teachers, scopedOptions] = await Promise.all([
-    getActiveLabs(),
-    getTeachers(),
-    getScopedLogFormOptions(),
-  ])
-
+export default function NewLogPage() {
   return (
     <div className="max-w-6xl mx-auto space-y-4 animate-in fade-in duration-300 select-none">
       {/* Sleek Top Navigation Breadcrumb Bar */}
@@ -42,7 +35,7 @@ export default async function NewLogPage() {
       </div>
 
       {/* Main Form Body */}
-      <LogForm labs={labs} teachers={teachers} scopedOptions={scopedOptions} />
+      <LogForm />
     </div>
   )
 }

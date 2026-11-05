@@ -6,11 +6,16 @@ import crypto from 'node:crypto'
  * and HttpOnly workstation session cookies.
  */
 
-const SECRET_KEY =
-  process.env.TERMINAL_SIGNING_SECRET ||
-  process.env.SUPABASE_JWT_SECRET ||
-  process.env.NEXTAUTH_SECRET ||
-  'labsync-lims-default-terminal-signing-salt-2083'
+function getTerminalSecret(): string {
+  const secret = process.env.TERMINAL_SIGNING_SECRET || process.env.SUPABASE_JWT_SECRET
+  if (!secret) {
+    if (process.env.NODE_ENV === 'test' || Boolean(process.env.LABSYNC_TEST_RUNNER)) {
+      return 'test-terminal-signing-salt-only-for-automated-tests'
+    }
+    throw new Error('FATAL: TERMINAL_SIGNING_SECRET environment variable is not configured.')
+  }
+  return secret
+}
 
 export interface HandshakeTicketPayload {
   stationId: string
@@ -45,7 +50,7 @@ function base64UrlDecode(str: string): string {
 
 function sign(payloadStr: string): string {
   return crypto
-    .createHmac('sha256', SECRET_KEY)
+    .createHmac('sha256', getTerminalSecret())
     .update(payloadStr)
     .digest('base64')
     .replace(/\+/g, '-')
@@ -56,18 +61,21 @@ function sign(payloadStr: string): string {
 /**
  * Creates a stateless 60-second single-use handshake ticket.
  */
-export function createHandshakeTicket(workstation: {
-  id: string
-  label: string
-  machine_guid: string
-}): string {
+export function createHandshakeTicket(
+  workstation: {
+    id: string
+    label: string
+    machine_guid: string
+  },
+  ttlSeconds: number = 60
+): string {
   const now = Date.now()
   const payload: HandshakeTicketPayload = {
     stationId: workstation.id,
     stationCode: workstation.label,
     machineGuid: workstation.machine_guid,
     iat: now,
-    exp: now + 60 * 1000, // 60 seconds single-use window
+    exp: now + ttlSeconds * 1000, // configurable single-use window (default 60s)
   }
 
   const encodedPayload = base64UrlEncode(JSON.stringify(payload))
@@ -75,9 +83,21 @@ export function createHandshakeTicket(workstation: {
   return `${encodedPayload}.${signature}`
 }
 
+// Anti-replay cache: tracks redeemed ticket signatures for their 60s window
+const REDEEMED_TICKETS = new Map<string, number>()
+
+function pruneExpiredRedeemedTickets() {
+  const now = Date.now()
+  for (const [sig, exp] of REDEEMED_TICKETS.entries()) {
+    if (now > exp) {
+      REDEEMED_TICKETS.delete(sig)
+    }
+  }
+}
+
 /**
  * Verifies a 60-second handshake ticket.
- * Enforces HMAC timing-safe validation and expiration check.
+ * Enforces HMAC timing-safe validation, expiration check, and anti-replay defense.
  */
 export function verifyHandshakeTicket(ticket: string): {
   valid: boolean
@@ -106,6 +126,12 @@ export function verifyHandshakeTicket(ticket: string): {
     return { valid: false, reason: 'Invalid cryptographic signature' }
   }
 
+  // Anti-replay check: ensure ticket has not already been redeemed
+  pruneExpiredRedeemedTickets()
+  if (REDEEMED_TICKETS.has(receivedSignature)) {
+    return { valid: false, reason: 'Single-use handshake ticket has already been redeemed' }
+  }
+
   try {
     const jsonStr = base64UrlDecode(encodedPayload)
     const payload: HandshakeTicketPayload = JSON.parse(jsonStr)
@@ -115,9 +141,47 @@ export function verifyHandshakeTicket(ticket: string): {
       return { valid: false, reason: 'Handshake ticket has expired (valid for 60s)' }
     }
 
+    // Mark ticket as redeemed
+    REDEEMED_TICKETS.set(receivedSignature, payload.exp)
+
+    // Store in public.rate_limit_events so replay protection works across serverless instances
+    try {
+      const { getPgPool } = require('@/lib/db')
+      const pool = getPgPool()
+      pool
+        .query(
+          `INSERT INTO public.rate_limit_events (key, action, created_at)
+           VALUES ($1, 'handshake_redeemed', NOW())`,
+          [`ticket:${receivedSignature}`]
+        )
+        .catch(() => {})
+    } catch {
+      // Graceful fallback for unit tests or offline DB
+    }
+
     return { valid: true, payload }
   } catch (err: any) {
     return { valid: false, reason: `Failed to decode payload: ${err.message}` }
+  }
+}
+
+/**
+ * Checks whether a ticket signature has already been redeemed in PostgreSQL (cross-serverless protection).
+ */
+export async function isHandshakeSignatureRedeemedInDb(signature: string): Promise<boolean> {
+  try {
+    const { getPgPool } = await import('@/lib/db')
+    const pool = getPgPool()
+    const res = await pool.query(
+      `SELECT id FROM public.rate_limit_events 
+       WHERE key = $1 AND action = 'handshake_redeemed' 
+         AND created_at > NOW() - INTERVAL '2 minutes' 
+       LIMIT 1;`,
+      [`ticket:${signature}`]
+    )
+    return res.rows.length > 0
+  } catch {
+    return false
   }
 }
 

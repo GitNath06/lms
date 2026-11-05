@@ -22,16 +22,19 @@ import {
   Landmark,
   Wrench,
   Building2,
+  Loader2,
 } from 'lucide-react'
 import {
-  MASTER_TIME_SLOTS,
   MasterRoutineItem,
   getOrderedDays,
   getWeekDates,
   DayKey,
   formatCleanSubjectCode,
+  formatSubjectHeading,
+  cleanSubjectTitle,
   isDateWithinHoliday,
   getOccupiedLabsInSlot,
+  CANONICAL_PERIOD_SLOTS,
 } from '@/lib/master-data'
 import SessionActionModal, { ModalMode } from '@/components/schedules/session-action-modal'
 import { useLiveSchedule } from '@/hooks/use-live-schedule'
@@ -39,6 +42,7 @@ import { useRoutineState } from '@/hooks/use-routine-state'
 import { useCalendarSettings } from '@/hooks/use-calendar-settings'
 import { useSubstitutionState } from '@/hooks/use-substitution-state'
 import { useInfrastructureState } from '@/hooks/use-infrastructure-state'
+import { getNepaliDate } from '@/lib/nepali-date'
 import { UserProfile } from '@/app/actions/auth'
 
 interface AdvancedCalendarProps {
@@ -46,6 +50,8 @@ interface AdvancedCalendarProps {
   teacherFilter?: string
   currentUser?: UserProfile | null
   weekOffset?: number
+  focusSlotId?: string | null
+  initialCalendarSettings?: import('@/hooks/use-calendar-settings').CalendarSettings | null
 }
 
 export default function AdvancedCalendar({
@@ -53,6 +59,8 @@ export default function AdvancedCalendar({
   teacherFilter = 'all',
   currentUser = null,
   weekOffset = 0,
+  focusSlotId = null,
+  initialCalendarSettings = null,
 }: AdvancedCalendarProps) {
   const {
     dayKey: currentDayKey,
@@ -65,9 +73,31 @@ export default function AdvancedCalendar({
     startDay,
     sundayWeekend,
     saturdayWeekend,
-  } = useCalendarSettings()
+  } = useCalendarSettings(initialCalendarSettings)
 
-  const { holidays, labs } = useInfrastructureState()
+  const { holidays, labs, periods, subjects } = useInfrastructureState()
+  const activeSlots = periods && periods.length > 0 ? periods : CANONICAL_PERIOD_SLOTS
+
+  // Calculate Base Date according to week offset
+  const baseDate = useMemo(() => {
+    const d = new Date(now)
+    d.setDate(d.getDate() + weekOffset * 7)
+    return d
+  }, [now, weekOffset])
+
+  const currentBsYear = useMemo(() => getNepaliDate(baseDate).bsYear, [baseDate])
+
+  const orderedDays = getOrderedDays(startDay)
+  const displayedDays = useMemo(() => {
+    if (sundayWeekend && saturdayWeekend) {
+      return orderedDays.filter((d) => d.id !== 'sat' && d.id !== 'sun')
+    }
+    if (saturdayWeekend && !sundayWeekend) {
+      return orderedDays.filter((d) => d.id !== 'sat')
+    }
+    return orderedDays
+  }, [orderedDays, sundayWeekend, saturdayWeekend])
+  const weekDates = getWeekDates(baseDate, startDay)
 
   const {
     routines,
@@ -99,23 +129,58 @@ export default function AdvancedCalendar({
   const [declineReason, setDeclineReason] = useState<string>('Lab occupied for senior exams')
   const [customDeclineReason, setCustomDeclineReason] = useState<string>('')
   const [isDeclineModalOpen, setIsDeclineModalOpen] = useState(false)
+  const [isSubmittingDecline, setIsSubmittingDecline] = useState(false)
+  const [declineError, setDeclineError] = useState<string | null>(null)
+  const [mobileDayKey, setMobileDayKey] = useState<DayKey>(() => (currentDayKey && currentDayKey !== 'sun' && currentDayKey !== 'sat') ? (currentDayKey as DayKey) : 'mon')
+
+  useEffect(() => {
+    if (displayedDays.length > 0 && !displayedDays.some((d) => d.id === mobileDayKey)) {
+      setMobileDayKey(displayedDays[0].id)
+    }
+  }, [displayedDays, mobileDayKey])
+
+  const handleConfirmDecline = async () => {
+    if (!declineSessionId) return
+    setIsSubmittingDecline(true)
+    setDeclineError(null)
+    try {
+      const finalReason = declineReason === 'Other' ? (customDeclineReason || 'Declined by Admin') : declineReason
+      await rejectSlotBooking(declineSessionId, finalReason)
+      setIsDeclineModalOpen(false)
+      handleSuccess('Slot request declined and subject teacher notified.')
+    } catch (err: any) {
+      setDeclineError(err?.message || 'Failed to decline slot booking request.')
+    } finally {
+      setIsSubmittingDecline(false)
+    }
+  }
 
   useEffect(() => {
     setMounted(true)
   }, [])
 
-  // Calculate Base Date according to week offset
-  const baseDate = useMemo(() => {
-    const d = new Date(now)
-    d.setDate(d.getDate() + weekOffset * 7)
-    return d
-  }, [now, weekOffset])
+  useEffect(() => {
+    if (currentDayKey) {
+      setMobileDayKey(currentDayKey as DayKey)
+    }
+  }, [currentDayKey])
 
-  const orderedDays = getOrderedDays(startDay)
-  const weekDates = getWeekDates(baseDate, startDay)
+  const [selectedDateStr, setSelectedDateStr] = useState<string | null>(null)
+  // Auto-focus and open review modal when linked from notification
+  useEffect(() => {
+    if (!focusSlotId || !routines || routines.length === 0) return
+    const target = routines.find((r) => r.id === focusSlotId)
+    if (target && target.status === 'requested') {
+      const effDate = target.specificDate || target.date || undefined
+      openActionModal(target, 'log', effDate)
+    }
+  }, [focusSlotId, routines])
 
-  const openActionModal = (session: MasterRoutineItem, mode: ModalMode = 'log') => {
-    setSelectedSession(session)
+
+  const openActionModal = (session: MasterRoutineItem, mode: ModalMode = 'log', dateStr?: string) => {
+    const effDate = dateStr || session.date || session.specificDate || null
+    setSelectedDateStr(effDate)
+    setSelectedSession(effDate ? { ...session, date: effDate, specificDate: session.specificDate || effDate } : session)
     setModalMode(mode)
     setIsModalOpen(true)
   }
@@ -141,21 +206,22 @@ export default function AdvancedCalendar({
       return
     }
 
-    const slot = MASTER_TIME_SLOTS.find((t) => t.id === slotId)
+    const slot = activeSlots.find((t) => t.id === slotId)
     const timeSlot = slot?.label || '10:10 - 11:00'
     const dayObj = orderedDays.find((d) => d.id === dayKey)
     const dayLabel = (dayObj?.label as any) || 'Monday'
     const isTeacherRole = currentUser?.role === 'teacher'
 
     const occupiedLabs = getOccupiedLabsInSlot(filteredRoutine, dayKey, slotId)
-    const labOptions: Array<{ key: 'comp' | 'phys' | 'chem' | 'bio' | 'elec'; name: MasterRoutineItem['lab']; code: string; title: string }> = [
-      { key: 'comp', name: 'Computer Lab', code: 'COMP-12', title: 'Data Structures Lab' },
-      { key: 'phys', name: 'Physics Lab', code: 'PHY-11', title: 'Optics & Mechanics Lab' },
-      { key: 'chem', name: 'Chemistry Lab', code: 'CHEM-11', title: 'Inorganic Chemistry Lab' },
-      { key: 'bio', name: 'Biology Lab', code: 'BIO-11', title: 'Microbiology Lab' },
-      { key: 'elec', name: 'Electronics Lab', code: 'DDMP-10', title: 'Digital Design & MP' },
-    ]
-    const chosenLab = labOptions.find((l) => !occupiedLabs.has(l.key)) || labOptions[0]
+    // Select first unoccupied active lab from infrastructure facilities
+    const activeLabs = labs.filter((l) => l.is_active !== false)
+    const availableLab = activeLabs.find((l) => !occupiedLabs.has(l.id as any)) || activeLabs[0] || {
+      id: 'comp',
+      name: 'Computer Lab',
+    }
+
+    // Match real curriculum subject for this lab or fallback to first active subject
+    const matchingSubject = subjects.find((s) => s.labId === availableLab.id) || subjects[0]
 
     const adhocSession: MasterRoutineItem = {
       id: `adhoc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -164,21 +230,26 @@ export default function AdvancedCalendar({
       timeSlot,
       slotId,
       span: 1,
-      subjectCode: chosenLab.code,
-      subjectTitle: chosenLab.title,
-      grade: 'Class 12',
-      gradeKey: 'class-12',
-      teacher: isTeacherRole ? (currentUser?.full_name || 'Practical Subject Teacher') : 'Assigned Subject Teacher',
-      lab: chosenLab.name,
-      labKey: chosenLab.key,
+      subjectCode: matchingSubject?.code || 'PRACTICAL',
+      subjectTitle: matchingSubject?.title || 'Laboratory Practical',
+      grade: matchingSubject?.grade || 'Class 12',
+      gradeKey: ('class-' + ((matchingSubject?.grade || '12').replace(/\D/g, '') || '12')) as MasterRoutineItem['gradeKey'],
+      teacher: isTeacherRole ? (currentUser?.full_name || 'Practical Subject Teacher') : (matchingSubject?.teacherName || 'Assigned Subject Teacher'),
+      teacherId: isTeacherRole ? (currentUser?.id || null) : (matchingSubject?.teacherId || null),
+      date: targetDateInfo?.dateStr,
+      specificDate: targetDateInfo?.dateStr,
+      isAdHoc: true,
+      lab: availableLab.name as any,
+      labKey: availableLab.id as any,
       defaultStudents: 38,
-      category: chosenLab.key === 'comp' ? 'Computer' : chosenLab.key === 'phys' ? 'Physics' : chosenLab.key === 'chem' ? 'Chemistry' : 'Biology',
-      dotColor: chosenLab.key === 'comp' ? 'bg-indigo-500' : chosenLab.key === 'phys' ? 'bg-cyan-500' : chosenLab.key === 'chem' ? 'bg-rose-500' : 'bg-emerald-500',
+      category: availableLab.id === 'comp' ? 'Computer' : availableLab.id === 'phys' ? 'Physics' : availableLab.id === 'chem' ? 'Chemistry' : 'Biology',
+      dotColor: availableLab.id === 'comp' ? 'bg-indigo-500' : availableLab.id === 'phys' ? 'bg-cyan-500' : availableLab.id === 'chem' ? 'bg-rose-500' : 'bg-emerald-500',
       badgeColor: 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-200 border-indigo-200 dark:border-indigo-700',
       accentColor:
         'border-l-indigo-500 bg-indigo-50/90 dark:bg-indigo-950/50 text-zinc-950 dark:text-white border-indigo-200 dark:border-indigo-500/30',
     }
 
+    setSelectedDateStr(targetDateInfo?.dateStr || null)
     setSelectedSession(adhocSession)
     setModalMode('book')
     setIsModalOpen(true)
@@ -254,15 +325,16 @@ export default function AdvancedCalendar({
       if (!matchComp && !matchPhys && !matchChem && !matchBio && !matchOther) return false
     }
 
-    // 2. Subject Teacher Filter Check
+    // 2. Subject Teacher Filter Check (Relational ID match + exact name match)
     if (teacherFilter && teacherFilter !== 'all') {
-      if (teacherFilter === 'my_sessions' && currentUser?.full_name) {
-        const nameLower = currentUser.full_name.toLowerCase()
-        const isAssigned = item.teacher.toLowerCase().includes(nameLower)
-        const isRequested = item.requestedBy && item.requestedBy.toLowerCase().includes(nameLower)
+      if (teacherFilter === 'my_sessions') {
+        const userId = currentUser?.id
+        const userFullName = currentUser?.full_name?.toLowerCase().trim()
+        const isAssigned = (userId && item.teacherId === userId) || (userFullName && item.teacher.toLowerCase().trim() === userFullName)
+        const isRequested = Boolean(userFullName && item.requestedBy && item.requestedBy.toLowerCase().trim() === userFullName)
         if (!isAssigned && !isRequested) return false
-      } else if (teacherFilter !== 'my_sessions') {
-        if (!item.teacher.toLowerCase().includes(teacherFilter.toLowerCase())) return false
+      } else {
+        if (item.teacher !== teacherFilter) return false
       }
     }
 
@@ -330,7 +402,7 @@ export default function AdvancedCalendar({
     currentUser?.role === 'hod'
 
   return (
-    <div className="flex flex-col h-full bg-white/95 dark:bg-zinc-950/95 border border-zinc-200 dark:border-zinc-800/90 rounded-2xl shadow-[0_1px_3px_0_rgba(0,0,0,0.06),0_1px_2px_-1px_rgba(0,0,0,0.06)] overflow-hidden select-none relative backdrop-blur-xl">
+    <div className="flex flex-col h-full w-full bg-white/95 dark:bg-zinc-950/95 border border-zinc-200 dark:border-zinc-800/90 rounded-2xl shadow-[0_1px_3px_0_rgba(0,0,0,0.06),0_1px_2px_-1px_rgba(0,0,0,0.06)] overflow-hidden select-none relative backdrop-blur-xl">
       {/* 🌌 Dynamic Ambient Aurora Glow Blobs Layer */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
         <div
@@ -352,16 +424,207 @@ export default function AdvancedCalendar({
         </div>
       )}
 
-      {/* Main Grid Viewport */}
-      <div className="flex-1 overflow-auto relative z-10">
-        <div className="min-w-[1540px] flex flex-col h-full">
+      {/* ============================================================= */}
+      {/* MOBILE DAY-BY-DAY CARD VIEW (md:hidden)                       */}
+      {/* ============================================================= */}
+      <div className="md:hidden flex flex-col flex-1 overflow-hidden relative z-10">
+        {/* Day-by-Day Tab Pills */}
+        <div className="flex items-center gap-1.5 p-2.5 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/80 dark:bg-zinc-900/80 backdrop-blur-sm shrink-0">
+          {displayedDays.map((day) => {
+            const isSelected = mobileDayKey === day.id
+            const isToday = currentDayKey === day.id
+            const dayDate = weekDates.find((w) => w.dayKey === day.id)
+            return (
+              <button
+                key={day.id}
+                type="button"
+                onClick={() => setMobileDayKey(day.id)}
+                className={`flex flex-col items-center px-3 py-1.5 rounded-xl text-xs font-heading transition-all shrink-0 cursor-pointer ${
+                  isSelected
+                    ? 'bg-indigo-600 text-white font-extrabold shadow-sm'
+                    : 'bg-white dark:bg-zinc-800/90 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700/80 hover:bg-zinc-100'
+                }`}
+              >
+                <span className="font-bold uppercase tracking-wider text-[11px] flex items-center gap-1">
+                  {day.label}
+                  {isToday && (
+                    <span className={`h-1.5 w-1.5 rounded-full ${isSelected ? 'bg-white' : 'bg-emerald-500 animate-pulse'}`} />
+                  )}
+                </span>
+                {dayDate && (
+                  <span className={`text-[10px] font-mono mt-0.5 ${isSelected ? 'text-indigo-100' : 'text-zinc-400'}`}>
+                    {dayDate.dateStr.split('-').slice(1).join('/')}
+                  </span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Selected Day Content */}
+        <div className="p-3 space-y-3 flex-1 overflow-y-auto">
+          {(() => {
+            const isWeekend = isDayOff(mobileDayKey)
+            const dayDateInfo = weekDates.find((w) => w.dayKey === mobileDayKey)
+            const dayHoliday = dayDateInfo ? holidays.find((h) => isDateWithinHoliday(dayDateInfo.dateStr, h)) : null
+
+            if (isWeekend) {
+              return (
+                <div className="p-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 text-center space-y-2 shadow-xs">
+                  <Palmtree className="h-7 w-7 text-amber-500 mx-auto" />
+                  <h4 className="text-sm font-heading font-extrabold text-zinc-900 dark:text-white">
+                    Weekend Statutory Recess
+                  </h4>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400 max-w-xs mx-auto">
+                    Laboratory practical sessions and scheduled timetables are suspended on statutory weekends.
+                  </p>
+                </div>
+              )
+            }
+
+            if (dayHoliday) {
+              return (
+                <div className="p-6 rounded-2xl border border-amber-300 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/20 text-center space-y-2 shadow-xs">
+                  <Sparkles className="h-7 w-7 text-amber-500 mx-auto" />
+                  <h4 className="text-sm font-heading font-extrabold text-amber-900 dark:text-amber-200">
+                    Institutional Holiday: {dayHoliday.name}
+                  </h4>
+                  <p className="text-xs text-amber-700 dark:text-amber-300 max-w-xs mx-auto">
+                    Operations and practical attendance tallies are suspended on recognized institutional holidays.
+                  </p>
+                </div>
+              )
+            }
+
+            const rawDaySchedules = filteredRoutine.filter((s) => {
+              if (s.dayKey !== mobileDayKey) return false
+              if (s.specificDate) {
+                return s.specificDate === dayDateInfo?.dateStr
+              }
+              return true
+            })
+            const seenIds = new Set<string>()
+            const daySessions = rawDaySchedules.filter((s) => {
+              if (!s || !s.id || seenIds.has(s.id)) return false
+              seenIds.add(s.id)
+              return true
+            })
+
+            const sortedSessions = [...daySessions].sort((a, b) => {
+              const aIdx = activeSlots.findIndex((t) => t.id === a.slotId)
+              const bIdx = activeSlots.findIndex((t) => t.id === b.slotId)
+              return aIdx - bIdx
+            })
+
+            if (sortedSessions.length === 0) {
+              return (
+                <div className="p-8 text-center rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800 bg-white/50 dark:bg-zinc-900/30">
+                  <CalendarDays className="h-7 w-7 text-zinc-400 mx-auto mb-2" />
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400 font-medium">
+                    No laboratory practical sessions scheduled for this day.
+                  </p>
+                </div>
+              )
+            }
+
+            return (
+              <div className="space-y-2.5">
+                {sortedSessions.map((session) => {
+                  const isLive = currentDayKey === mobileDayKey && activeSlotId === session.slotId
+                  const activeSub = getSubForSession(session.id, dayDateInfo?.dateStr || '')
+                  const isSkipped = session.status === 'skipped'
+                  const isRequested = session.status === 'requested'
+
+                  return (
+                    <div
+                      key={session.id}
+                      onClick={() => {
+                        openActionModal(session, 'log', dayDateInfo?.dateStr)
+                      }}
+                      className={`rounded-2xl border p-3.5 transition-all shadow-xs cursor-pointer active:scale-[0.99] space-y-2.5 ${
+                        isLive
+                          ? 'border-emerald-500/50 bg-emerald-50/40 dark:bg-emerald-950/20 ring-1 ring-emerald-500/30'
+                          : 'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/90 hover:border-indigo-500/40'
+                      }`}
+                    >
+                      {/* Top Row: Time Range, Period, and Status Beacon */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 text-xs font-mono font-bold text-zinc-900 dark:text-zinc-100">
+                          <Clock className="h-3.5 w-3.5 text-zinc-400" />
+                          <span>{session.timeSlot}</span>
+                          <span className="text-zinc-400">&bull;</span>
+                          <span className="text-zinc-600 dark:text-zinc-400 font-sans text-[11px]">
+                            {session.span && session.span > 1
+                              ? `${session.span} Periods (${session.slotId.toUpperCase()})`
+                              : session.slotId.toUpperCase()}
+                          </span>
+                        </div>
+
+                        {isLive ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-black bg-emerald-600 text-white shadow-xs animate-pulse">
+                            <span className="h-1.5 w-1.5 rounded-full bg-white" />
+                            LIVE NOW
+                          </span>
+                        ) : isSkipped ? (
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                            Skipped
+                          </span>
+                        ) : isRequested ? (
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                            Requested
+                          </span>
+                        ) : null}
+                      </div>
+
+                      {/* Middle Row: Subject Title & Grade */}
+                      <div>
+                        <h4 className="font-heading font-extrabold text-sm text-zinc-900 dark:text-white leading-snug">
+                          {formatSubjectHeading(session.subjectCode, session.subjectTitle)}
+                        </h4>
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                          <span className="px-2 py-0.5 rounded-md text-[11px] font-bold font-sans bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-500/20">
+                            {session.grade}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-md text-[11px] font-medium font-sans bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700">
+                            {getLabDisplayName(session.labKey, session.lab)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Bottom Row: Faculty & Action Hint */}
+                      <div className="flex items-center justify-between pt-2 border-t border-zinc-100 dark:border-zinc-800/80 text-xs">
+                        <span className="text-zinc-600 dark:text-zinc-400 font-medium">
+                          {activeSub ? (
+                            <span className="text-indigo-600 dark:text-indigo-400 font-bold">
+                              {activeSub.substitute_teacher_name} (Proxy)
+                            </span>
+                          ) : (
+                            session.teacher
+                          )}
+                        </span>
+                        <span className="text-indigo-600 dark:text-indigo-400 font-semibold text-[11px]">
+                          Tap to Manage &rarr;
+                        </span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )
+          })()}
+        </div>
+      </div>
+
+      {/* Main Grid Viewport (Desktop / Tablet: md:flex) */}
+      <div className="hidden md:flex flex-1 w-full overflow-auto relative z-10">
+        <div className="w-full min-w-[1540px] flex flex-col h-full">
           {/* Top Axis: Time Slots Header */}
-          <div className="flex border-b border-zinc-200 dark:border-zinc-800/90 bg-zinc-50/95 dark:bg-zinc-900/95 sticky top-0 z-30 backdrop-blur-md">
+          <div className="flex border-b border-zinc-200 dark:border-zinc-800/90 bg-zinc-50/95 dark:bg-zinc-900/95 sticky top-0 z-30 backdrop-blur-md w-full">
             {/* Axis Label */}
             <div className="w-48 shrink-0 border-r border-zinc-200 dark:border-zinc-800/90 p-3.5 flex items-center justify-between text-xs font-mono font-extrabold text-zinc-700 dark:text-zinc-200 uppercase tracking-wider sticky left-0 z-40 bg-zinc-50 dark:bg-zinc-900 shadow-xs">
               <span className="flex items-center gap-2">
                 <CalendarDays className="h-4 w-4 text-indigo-500" />
-                DAY // 2083
+                DAY // {currentBsYear}
               </span>
               <button
                 onClick={resetToMaster}
@@ -372,10 +635,13 @@ export default function AdvancedCalendar({
               </button>
             </div>
 
-            {/* 10 Period Slots */}
-            <div className="flex-1 grid grid-cols-10 divide-x divide-zinc-200 dark:divide-zinc-800/80">
-              {MASTER_TIME_SLOTS.map((slot) => {
-                const isBreak = slot.id === 't6'
+            {/* Period Slots */}
+            <div
+              className="flex-1 grid divide-x divide-zinc-200 dark:divide-zinc-800/80"
+              style={{ gridTemplateColumns: `repeat(${activeSlots.length || 10}, minmax(0, 1fr))` }}
+            >
+              {activeSlots.map((slot) => {
+                const isBreak = slot.id === 'break' || slot.id?.toLowerCase().includes('break') || slot.name?.toLowerCase().includes('break') || slot.name?.toLowerCase().includes('recess')
                 const isSlotActive = weekOffset === 0 && activeSlotId === slot.id
 
                 return (
@@ -421,11 +687,18 @@ export default function AdvancedCalendar({
             </div>
           </div>
 
-          {/* 7 Day Rows in Configured Order */}
-          <div suppressHydrationWarning className="flex-1 flex flex-col divide-y divide-zinc-200/80 dark:divide-zinc-800/80">
-            {orderedDays.map((day) => {
+          {/* Day Rows in Configured Order (Recess days omitted when configured) */}
+          <div suppressHydrationWarning className="flex-1 flex flex-col divide-y divide-zinc-200/80 dark:divide-zinc-800/80 w-full">
+            {displayedDays.map((day) => {
               const isToday = weekOffset === 0 && currentDayKey === day.id
-              const rawDaySchedules = filteredRoutine.filter((s) => s.dayKey === day.id)
+              const dayDateInfo = weekDates.find((w) => w.dayKey === day.id)
+              const rawDaySchedules = filteredRoutine.filter((s) => {
+                if (s.dayKey !== day.id) return false
+                if (s.specificDate) {
+                  return s.specificDate === dayDateInfo?.dateStr
+                }
+                return true
+              })
               // Strict deduplication by session.id to guarantee 100% unique React keys
               const seenSessionIds = new Set<string>()
               const daySchedules = rawDaySchedules.filter((s) => {
@@ -433,7 +706,6 @@ export default function AdvancedCalendar({
                 seenSessionIds.add(s.id)
                 return true
               })
-              const dayDateInfo = weekDates.find((w) => w.dayKey === day.id)
               const isWeekend = isDayOff(day.id)
               const dayHoliday = dayDateInfo ? holidays.find((h) => isDateWithinHoliday(dayDateInfo.dateStr, h)) : null
               const isHoliday = !!dayHoliday
@@ -443,13 +715,13 @@ export default function AdvancedCalendar({
               const trackOccupancy: Array<Set<number>> = [new Set(), new Set()]
 
               const sortedSchedules = [...daySchedules].sort((a, b) => {
-                const aIdx = MASTER_TIME_SLOTS.findIndex((t) => t.id === a.slotId)
-                const bIdx = MASTER_TIME_SLOTS.findIndex((t) => t.id === b.slotId)
+                const aIdx = activeSlots.findIndex((t) => t.id === a.slotId)
+                const bIdx = activeSlots.findIndex((t) => t.id === b.slotId)
                 return aIdx - bIdx
               })
 
               sortedSchedules.forEach((session) => {
-                const startIdx = MASTER_TIME_SLOTS.findIndex((t) => t.id === session.slotId)
+                const startIdx = activeSlots.findIndex((t) => t.id === session.slotId)
                 if (startIdx === -1) return
                 const span = session.span || 1
 
@@ -490,7 +762,7 @@ export default function AdvancedCalendar({
                 <div
                   key={day.id}
                   suppressHydrationWarning
-                  className={`flex ${rowHeightClass} transition-colors relative ${
+                  className={`flex ${rowHeightClass} transition-colors relative w-full ${
                     isToday
                       ? 'bg-emerald-500/10 dark:bg-emerald-950/20 ring-1 ring-emerald-500/40 z-10'
                       : isHoliday
@@ -589,8 +861,7 @@ export default function AdvancedCalendar({
                   {(() => {
                     const isWholeDaySuspended =
                       isHoliday ||
-                      isWeekend ||
-                      (day.id === 'fri' && daySchedules.length === 0)
+                      isWeekend
 
                     if (isWholeDaySuspended) {
                       const holidayName = (dayHoliday as any)?.name || (dayHoliday as any)?.title || 'Official Gazetted Holiday'
@@ -633,8 +904,6 @@ export default function AdvancedCalendar({
                                 <h3 className="text-sm sm:text-base font-heading font-black text-zinc-950 dark:text-white tracking-tight">
                                   {isHoliday
                                     ? holidayName
-                                    : day.id === 'fri'
-                                    ? 'Academic Review & Practical Catch-up'
                                     : 'Institutional Weekend Recess'}
                                 </h3>
 
@@ -647,7 +916,7 @@ export default function AdvancedCalendar({
                                       : 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border-indigo-500/30'
                                   }`}
                                 >
-                                  {isHoliday ? 'Gazetted Public Holiday' : day.id === 'fri' ? 'Review Window' : 'Weekend Recess'}
+                                  {isHoliday ? 'Gazetted Public Holiday' : 'Weekend Recess'}
                                 </span>
 
                                 {isToday && (
@@ -660,8 +929,6 @@ export default function AdvancedCalendar({
                               <p className="text-xs text-zinc-600 dark:text-zinc-400 font-sans max-w-3xl leading-relaxed">
                                 {isHoliday
                                   ? `All laboratory practicals, student attendance tallies, and instructor session logs are suspended for ${holidayName}. Routine timetable resumes on the next scheduled academic day.`
-                                  : day.id === 'fri'
-                                  ? 'Friday timetable allocated for faculty syllabus reviews, student clubs, and practical makeup sessions.'
                                   : 'Weekly scheduled institutional recess. Laboratory facilities secured and offline.'}
                               </p>
                             </div>
@@ -690,21 +957,21 @@ export default function AdvancedCalendar({
                     return (
                       <div
                         suppressHydrationWarning
-                        className={`flex-1 grid grid-cols-10 divide-x relative ${
+                        className={`flex-1 grid divide-x relative w-full ${
                           isToday
                             ? 'divide-emerald-500/30 dark:divide-emerald-500/20'
                             : 'divide-zinc-200/80 dark:divide-zinc-800/60'
                         }`}
                         style={{
                           display: 'grid',
-                          gridTemplateColumns: 'repeat(10, minmax(0, 1fr))',
+                          gridTemplateColumns: `repeat(${activeSlots.length || 10}, minmax(0, 1fr))`,
                           gridTemplateRows: hasTrack1 ? 'minmax(68px, 1fr) minmax(68px, 1fr)' : 'minmax(68px, auto)',
                         }}
                       >
                         {/* Background Grid Cells */}
-                        {MASTER_TIME_SLOTS.map((slot, slotIdx) => {
+                        {activeSlots.map((slot, slotIdx) => {
                           const isSlotActive = isToday && activeSlotId === slot.id
-                          const isBreak = slot.id === 't6'
+                          const isBreak = slot.id === 'break' || slot.id?.toLowerCase().includes('break') || slot.name?.toLowerCase().includes('break') || slot.name?.toLowerCase().includes('recess')
                           const isOccupiedOnTrack0 = trackOccupancy[0].has(slotIdx)
                           const isOccupiedOnTrack1 = trackOccupancy[1] ? trackOccupancy[1].has(slotIdx) : false
                           const isSlotOccupied = isOccupiedOnTrack0 || isOccupiedOnTrack1
@@ -780,7 +1047,7 @@ export default function AdvancedCalendar({
 
                         {/* Allocated Session Cards */}
                         {daySchedules.map((session) => {
-                          const startIdx = MASTER_TIME_SLOTS.findIndex((t) => t.id === session.slotId)
+                          const startIdx = activeSlots.findIndex((t) => t.id === session.slotId)
                           if (startIdx === -1) return null
 
                           const span = session.span || 1
@@ -794,6 +1061,7 @@ export default function AdvancedCalendar({
                           const isRequested = session.status === 'requested'
                           const isHolidaySession = isHoliday
                           const isHighlighted = isSessionHighlighted(session)
+   const isTargetFocus = focusSlotId && session.id === focusSlotId
 
                           const isComp = session.lab.toLowerCase().includes('comp') || session.labKey === 'comp'
                           const isPhys = session.lab.toLowerCase().includes('phys') || session.labKey === 'phys'
@@ -809,7 +1077,7 @@ export default function AdvancedCalendar({
                                   setTimeout(() => setToastMessage(null), 3500)
                                   return
                                 }
-                                openActionModal(session, 'log')
+                                openActionModal(session, 'log', dayDateInfo?.dateStr)
                               }}
                               onMouseEnter={() => !isHolidaySession && setHoveredSession(session)}
                               onMouseLeave={() => !isHolidaySession && setHoveredSession(null)}
@@ -834,7 +1102,7 @@ export default function AdvancedCalendar({
                                   : isSkipped
                                   ? 'grayscale opacity-40 hover:opacity-85 bg-zinc-100/90 dark:bg-zinc-900/90 border-2 border-dashed border-zinc-400 dark:border-zinc-600 text-zinc-500 dark:text-zinc-400 shadow-none'
                                   : isRequested
-                                  ? 'border-2 border-dashed border-amber-500 bg-amber-50/90 dark:bg-amber-950/50 hover:dark:bg-amber-950/70 text-zinc-950 dark:text-white shadow-[0_0_15px_rgba(245,158,11,0.25)] hover:shadow-[0_0_25px_rgba(245,158,11,0.45)] ring-1 ring-amber-500/40'
+                                  ? (isTargetFocus ? 'border-2 border-dashed border-amber-500 bg-amber-50/90 dark:bg-amber-950/50 text-zinc-950 dark:text-white ring-4 ring-indigo-500 shadow-[0_0_35px_rgba(99,102,241,0.6)] animate-pulse' : 'border-2 border-dashed border-amber-500 bg-amber-50/90 dark:bg-amber-950/50 hover:dark:bg-amber-950/70 text-zinc-950 dark:text-white shadow-[0_0_15px_rgba(245,158,11,0.25)] hover:shadow-[0_0_25px_rgba(245,158,11,0.45)] ring-1 ring-amber-500/40')
                                   : isLiveNow
                                   ? 'ring-2 ring-emerald-500 shadow-[0_0_30px_rgba(16,185,129,0.45)] scale-[1.02]'
                                   : 'shadow-xs hover:shadow-xl hover:scale-[1.02]'
@@ -908,9 +1176,9 @@ export default function AdvancedCalendar({
                                         ? 'text-zinc-500 dark:text-zinc-500 line-through'
                                         : 'text-zinc-600 dark:text-zinc-300'
                                     }`}
-                                    title={session.subjectTitle}
+                                    title={formatSubjectHeading(session.subjectCode, session.subjectTitle)}
                                   >
-                                    {session.subjectTitle}
+                                    {cleanSubjectTitle(session.subjectCode, session.subjectTitle)}
                                   </div>
                                 )}
 
@@ -957,6 +1225,7 @@ export default function AdvancedCalendar({
                                           type="button"
                                           onClick={() => {
                                             setDeclineSessionId(session.id)
+                                            setDeclineError(null)
                                             setIsDeclineModalOpen(true)
                                           }}
                                           className="px-2 py-0.5 rounded bg-rose-600 hover:bg-rose-700 text-white font-bold flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
@@ -1034,6 +1303,7 @@ export default function AdvancedCalendar({
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         session={selectedSession}
+        sessionDate={selectedDateStr || selectedSession?.date || selectedSession?.specificDate || undefined}
         allRoutines={routines}
         initialMode={modalMode}
         currentUser={currentUser}
@@ -1046,6 +1316,12 @@ export default function AdvancedCalendar({
         onUpdateSession={updateSession}
         onSkipSession={(sessionId, reason) => skipSession(sessionId, reason, currentUser?.full_name || 'Subject Teacher')}
         onUnskipSession={unskipSession}
+        onApproveSession={approveSlotBooking}
+        onRejectSession={(sessionId: string) => {
+          setDeclineSessionId(sessionId)
+          setDeclineError(null)
+          setIsDeclineModalOpen(true)
+        }}
       />
 
       {/* Decline Reason Modal for Super Admin & Lab Incharge */}
@@ -1058,12 +1334,20 @@ export default function AdvancedCalendar({
                 <h3 className="text-sm font-bold text-zinc-950 dark:text-white">Decline Slot Booking Request</h3>
               </div>
               <button
+                disabled={isSubmittingDecline}
                 onClick={() => setIsDeclineModalOpen(false)}
-                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 disabled:opacity-50"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
+
+            {declineError && (
+              <div className="p-2.5 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400 text-xs font-semibold flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>{declineError}</span>
+              </div>
+            )}
 
             <p className="text-xs text-zinc-600 dark:text-zinc-400">
               Specify the operational reason for declining this practical slot. An alert notification will be dispatched to the subject teacher.
@@ -1074,7 +1358,8 @@ export default function AdvancedCalendar({
               <select
                 value={declineReason}
                 onChange={(e) => setDeclineReason(e.target.value)}
-                className="w-full p-2 text-xs rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none"
+                disabled={isSubmittingDecline}
+                className="w-full p-2 text-xs rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none disabled:opacity-50"
               >
                 <option value="Lab occupied for senior exams">Lab occupied for senior exams</option>
                 <option value="Equipment under scheduled maintenance">Equipment under scheduled maintenance</option>
@@ -1091,8 +1376,9 @@ export default function AdvancedCalendar({
                   type="text"
                   value={customDeclineReason}
                   onChange={(e) => setCustomDeclineReason(e.target.value)}
+                  disabled={isSubmittingDecline}
                   placeholder="e.g. System upgrade during period 3"
-                  className="w-full p-2 text-xs rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none"
+                  className="w-full p-2 text-xs rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none disabled:opacity-50"
                 />
               </div>
             )}
@@ -1100,22 +1386,26 @@ export default function AdvancedCalendar({
             <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
+                disabled={isSubmittingDecline}
                 onClick={() => setIsDeclineModalOpen(false)}
-                className="px-3 py-1.5 rounded-lg text-xs font-bold border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 transition-colors"
+                className="px-3 py-1.5 rounded-lg text-xs font-bold border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 transition-colors disabled:opacity-50 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  const finalReason = declineReason === 'Other' ? (customDeclineReason || 'Declined by Admin') : declineReason
-                  rejectSlotBooking(declineSessionId, finalReason)
-                  setIsDeclineModalOpen(false)
-                  handleSuccess('Slot request declined and subject teacher notified.')
-                }}
-                className="px-3 py-1.5 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white shadow-xs transition-colors"
+                disabled={isSubmittingDecline}
+                onClick={handleConfirmDecline}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white shadow-xs transition-colors flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
               >
-                Confirm Decline
+                {isSubmittingDecline ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Declining...</span>
+                  </>
+                ) : (
+                  <span>Confirm Decline</span>
+                )}
               </button>
             </div>
           </div>

@@ -18,8 +18,8 @@ export interface CanvasViewportState {
 
 export function useCanvasViewport(options: CanvasViewportOptions = {}) {
   const {
-    minZoom = 0.5,
-    maxZoom = 1.6,
+    minZoom = 0.25,
+    maxZoom = 2.0,
     zoomStep = 0.15,
     defaultZoom = 1.0,
   } = options
@@ -99,20 +99,32 @@ export function useCanvasViewport(options: CanvasViewportOptions = {}) {
     })
   }, [clampZoom, zoomStep])
 
-  // 2. Reset (1:1)
+  // 2. Reset (1:1) - Centered in container
   const resetZoom = useCallback(() => {
-    setViewport({ zoom: 1.0, pan: { x: 0, y: 0 } })
+    if (!containerRef.current) {
+      setViewport({ zoom: 1.0, pan: { x: 0, y: 0 } })
+      return
+    }
+    const rect = containerRef.current.getBoundingClientRect()
+    const targetW = 1360
+    const targetH = 780
+    const newPanX = (rect.width - targetW) / 2
+    const newPanY = (rect.height - targetH) / 2
+    setViewport({
+      zoom: 1.0,
+      pan: { x: Math.round(newPanX), y: Math.round(newPanY) },
+    })
   }, [])
 
-  // 3. Fit to Screen
+  // 3. Fit to Screen - All 48 PCs centered inside canvas box with 1 click
   const fitToScreen = useCallback(() => {
     if (!containerRef.current) return
     const rect = containerRef.current.getBoundingClientRect()
-    const targetW = 1000
-    const targetH = 562.5
-    const scaleX = rect.width / targetW
-    const scaleY = rect.height / targetH
-    const newZoom = clampZoom(Math.min(scaleX, scaleY) * 0.95)
+    if (rect.width <= 0 || rect.height <= 0) return
+    const targetW = 1360
+    const targetH = 780
+    const scale = Math.min((rect.width - 48) / targetW, (rect.height - 48) / targetH)
+    const newZoom = clampZoom(scale)
 
     const scaledW = targetW * newZoom
     const scaledH = targetH * newZoom
@@ -131,9 +143,11 @@ export function useCanvasViewport(options: CanvasViewportOptions = {}) {
       setFocusedWsId(wsId)
       if (containerRef.current) {
         const rect = containerRef.current.getBoundingClientRect()
-        const targetZoom = Math.max(viewport.zoom, 1.2)
-        const targetXInCanvas = (posXPercent / 100) * rect.width
-        const targetYInCanvas = (posYPercent / 100) * rect.height
+        const targetW = 1360
+        const targetH = 780
+        const targetZoom = Math.max(viewport.zoom, 1.1)
+        const targetXInCanvas = (posXPercent / 100) * targetW
+        const targetYInCanvas = (posYPercent / 100) * targetH
 
         const centerX = rect.width / 2
         const centerY = rect.height / 2
@@ -153,6 +167,29 @@ export function useCanvasViewport(options: CanvasViewportOptions = {}) {
     },
     [viewport.zoom]
   )
+
+  // Attach ResizeObserver on the outer viewport wrapper (automatically recalculates auto-fit scale on resize/sidebar/drawer)
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    let prevW = 0
+    let prevH = 0
+
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect
+        if (width > 0 && height > 0 && (Math.abs(width - prevW) > 5 || Math.abs(height - prevH) > 5)) {
+          prevW = width
+          prevH = height
+          fitToScreen()
+        }
+      }
+    })
+
+    ro.observe(container)
+    return () => ro.disconnect()
+  }, [fitToScreen])
 
   // 5. Professional CAD Native Wheel Handler (Figma / Miro / Google Maps standard)
   useEffect(() => {
@@ -290,7 +327,10 @@ export function useCanvasViewport(options: CanvasViewportOptions = {}) {
       setIsPanning(false)
       dragStartRef.current = null
       try {
-        ;(e.target as HTMLElement)?.releasePointerCapture?.(e.pointerId)
+        const target = e.target as HTMLElement | null
+        if (target && typeof target.hasPointerCapture === 'function' && target.hasPointerCapture(e.pointerId)) {
+          target.releasePointerCapture(e.pointerId)
+        }
       } catch {
         // Ignore if pointer capture release fails
       }

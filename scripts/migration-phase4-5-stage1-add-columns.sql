@@ -42,7 +42,7 @@ DO $$ BEGIN
   ADD CONSTRAINT fk_log_attendance_enrollment_student 
   FOREIGN KEY (enrollment_id, student_id) 
   REFERENCES public.student_enrollments(id, student_id) 
-  ON DELETE CASCADE;
+  ON DELETE RESTRICT;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 

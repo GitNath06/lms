@@ -25,10 +25,13 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
+import { NepaliDatePicker } from '@/components/ui/nepali-date-picker'
 import { useIncidentState, LabIncidentRecord } from '@/hooks/use-incident-state'
 import IncidentDrawer from '@/components/dashboard/incident-drawer'
 import ReportIncidentModal from '@/components/dashboard/report-incident-modal'
 import { getCurrentUserProfile, UserProfile } from '@/app/actions/auth'
+import { getIssueCategories } from '@/app/actions/workstations'
+import { getCachedData, setCachedData, fetchWithClientCache } from '@/lib/cache/client-query-cache'
 
 export type UserRoleMode = 'super_admin' | 'lab_incharge' | 'hod' | 'teacher' | 'faculty'
 
@@ -36,7 +39,9 @@ export default function IncidentsPage() {
     const { incidents, isLoading } = useIncidentState()
 
     // Authenticated Role & User Profile
-    const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
+    const [userProfile, setUserProfile] = useState<UserProfile | null>(() => {
+        return getCachedData<UserProfile>('auth:current-user-profile') || null
+    })
     const [currentRole, setCurrentRole] = useState<UserRoleMode>('teacher')
     const [selectedIncident, setSelectedIncident] = useState<LabIncidentRecord | null>(null)
     const [isDrawerOpen, setIsDrawerOpen] = useState<boolean>(false)
@@ -46,6 +51,11 @@ export default function IncidentsPage() {
     // Filters State (Primary Labs: Physics, Chemistry, Computer)
     const [scopeFilter, setScopeFilter] = useState<'my_incidents' | 'all'>('my_incidents')
     const [labFilter, setLabFilter] = useState<string>('all')
+    const [categoryFilter, setCategoryFilter] = useState<string>('all')
+    const [categories, setCategories] = useState<Array<{ id: string; name: string }>>(() => {
+        const cached = getCachedData<any[]>('categories:active')
+        return cached?.map((c) => ({ id: c.id, name: c.name })) || []
+    })
     const [severityFilter, setSeverityFilter] = useState<string>('all')
     const [statusFilter, setStatusFilter] = useState<string>('all')
     const [dateFilter, setDateFilter] = useState<string>('')
@@ -54,7 +64,11 @@ export default function IncidentsPage() {
     React.useEffect(() => {
         async function loadProfile() {
             try {
-                const profile = await getCurrentUserProfile()
+                const profile = await fetchWithClientCache<UserProfile | null>(
+                    'auth:current-user-profile',
+                    () => getCurrentUserProfile(),
+                    { staleTimeMs: 300_000 }
+                )
                 if (profile) {
                     setUserProfile(profile)
                     const mappedRole = profile.role as UserRoleMode
@@ -66,7 +80,22 @@ export default function IncidentsPage() {
                 console.error('Failed to load current user profile:', err)
             }
         }
+        async function loadCategories() {
+            try {
+                const res = await fetchWithClientCache(
+                    'categories:active',
+                    () => getIssueCategories({ activeOnly: true }),
+                    { staleTimeMs: 300_000 }
+                )
+                if (res.success && res.data) {
+                    setCategories(res.data.map((c) => ({ id: c.id, name: c.name })))
+                }
+            } catch (err) {
+                console.error('Failed to load categories:', err)
+            }
+        }
         loadProfile()
+        loadCategories()
     }, [])
 
     const triggerToast = (msg: string) => {
@@ -102,6 +131,15 @@ export default function IncidentsPage() {
                 if (!matchesLab) return false
             }
 
+            // Category Filter
+            if (categoryFilter !== 'all') {
+                const targetCat = categoryFilter.toLowerCase()
+                const matchesCategory =
+                    inc.incident_type?.toLowerCase() === targetCat ||
+                    (inc as any).category?.toLowerCase() === targetCat
+                if (!matchesCategory) return false
+            }
+
             // Severity Filter
             if (severityFilter !== 'all' && inc.severity !== severityFilter) {
                 return false
@@ -131,7 +169,7 @@ export default function IncidentsPage() {
 
             return true
         })
-    }, [incidents, scopeFilter, userProfile, labFilter, severityFilter, statusFilter, dateFilter, searchQuery])
+    }, [incidents, scopeFilter, userProfile, labFilter, categoryFilter, severityFilter, statusFilter, dateFilter, searchQuery])
 
     // KPI Calculations
     const totalCount = incidents.length
@@ -146,7 +184,7 @@ export default function IncidentsPage() {
         <div className="space-y-6 w-full pb-12 font-sans">
             {/* Toast Notification */}
             {toastMessage && (
-                <div className="fixed top-5 right-5 z-50 bg-zinc-950 text-white dark:bg-white dark:text-zinc-950 px-4 py-2.5 rounded-xl shadow-2xl text-xs font-mono font-medium flex items-center gap-2 border border-zinc-700 animate-in slide-in-from-top-2 duration-150">
+                <div className="fixed top-5 right-5 z-[100] bg-zinc-950 text-white dark:bg-white dark:text-zinc-950 px-4 py-2.5 rounded-xl shadow-2xl text-xs font-mono font-medium flex items-center gap-2 border border-zinc-700 animate-in slide-in-from-top-2 duration-150">
                     <Sparkles className="h-4 w-4 text-emerald-400" />
                     <span>{toastMessage}</span>
                 </div>
@@ -316,10 +354,11 @@ export default function IncidentsPage() {
                         </div>
                     </div>
 
-                    {(labFilter !== 'all' || severityFilter !== 'all' || statusFilter !== 'all' || dateFilter || searchQuery) && (
+                    {(labFilter !== 'all' || categoryFilter !== 'all' || severityFilter !== 'all' || statusFilter !== 'all' || dateFilter || searchQuery) && (
                         <button
                             onClick={() => {
                                 setLabFilter('all')
+                                setCategoryFilter('all')
                                 setSeverityFilter('all')
                                 setStatusFilter('all')
                                 setDateFilter('')
@@ -332,7 +371,7 @@ export default function IncidentsPage() {
                     )}
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2.5">
                     {/* Lab Room Filter (Focus: Physics, Chemistry, Computer) */}
                     <div className="space-y-1">
                         <span className="text-[10px] text-zinc-400 uppercase font-bold">Target Lab</span>
@@ -341,6 +380,19 @@ export default function IncidentsPage() {
                             <option value="phys">Physics Laboratory</option>
                             <option value="chem">Chemistry Laboratory</option>
                             <option value="comp">Computer Laboratory</option>
+                        </Select>
+                    </div>
+
+                    {/* Category Filter (Dynamic from PostgreSQL issue_categories) */}
+                    <div className="space-y-1">
+                        <span className="text-[10px] text-zinc-400 uppercase font-bold">Category</span>
+                        <Select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="h-8 text-xs bg-zinc-50 dark:bg-zinc-950">
+                            <option value="all">All Categories</option>
+                            {categories.map((c) => (
+                                <option key={c.id} value={c.name}>
+                                    {c.name}
+                                </option>
+                            ))}
                         </Select>
                     </div>
 
@@ -371,11 +423,11 @@ export default function IncidentsPage() {
                     {/* Date Filter */}
                     <div className="space-y-1">
                         <span className="text-[10px] text-zinc-400 uppercase font-bold">Specific Date</span>
-                        <Input
-                            type="date"
+                        <NepaliDatePicker
                             value={dateFilter}
-                            onChange={(e) => setDateFilter(e.target.value)}
-                            className="h-8 text-xs bg-zinc-50 dark:bg-zinc-950"
+                            onChange={(d) => setDateFilter(d)}
+                            placeholder="मिति छान्नुहोस् / Select Date"
+                            inputClassName="h-8 text-xs bg-zinc-50 dark:bg-zinc-950 font-sans"
                         />
                     </div>
 

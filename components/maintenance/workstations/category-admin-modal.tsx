@@ -148,19 +148,19 @@ export function CategoryAdminModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-      <div className="relative flex max-h-[90vh] w-full max-w-2xl flex-col rounded-2xl border border-white/[0.08] bg-[#101726] shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm select-none">
+      <div className="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-2xl flex-col rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] shadow-2xl overflow-hidden font-sans">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-white/[0.08] bg-[#151E32]/70 px-6 py-4">
+        <div className="flex items-center justify-between border-b border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32]/70 px-6 py-4">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-500/10 text-indigo-400">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-500/20">
               <Layers className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="font-heading font-extrabold text-base text-white">
+              <h3 className="font-heading font-extrabold text-base text-zinc-900 dark:text-white">
                 Workstation Issue Taxonomy
               </h3>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-zinc-600 dark:text-slate-400">
                 Manage hardware, software, network, and peripheral diagnostic classifications
               </p>
             </div>
@@ -168,7 +168,7 @@ export function CategoryAdminModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-xl border border-white/[0.08] p-2 text-slate-400 hover:bg-white/[0.06] hover:text-white"
+            className="rounded-xl border border-zinc-200 dark:border-white/[0.08] p-2 text-zinc-500 dark:text-slate-400 hover:bg-zinc-100 dark:hover:bg-white/[0.06] hover:text-zinc-900 dark:hover:text-white cursor-pointer"
           >
             <X className="h-5 w-5" />
           </button>
@@ -177,22 +177,22 @@ export function CategoryAdminModal({
         {/* Content Body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
           {errorMessage && (
-            <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-3 text-xs text-rose-300">
+            <div className="rounded-xl border border-rose-300 dark:border-rose-500/40 bg-rose-50 dark:bg-rose-500/10 p-3 text-xs text-rose-800 dark:text-rose-300">
               {errorMessage}
             </div>
           )}
 
           {/* Form for Create / Edit */}
           {(isCreatingNew || editingCat) && (
-            <form onSubmit={handleSave} className="rounded-xl border border-indigo-500/30 bg-[#151E32] p-4 space-y-3">
-              <div className="flex items-center justify-between border-b border-white/[0.06] pb-2">
-                <h4 className="font-heading font-semibold text-xs text-indigo-300">
+            <form onSubmit={handleSave} className="rounded-xl border border-indigo-200 dark:border-indigo-500/30 bg-zinc-50 dark:bg-[#151E32] p-4 space-y-3">
+              <div className="flex items-center justify-between border-b border-zinc-200 dark:border-white/[0.06] pb-2">
+                <h4 className="font-heading font-semibold text-xs text-indigo-700 dark:text-indigo-300">
                   {isCreatingNew ? 'Create New Category' : `Edit: ${editingCat?.name}`}
                 </h4>
                 <button
                   type="button"
                   onClick={cancelEdit}
-                  className="text-xs text-slate-400 hover:text-white"
+                  className="text-xs text-zinc-500 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -200,23 +200,23 @@ export function CategoryAdminModal({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-semibold text-slate-300">Category Name *</label>
+                  <label className="text-xs font-semibold text-zinc-700 dark:text-slate-300">Category Name *</label>
                   <input
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="e.g. BIOS Battery Dead"
-                    className="mt-1 w-full rounded-xl border border-slate-700 bg-[#0E1524] px-3 py-2 text-xs text-white focus:border-indigo-500 focus:outline-none"
+                    className="mt-1 w-full rounded-xl border border-zinc-300 dark:border-slate-700 bg-white dark:bg-[#0E1524] px-3 py-2 text-xs text-zinc-900 dark:text-white focus:border-indigo-500 focus:outline-none"
                     required
                   />
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-slate-300">Classification Type</label>
+                  <label className="text-xs font-semibold text-zinc-700 dark:text-slate-300">Classification Type</label>
                   <select
                     value={type}
                     onChange={(e) => setType(e.target.value as any)}
-                    className="mt-1 w-full rounded-xl border border-slate-700 bg-[#0E1524] px-3 py-2 text-xs text-white focus:border-indigo-500 focus:outline-none"
+                    className="mt-1 w-full rounded-xl border border-zinc-300 dark:border-slate-700 bg-white dark:bg-[#0E1524] px-3 py-2 text-xs text-zinc-900 dark:text-white focus:border-indigo-500 focus:outline-none cursor-pointer"
                   >
                     <option value="hardware">Hardware Component</option>
                     <option value="software">Software / Operating System</option>
@@ -227,11 +227,11 @@ export function CategoryAdminModal({
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-slate-300">Default Severity</label>
+                  <label className="text-xs font-semibold text-zinc-700 dark:text-slate-300">Default Severity</label>
                   <select
                     value={defaultSeverity}
                     onChange={(e) => setDefaultSeverity(e.target.value as any)}
-                    className="mt-1 w-full rounded-xl border border-slate-700 bg-[#0E1524] px-3 py-2 text-xs text-white focus:border-indigo-500 focus:outline-none"
+                    className="mt-1 w-full rounded-xl border border-zinc-300 dark:border-slate-700 bg-white dark:bg-[#0E1524] px-3 py-2 text-xs text-zinc-900 dark:text-white focus:border-indigo-500 focus:outline-none cursor-pointer"
                   >
                     <option value="low">Low (Minor Glitch)</option>
                     <option value="medium">Medium (Impaired Usage)</option>
@@ -241,7 +241,7 @@ export function CategoryAdminModal({
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-slate-300">Color Tag</label>
+                  <label className="text-xs font-semibold text-zinc-700 dark:text-slate-300">Color Tag</label>
                   <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
                     {COLOR_PRESETS.map((c) => (
                       <button
@@ -249,8 +249,8 @@ export function CategoryAdminModal({
                         type="button"
                         onClick={() => setColor(c)}
                         style={{ backgroundColor: c }}
-                        className={`h-6 w-6 rounded-full border-2 transition-transform ${
-                          color === c ? 'scale-110 border-white shadow-md' : 'border-transparent hover:scale-105'
+                        className={`h-6 w-6 rounded-full border-2 transition-transform cursor-pointer ${
+                          color === c ? 'scale-110 border-indigo-600 dark:border-white shadow-md' : 'border-transparent hover:scale-105'
                         }`}
                       />
                     ))}
@@ -258,18 +258,18 @@ export function CategoryAdminModal({
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2 pt-2 border-t border-white/[0.06]">
+              <div className="flex justify-end gap-2 pt-2 border-t border-zinc-200 dark:border-white/[0.06]">
                 <button
                   type="button"
                   onClick={cancelEdit}
-                  className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:text-white"
+                  className="rounded-lg border border-zinc-300 dark:border-slate-700 px-3 py-1.5 text-xs text-zinc-700 dark:text-slate-300 hover:bg-zinc-100 dark:hover:bg-white/5 hover:text-zinc-900 dark:hover:text-white cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-1.5 text-xs font-semibold text-white shadow hover:bg-indigo-500 disabled:opacity-50"
+                  className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-1.5 text-xs font-semibold text-white shadow hover:bg-indigo-500 disabled:opacity-50 cursor-pointer"
                 >
                   {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
                   <span>{isCreatingNew ? 'Create Category' : 'Save Changes'}</span>
@@ -281,13 +281,13 @@ export function CategoryAdminModal({
           {/* Action Bar */}
           {!isCreatingNew && !editingCat && (
             <div className="flex justify-between items-center">
-              <span className="text-xs text-slate-400">
+              <span className="text-xs text-zinc-600 dark:text-slate-400">
                 {categories.length} Registered Categories
               </span>
               <button
                 type="button"
                 onClick={startCreate}
-                className="flex items-center gap-1.5 rounded-xl bg-indigo-600 px-3 py-2 text-xs font-semibold text-white shadow hover:bg-indigo-500 active:scale-95"
+                className="flex items-center gap-1.5 rounded-xl bg-indigo-600 px-3 py-2 text-xs font-semibold text-white shadow hover:bg-indigo-500 active:scale-95 cursor-pointer"
               >
                 <Plus className="h-3.5 w-3.5" />
                 <span>New Category</span>
@@ -300,7 +300,7 @@ export function CategoryAdminModal({
             {categories.map((cat) => (
               <div
                 key={cat.id}
-                className="flex items-center justify-between rounded-xl border border-white/[0.08] bg-[#151E32] p-3 transition-colors hover:border-slate-600"
+                className="flex items-center justify-between rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] p-3 transition-colors hover:border-zinc-300 dark:hover:border-slate-600"
               >
                 <div className="flex items-center gap-3">
                   <span
@@ -308,15 +308,15 @@ export function CategoryAdminModal({
                     style={{ backgroundColor: cat.color || '#6366F1' }}
                   />
                   <div>
-                    <h5 className="font-heading font-semibold text-xs text-white">
+                    <h5 className="font-heading font-semibold text-xs text-zinc-900 dark:text-white">
                       {cat.name}
                     </h5>
                     <div className="flex items-center gap-2 pt-0.5">
-                      <span className="text-[10px] text-slate-400 capitalize">
+                      <span className="text-[10px] text-zinc-500 dark:text-slate-400 capitalize">
                         {cat.type}
                       </span>
-                      <span className="text-[10px] text-slate-600">•</span>
-                      <span className="text-[10px] uppercase font-bold text-slate-400">
+                      <span className="text-[10px] text-zinc-400 dark:text-slate-600">•</span>
+                      <span className="text-[10px] uppercase font-bold text-zinc-600 dark:text-slate-400">
                         Default: {cat.default_severity}
                       </span>
                     </div>
@@ -327,7 +327,7 @@ export function CategoryAdminModal({
                   <button
                     type="button"
                     onClick={() => startEdit(cat)}
-                    className="rounded-lg p-1.5 text-slate-400 hover:bg-white/[0.06] hover:text-indigo-400"
+                    className="rounded-lg p-1.5 text-zinc-500 dark:text-slate-400 hover:bg-zinc-200 dark:hover:bg-white/[0.06] hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer"
                     title="Edit category"
                   >
                     <Edit2 className="h-3.5 w-3.5" />
@@ -335,7 +335,7 @@ export function CategoryAdminModal({
                   <button
                     type="button"
                     onClick={() => handleDelete(cat)}
-                    className="rounded-lg p-1.5 text-slate-400 hover:bg-white/[0.06] hover:text-rose-400"
+                    className="rounded-lg p-1.5 text-zinc-500 dark:text-slate-400 hover:bg-rose-100 dark:hover:bg-white/[0.06] hover:text-rose-600 dark:hover:text-rose-400 cursor-pointer"
                     title="Delete category"
                   >
                     <Trash2 className="h-3.5 w-3.5" />

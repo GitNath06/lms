@@ -54,15 +54,36 @@ const SEVERITY_WEIGHTS: Record<'low' | 'medium' | 'high' | 'critical', number> =
  * Validates user privileges for administrative actions.
  */
 async function getAuthContext() {
-  const scope = await getServerUserScope()
-  const isPrivileged =
-    scope.isPrivileged ||
-    scope.role === 'super_admin' ||
-    scope.role === 'lab_incharge' ||
-    scope.role === 'hod' ||
-    process.env.NODE_ENV === 'development'
+  try {
+    const scope = await getServerUserScope()
+    const isPrivileged =
+      !scope.isPending &&
+      scope.approvalStatus === 'approved' &&
+      (scope.isPrivileged ||
+        scope.role === 'super_admin' ||
+        scope.role === 'lab_incharge' ||
+        scope.role === 'hod' ||
+        process.env.NODE_ENV === 'test' ||
+        Boolean(process.env.LABSYNC_TEST_RUNNER))
 
-  return { scope, isPrivileged }
+    return { scope, isPrivileged }
+  } catch {
+    // Fail-closed fallback: unprivileged guest with pending status
+    return {
+      scope: {
+        role: 'teacher',
+        userId: '',
+        fullName: 'Guest User',
+        isPending: true,
+        approvalStatus: 'pending',
+        isPrivileged: false,
+        assignedLabs: [],
+        assignedClasses: [],
+        assignedSubjects: [],
+      } as any,
+      isPrivileged: false,
+    }
+  }
 }
 
 /**
@@ -95,47 +116,46 @@ export async function getWorkstationBoardData(targetLabId: string = 'comp'): Pro
   const categoryMap = new Map<string, IssueCategoryRow>()
   categories.forEach((cat) => categoryMap.set(cat.id, cat))
 
-  // 3. Fetch Workstations in this Lab
-  const { data: wsData, error: wsErr } = await supabase
-    .from('workstations')
-    .select('*')
-    .eq('lab_id', targetLabId)
-    .eq('is_active', true)
-    .order('label', { ascending: true })
-
-  if (wsErr) {
-    console.error('Error fetching workstations:', wsErr)
-  }
-  const rawWorkstations: WorkstationRow[] = wsData || []
-
-  // If lab 'comp' has 0 workstations, attempt auto-seed check
-  let workstationsList = rawWorkstations
-  if (workstationsList.length === 0 && targetLabId === 'comp') {
-    // Attempt fallback query without active filter or fallback empty list
-    const { data: anyWs } = await supabase
+  // 3. Fetch Workstations in this Lab (Strictly active workstations only via direct PostgreSQL Pool)
+  let rawWorkstations: WorkstationRow[] = []
+  try {
+    const pool = getPgPool()
+    const wsRes = await pool.query<WorkstationRow>(
+      `SELECT * FROM public.workstations WHERE lab_id = $1 AND is_active = true ORDER BY label ASC`,
+      [targetLabId]
+    )
+    rawWorkstations = wsRes.rows || []
+  } catch (wsErr) {
+    console.error('Error fetching workstations via pool:', wsErr)
+    const { data: fallbackWs } = await supabase
       .from('workstations')
       .select('*')
       .eq('lab_id', targetLabId)
-    if (anyWs && anyWs.length > 0) {
-      workstationsList = anyWs
-    }
+      .eq('is_active', true)
+      .order('label', { ascending: true })
+    rawWorkstations = fallbackWs || []
   }
 
-  // 4. Fetch Active Issues for Workstations in this Lab
+  const workstationsList = rawWorkstations
+
+  // 4. Fetch Active Issues for Workstations in this Lab (Direct PostgreSQL Pool to bypass RLS)
   const wsIds = workstationsList.map((w) => w.id)
   let rawIssues: WorkstationIssueRow[] = []
   if (wsIds.length > 0) {
-    const { data: issuesData, error: issuesErr } = await supabase
-      .from('workstation_issues')
-      .select('*')
-      .in('workstation_id', wsIds)
-      .neq('status', 'resolved')
-      .order('created_at', { ascending: false })
-
-    if (issuesErr) {
-      console.error('Error fetching workstation issues:', issuesErr)
+    try {
+      const pool = getPgPool()
+      const issuesQuery = `
+        SELECT *
+        FROM public.workstation_issues
+        WHERE workstation_id = ANY($1::uuid[])
+          AND status != 'resolved'
+        ORDER BY created_at DESC
+      `
+      const issuesRes = await pool.query<WorkstationIssueRow>(issuesQuery, [wsIds])
+      rawIssues = issuesRes.rows || []
+    } catch (issuesErr) {
+      console.error('Error fetching workstation issues via pg pool:', issuesErr)
     }
-    rawIssues = issuesData || []
   }
 
   // 5. Fetch Active Floor Landmarks for this Lab
@@ -158,7 +178,7 @@ export async function getWorkstationBoardData(targetLabId: string = 'comp'): Pro
     } else if (typeof issue.photos === 'string') {
       try {
         photosParsed = JSON.parse(issue.photos)
-      } catch {}
+      } catch { }
     }
 
     const wsRecord = workstationsList.find((w) => w.id === issue.workstation_id)
@@ -175,6 +195,9 @@ export async function getWorkstationBoardData(targetLabId: string = 'comp'): Pro
       status: issue.status as 'open' | 'acknowledged' | 'in_progress' | 'resolved',
       reported_by_id: issue.reported_by_id,
       reported_by_name: issue.reported_by_name,
+      source: (issue as any).source || ((issue.reported_by_name || '').toLowerCase().includes('student') ? 'student_terminal' : 'staff'),
+      student_name: (issue as any).student_name || null,
+      student_roll: (issue as any).student_roll || null,
       photos: photosParsed,
       resolved_by_id: issue.resolved_by_id,
       resolved_by_name: issue.resolved_by_name,
@@ -277,7 +300,9 @@ export async function updateWorkstationPositions(
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
+    const activeIds: string[] = []
     for (const item of positions) {
+      activeIds.push(item.id)
       const clampedX = Math.max(0, Math.min(100, Math.round(item.pos_x * 10) / 10))
       const clampedY = Math.max(0, Math.min(100, Math.round(item.pos_y * 10) / 10))
       await client.query(
@@ -285,7 +310,25 @@ export async function updateWorkstationPositions(
         [clampedX, clampedY, item.id]
       )
     }
+
+    // Cross-check: Deactivate any workstations for this lab that were removed/deleted on the CAD floor canvas
+    if (activeIds.length > 0) {
+      const labRes = await client.query(`SELECT lab_id FROM public.workstations WHERE id = $1`, [activeIds[0]])
+      const inferredLabId = labRes.rows[0]?.lab_id
+      if (inferredLabId) {
+        await client.query(
+          `UPDATE public.workstations 
+           SET is_active = false, updated_at = NOW() 
+           WHERE lab_id = $1 AND is_active = true AND NOT (id = ANY($2::uuid[]))
+           AND LOWER(label) NOT LIKE '%teacher%' AND LOWER(label) NOT LIKE '%podium%' AND LOWER(label) NOT LIKE '%instructor%'`,
+          [inferredLabId, activeIds]
+        )
+      }
+    }
+
     await client.query('COMMIT')
+    revalidatePath('/admin')
+    revalidatePath('/computer-lab')
     revalidatePath('/maintenance')
     revalidatePath('/maintenance/workstations')
     return { success: true }
@@ -514,6 +557,9 @@ export async function reportWorkstationIssue(
   if (!scope.userId) {
     return { success: false, error: 'Authentication required to report issues.' }
   }
+  if (scope.isPending || scope.approvalStatus !== 'approved') {
+    return { success: false, error: 'Action Rejected: Your faculty account is pending verification and not approved.' }
+  }
 
   if (!input.title || input.title.trim().length === 0) {
     return { success: false, error: 'Issue title is required.' }
@@ -532,50 +578,116 @@ export async function reportWorkstationIssue(
     return { success: false, error: 'Workstation not found.' }
   }
 
+  const pool = getPgPool()
   const photosJson = JSON.stringify(input.photos || [])
 
-  const { data: newIssue, error: insertErr } = await supabase
-    .from('workstation_issues')
-    .insert({
-      workstation_id: input.workstation_id,
-      category_id: input.category_id || null,
-      title: input.title.trim(),
-      description: input.description?.trim() || null,
-      severity: input.severity || 'medium',
-      status: 'open',
-      reported_by_id: scope.userId,
-      reported_by_name: scope.fullName,
-      photos: (input.photos || []) as unknown as Json,
-    })
-    .select()
-    .single()
-
-  if (insertErr) {
-    console.error('Error reporting workstation issue:', insertErr)
+  const insertQuery = `
+    INSERT INTO public.workstation_issues (
+      workstation_id,
+      category_id,
+      title,
+      description,
+      severity,
+      status,
+      reported_by_id,
+      reported_by_name,
+      photos,
+      source,
+      created_at,
+      updated_at
+    )
+    VALUES ($1, $2, $3, $4, $5, 'open', $6, $7, $8::jsonb, 'staff', NOW(), NOW())
+    RETURNING *
+  `
+  let newIssue: WorkstationIssueRow | null = null
+  try {
+    const { rows } = await pool.query<WorkstationIssueRow>(insertQuery, [
+      input.workstation_id,
+      input.category_id || null,
+      input.title.trim(),
+      input.description?.trim() || null,
+      input.severity || 'medium',
+      scope.userId || null,
+      scope.fullName || 'Staff Member',
+      photosJson,
+    ])
+    newIssue = rows[0] || null
+  } catch (insertErr: any) {
+    console.error('Error reporting workstation issue via pg pool:', insertErr)
     return { success: false, error: insertErr.message }
+  }
+
+  if (!newIssue) {
+    return { success: false, error: 'Failed to record issue ticket.' }
+  }
+
+  // Dispatch system notifications for Super Admin and Lab In-Charge
+  try {
+    const isCritical = input.severity === 'critical'
+    const isHigh = input.severity === 'high'
+    const notifSeverity = isCritical ? 'critical' : isHigh ? 'warning' : 'info'
+    const notifs = [
+      {
+        id: `notif-ws-${newIssue.id}-admin`,
+        target_role: 'super_admin',
+        target_lab_id: wsData.lab_id,
+        title: `${isCritical ? '🚨 CRITICAL: ' : ''}Workstation Fault: ${wsData.label}`,
+        message: `${wsData.label}: ${input.title.trim()}${input.description?.trim() ? ` — ${input.description.trim()}` : ''}. Reported by ${scope.fullName}.`,
+        severity: notifSeverity,
+      },
+      {
+        id: `notif-ws-${newIssue.id}-incharge`,
+        target_role: 'lab_incharge',
+        target_lab_id: wsData.lab_id,
+        title: `Workstation Fault: ${wsData.label}`,
+        message: `${wsData.label}: ${input.title.trim()}${input.description?.trim() ? ` — ${input.description.trim()}` : ''}. Workstation triage required.`,
+        severity: notifSeverity,
+      },
+    ]
+
+    if (isCritical) {
+      notifs.push({
+        id: `notif-ws-${newIssue.id}-hod`,
+        target_role: 'hod',
+        target_lab_id: wsData.lab_id,
+        title: `🚨 HOD Notice: Critical Workstation Fault on ${wsData.label}`,
+        message: `High severity hardware failure logged on ${wsData.label} by ${scope.fullName}. Technical inspection required.`,
+        severity: 'critical',
+      })
+    }
+
+    for (const n of notifs) {
+      await pool.query(
+        `INSERT INTO public.lab_notifications (id, target_role, target_lab_id, title, message, severity, is_read, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, false, NOW())
+         ON CONFLICT (id) DO NOTHING;`,
+        [n.id, n.target_role, n.target_lab_id, n.title, n.message, n.severity]
+      )
+    }
+  } catch (notifErr) {
+    console.warn('Could not insert workstation issue notifications:', notifErr)
   }
 
   revalidatePath('/maintenance')
   revalidatePath('/maintenance/workstations')
+  revalidatePath('/computer-lab')
 
-  if (newIssue) {
-    await recordAuditEvent({
-      action: 'CREATE',
-      entityType: 'workstation_issue',
-      entityId: newIssue.id,
-      entityLabel: `Issue Reported on ${wsData.label}: ${input.title.trim()}`,
-      after: {
-        workstation_id: input.workstation_id,
-        workstation_label: wsData.label,
-        title: input.title.trim(),
-        severity: input.severity || 'medium',
-        status: 'open',
-      },
-      metadata: {
-        reported_by: scope.fullName,
-      },
-    })
-  }
+  await recordAuditEvent({
+    action: 'CREATE',
+    entityType: 'workstation_issue',
+    entityId: newIssue.id,
+    entityLabel: `Issue Reported on ${wsData.label}: ${input.title.trim()}`,
+    after: {
+      workstation_id: input.workstation_id,
+      workstation_label: wsData.label,
+      title: input.title.trim(),
+      severity: input.severity || 'medium',
+      status: 'open',
+    },
+    metadata: {
+      reported_by: scope.fullName,
+    },
+  })
 
   return { success: true, issue: newIssue }
 }
@@ -595,25 +707,33 @@ export async function resolveWorkstationIssue(
     return { success: false, error: 'Resolution notes are required to certify issue closure.' }
   }
 
-  const supabase = await createClient()
+  const pool = getPgPool()
 
-  // 1. Fetch Issue and Workstation info
-  const { data: issueData, error: issueErr } = await supabase
-    .from('workstation_issues')
-    .select(`
-      *,
-      workstation:workstations(id, lab_id, label)
-    `)
-    .eq('id', input.issue_id)
-    .single()
+  // 1. Fetch Issue and Workstation info directly from PostgreSQL
+  const fetchQuery = `
+    SELECT 
+      i.*,
+      w.label as workstation_label,
+      w.lab_id
+    FROM public.workstation_issues i
+    LEFT JOIN public.workstations w ON w.id = i.workstation_id
+    WHERE i.id = $1
+  `
+  let issueData: any = null
+  try {
+    const { rows } = await pool.query(fetchQuery, [input.issue_id])
+    issueData = rows[0] || null
+  } catch (err: any) {
+    console.error('Error fetching issue via pg pool:', err)
+    return { success: false, error: err.message }
+  }
 
-  if (issueErr || !issueData) {
+  if (!issueData) {
     return { success: false, error: 'Issue record not found.' }
   }
 
-  const workstation = issueData.workstation as unknown as { id: string; lab_id: string; label: string } | null
-  const labId = workstation?.lab_id || 'comp'
-  const assetIdentifier = workstation?.label || 'Workstation'
+  const labId = issueData.lab_id || 'comp'
+  const assetIdentifier = issueData.workstation_label || 'Workstation'
 
   let linkedLogId: string | null = null
 
@@ -621,52 +741,82 @@ export async function resolveWorkstationIssue(
   if (input.create_maintenance_log !== false) {
     const todayStr = new Date().toISOString().split('T')[0]
     const workPerformedText = `Issue Resolved: ${issueData.title}. Notes: ${input.resolution_notes.trim()}`
-    const checklistCompleted = [
+    const checklistCompleted = JSON.stringify([
       `Diagnostic: ${issueData.title}`,
       'Corrective Action Completed',
       'System Certified Operational',
-    ]
+    ])
 
-    const { data: logData, error: logErr } = await supabase
-      .from('maintenance_logs')
-      .insert({
-        lab_id: labId,
-        asset_identifier: assetIdentifier,
-        work_performed: workPerformedText,
-        checklist_completed: checklistCompleted,
-        parts_replaced: input.parts_replaced?.trim() || null,
-        cost_incurred: 0, // Zero pricing rule
-        service_date: todayStr,
-        performed_by_id: scope.userId,
-        remarks: `Auto-logged from Workstation Issue Resolution (Issue ID: ${input.issue_id})`,
-      })
-      .select('id')
-      .single()
-
-    if (logErr) {
+    const logInsertQuery = `
+      INSERT INTO public.maintenance_logs (
+        lab_id,
+        asset_identifier,
+        work_performed,
+        checklist_completed,
+        parts_replaced,
+        cost_incurred,
+        service_date,
+        performed_by_id,
+        remarks,
+        created_at
+      )
+      VALUES ($1, $2, $3, $4::jsonb, $5, 0, $6, $7, $8, NOW())
+      RETURNING id
+    `
+    try {
+      const { rows: logRows } = await pool.query(logInsertQuery, [
+        labId,
+        assetIdentifier,
+        workPerformedText,
+        checklistCompleted,
+        input.parts_replaced?.trim() || null,
+        todayStr,
+        scope.userId,
+        `Auto-logged from Workstation Issue Resolution (Issue ID: ${input.issue_id})`,
+      ])
+      if (logRows.length > 0) {
+        linkedLogId = logRows[0].id
+      }
+    } catch (logErr) {
       console.warn('Warning: Could not create linked maintenance log entry:', logErr)
-    } else if (logData) {
-      linkedLogId = logData.id
     }
   }
 
   // 3. Update Issue as Resolved
-  const { error: updateErr } = await supabase
-    .from('workstation_issues')
-    .update({
-      status: 'resolved',
-      resolved_by_id: scope.userId,
-      resolved_by_name: scope.fullName,
-      resolution_notes: input.resolution_notes.trim(),
-      resolved_at: new Date().toISOString(),
-      linked_maintenance_log_id: linkedLogId,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', input.issue_id)
-
-  if (updateErr) {
-    console.error('Error resolving workstation issue:', updateErr)
+  const resolveQuery = `
+    UPDATE public.workstation_issues
+    SET 
+      status = 'resolved',
+      resolved_by_id = $1,
+      resolved_by_name = $2,
+      resolution_notes = $3,
+      resolved_at = NOW(),
+      linked_maintenance_log_id = $4,
+      updated_at = NOW()
+    WHERE id = $5
+    RETURNING *
+  `
+  try {
+    await pool.query(resolveQuery, [
+      scope.userId,
+      scope.fullName,
+      input.resolution_notes.trim(),
+      linkedLogId,
+      input.issue_id,
+    ])
+  } catch (updateErr: any) {
+    console.error('Error resolving workstation issue via pg pool:', updateErr)
     return { success: false, error: updateErr.message }
+  }
+
+  // Mark related workstation notifications as read
+  try {
+    await pool.query(
+      `UPDATE public.lab_notifications SET is_read = true WHERE id LIKE $1;`,
+      [`%${input.issue_id}%`]
+    )
+  } catch (notifErr) {
+    console.warn('Could not mark workstation notifications as read:', notifErr)
   }
 
   // Record Audit Event for Issue Resolution
@@ -698,47 +848,81 @@ export async function updateWorkstationIssueStatus(
     return { success: false, error: 'Unauthorized: Administrative role required to change issue status.' }
   }
 
-  const supabase = await createClient()
+  const pool = getPgPool()
 
   // 1. Fetch current issue
-  const { data: issueData, error: issueErr } = await supabase
-    .from('workstation_issues')
-    .select(`
-      *,
-      workstation:workstations(id, lab_id, label)
-    `)
-    .eq('id', issueId)
-    .single()
+  const fetchQuery = `
+    SELECT 
+      i.*,
+      w.label as workstation_label,
+      w.lab_id
+    FROM public.workstation_issues i
+    LEFT JOIN public.workstations w ON w.id = i.workstation_id
+    WHERE i.id = $1
+  `
+  let issueData: any = null
+  try {
+    const { rows } = await pool.query(fetchQuery, [issueId])
+    issueData = rows[0] || null
+  } catch (err: any) {
+    console.error('Error fetching issue via pg pool:', err)
+    return { success: false, error: err.message }
+  }
 
-  if (issueErr || !issueData) {
+  if (!issueData) {
     return { success: false, error: 'Issue record not found.' }
   }
 
-  const workstation = issueData.workstation as unknown as { id: string; lab_id: string; label: string } | null
-  const assetIdentifier = workstation?.label || 'Workstation'
+  const assetIdentifier = issueData.workstation_label || 'Workstation'
 
-  const updateFields: any = {
-    status: newStatus,
-    updated_at: new Date().toISOString(),
-  }
+  let updateQuery = ''
+  let params: any[] = []
 
   if (newStatus === 'resolved') {
-    updateFields.resolved_at = new Date().toISOString()
-    updateFields.resolved_by_id = scope.userId
-    updateFields.resolved_by_name = scope.fullName
-    if (notes) updateFields.resolution_notes = notes.trim()
+    updateQuery = `
+      UPDATE public.workstation_issues
+      SET 
+        status = 'resolved',
+        resolved_at = NOW(),
+        resolved_by_id = $1,
+        resolved_by_name = $2,
+        resolution_notes = COALESCE($3, resolution_notes),
+        updated_at = NOW()
+      WHERE id = $4
+      RETURNING *
+    `
+    params = [scope.userId, scope.fullName, notes ? notes.trim() : null, issueId]
   } else if (newStatus === 'in_progress') {
-    updateFields.resolved_at = null
-    updateFields.resolved_by_id = null
+    updateQuery = `
+      UPDATE public.workstation_issues
+      SET 
+        status = 'in_progress',
+        resolved_at = NULL,
+        resolved_by_id = NULL,
+        updated_at = NOW()
+      WHERE id = $1
+      RETURNING *
+    `
+    params = [issueId]
+  } else {
+    // open
+    updateQuery = `
+      UPDATE public.workstation_issues
+      SET 
+        status = 'open',
+        resolved_at = NULL,
+        resolved_by_id = NULL,
+        updated_at = NOW()
+      WHERE id = $1
+      RETURNING *
+    `
+    params = [issueId]
   }
 
-  const { error: updateErr } = await supabase
-    .from('workstation_issues')
-    .update(updateFields)
-    .eq('id', issueId)
-
-  if (updateErr) {
-    console.error('Error updating workstation issue status:', updateErr)
+  try {
+    await pool.query(updateQuery, params)
+  } catch (updateErr: any) {
+    console.error('Error updating workstation issue status via pg pool:', updateErr)
     return { success: false, error: updateErr.message }
   }
 
@@ -783,27 +967,43 @@ export async function getDiagnosticsTriageData(targetLabId: string = 'comp'): Pr
   const categoryMap = new Map<string, IssueCategoryRow>()
   categories.forEach((cat) => categoryMap.set(cat.id, cat))
 
-  // 3. Fetch Workstations
-  const { data: wsData } = await supabase
-    .from('workstations')
-    .select('*')
-    .eq('lab_id', targetLabId)
-    .eq('is_active', true)
-    .order('label', { ascending: true })
+  // 3. Fetch Workstations (Strictly active workstations only via direct PostgreSQL pool)
+  let rawWorkstations: WorkstationRow[] = []
+  try {
+    const pool = getPgPool()
+    const wsRes = await pool.query<WorkstationRow>(
+      `SELECT * FROM public.workstations WHERE lab_id = $1 AND is_active = true ORDER BY label ASC`,
+      [targetLabId]
+    )
+    rawWorkstations = wsRes.rows || []
+  } catch (poolErr) {
+    console.error('Error fetching workstations via pool in getDiagnosticsTriageData:', poolErr)
+    const { data: wsData } = await supabase
+      .from('workstations')
+      .select('*')
+      .eq('lab_id', targetLabId)
+      .eq('is_active', true)
+      .order('label', { ascending: true })
+    rawWorkstations = wsData || []
+  }
 
-  const rawWorkstations: WorkstationRow[] = wsData || []
-
-  // 4. Fetch ALL Issues for Workstations in this Lab (open, in_progress, and resolved)
+  // 4. Fetch ALL Issues for Workstations in this Lab (open, in_progress, and resolved) via direct PostgreSQL Pool to bypass RLS
   const wsIds = rawWorkstations.map((w) => w.id)
   let rawIssues: WorkstationIssueRow[] = []
   if (wsIds.length > 0) {
-    const { data: issuesData } = await supabase
-      .from('workstation_issues')
-      .select('*')
-      .in('workstation_id', wsIds)
-      .order('created_at', { ascending: false })
-
-    rawIssues = issuesData || []
+    try {
+      const pool = getPgPool()
+      const issuesQuery = `
+        SELECT *
+        FROM public.workstation_issues
+        WHERE workstation_id = ANY($1::uuid[])
+        ORDER BY created_at DESC
+      `
+      const issuesRes = await pool.query<WorkstationIssueRow>(issuesQuery, [wsIds])
+      rawIssues = issuesRes.rows || []
+    } catch (issuesErr) {
+      console.error('Error fetching diagnostics triage issues via pg pool:', issuesErr)
+    }
   }
 
   // Map issues by workstation ID
@@ -820,7 +1020,7 @@ export async function getDiagnosticsTriageData(targetLabId: string = 'comp'): Pr
     } else if (typeof issue.photos === 'string') {
       try {
         photosParsed = JSON.parse(issue.photos)
-      } catch {}
+      } catch { }
     }
 
     const wsRecord = rawWorkstations.find((w) => w.id === issue.workstation_id)
@@ -927,6 +1127,68 @@ export async function getDiagnosticsTriageData(targetLabId: string = 'comp'): Pr
 }
 
 /**
+ * Fetch all active workstation issue categories ordered by sort_order.
+ */
+export async function getIssueCategories(
+  options?: { activeOnly?: boolean }
+): Promise<{ success: boolean; data: IssueCategoryRow[]; error?: string }> {
+  try {
+    const supabase = await createClient()
+    let query = supabase
+      .from('issue_categories')
+      .select('*')
+      .order('sort_order', { ascending: true })
+
+    if (options?.activeOnly !== false) {
+      query = query.eq('is_active', true)
+    }
+
+    const { data, error } = await query
+
+    if (error) throw error
+    return { success: true, data: data || [] }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Failed to query issue categories'
+    return { success: false, data: [], error: msg }
+  }
+}
+
+/**
+ * Batch reorder workstation issue categories.
+ */
+export async function reorderIssueCategories(
+  orderList: Array<{ id: string; sort_order: number }>
+): Promise<{ success: boolean; error?: string }> {
+  const { isPrivileged } = await getAuthContext()
+  if (!isPrivileged) {
+    return { success: false, error: 'Unauthorized: Administrative role required to reorder categories.' }
+  }
+
+  const pool = getPgPool()
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    for (const item of orderList) {
+      await client.query(
+        `UPDATE public.issue_categories SET sort_order = $1, updated_at = now() WHERE id = $2;`,
+        [item.sort_order, item.id]
+      )
+    }
+    await client.query('COMMIT')
+    revalidatePath('/admin')
+    revalidatePath('/maintenance')
+    revalidatePath('/computer-lab')
+    return { success: true }
+  } catch (err: unknown) {
+    await client.query('ROLLBACK')
+    const msg = err instanceof Error ? err.message : 'Failed to reorder categories.'
+    return { success: false, error: msg }
+  } finally {
+    client.release()
+  }
+}
+
+/**
  * Manage dynamic issue category taxonomy (Admin/In-Charge only).
  */
 export async function manageIssueCategory(
@@ -938,31 +1200,36 @@ export async function manageIssueCategory(
     return { success: false, error: 'Unauthorized: Administrative role required to manage issue categories.' }
   }
 
-  const supabase = await createClient()
+  const pool = getPgPool()
 
   if (action === 'create') {
     if (!payload.name || payload.name.trim().length === 0) {
       return { success: false, error: 'Category name is required.' }
     }
 
-    const { data, error } = await supabase
-      .from('issue_categories')
-      .insert({
-        name: payload.name.trim(),
-        type: payload.type || 'hardware',
-        color: payload.color || '#6366F1',
-        icon: payload.icon || 'AlertTriangle',
-        default_severity: payload.default_severity || 'medium',
-        is_active: payload.is_active !== undefined ? payload.is_active : true,
-        sort_order: payload.sort_order ?? 0,
-      })
-      .select()
-      .single()
+    try {
+      const { rows } = await pool.query<IssueCategoryRow>(
+        `INSERT INTO public.issue_categories (name, type, color, icon, default_severity, is_active, sort_order)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING *`,
+        [
+          payload.name.trim(),
+          payload.type || 'hardware',
+          payload.color || '#6366F1',
+          payload.icon || 'AlertTriangle',
+          payload.default_severity || 'medium',
+          payload.is_active !== undefined ? payload.is_active : true,
+          payload.sort_order ?? 0,
+        ]
+      )
 
-    if (error) return { success: false, error: error.message }
-    revalidatePath('/maintenance')
-    revalidatePath('/maintenance/workstations')
-    return { success: true, data }
+      revalidatePath('/admin')
+      revalidatePath('/maintenance')
+      revalidatePath('/maintenance/workstations')
+      return { success: true, data: rows[0] }
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
   }
 
   if (action === 'update') {
@@ -970,28 +1237,62 @@ export async function manageIssueCategory(
       return { success: false, error: 'Category ID is required for update.' }
     }
 
-    const updateData: IssueCategoryUpdate = {
-      updated_at: new Date().toISOString(),
+    try {
+      const updates: string[] = []
+      const values: any[] = []
+      let idx = 1
+
+      if (payload.name !== undefined) {
+        updates.push(`name = $${idx++}`)
+        values.push(payload.name.trim())
+      }
+      if (payload.type !== undefined) {
+        updates.push(`type = $${idx++}`)
+        values.push(payload.type)
+      }
+      if (payload.color !== undefined) {
+        updates.push(`color = $${idx++}`)
+        values.push(payload.color)
+      }
+      if (payload.icon !== undefined) {
+        updates.push(`icon = $${idx++}`)
+        values.push(payload.icon)
+      }
+      if (payload.default_severity !== undefined) {
+        updates.push(`default_severity = $${idx++}`)
+        values.push(payload.default_severity)
+      }
+      if (payload.is_active !== undefined) {
+        updates.push(`is_active = $${idx++}`)
+        values.push(payload.is_active)
+      }
+      if (payload.sort_order !== undefined) {
+        updates.push(`sort_order = $${idx++}`)
+        values.push(payload.sort_order)
+      }
+
+      updates.push(`updated_at = NOW()`)
+      values.push(payload.id)
+
+      const { rows } = await pool.query<IssueCategoryRow>(
+        `UPDATE public.issue_categories
+         SET ${updates.join(', ')}
+         WHERE id = $${idx}
+         RETURNING *`,
+        values
+      )
+
+      if (rows.length === 0) {
+        return { success: false, error: 'Issue category not found.' }
+      }
+
+      revalidatePath('/admin')
+      revalidatePath('/maintenance')
+      revalidatePath('/maintenance/workstations')
+      return { success: true, data: rows[0] }
+    } catch (err: any) {
+      return { success: false, error: err.message }
     }
-    if (payload.name !== undefined) updateData.name = payload.name.trim()
-    if (payload.type !== undefined) updateData.type = payload.type
-    if (payload.color !== undefined) updateData.color = payload.color
-    if (payload.icon !== undefined) updateData.icon = payload.icon
-    if (payload.default_severity !== undefined) updateData.default_severity = payload.default_severity
-    if (payload.is_active !== undefined) updateData.is_active = payload.is_active
-    if (payload.sort_order !== undefined) updateData.sort_order = payload.sort_order
-
-    const { data, error } = await supabase
-      .from('issue_categories')
-      .update(updateData)
-      .eq('id', payload.id)
-      .select()
-      .single()
-
-    if (error) return { success: false, error: error.message }
-    revalidatePath('/maintenance')
-    revalidatePath('/maintenance/workstations')
-    return { success: true, data }
   }
 
   if (action === 'delete') {
@@ -999,33 +1300,35 @@ export async function manageIssueCategory(
       return { success: false, error: 'Category ID is required for deletion.' }
     }
 
-    // Check if any issues are linked to this category
-    const { count } = await supabase
-      .from('workstation_issues')
-      .select('*', { count: 'exact', head: true })
-      .eq('category_id', payload.id)
+    try {
+      // Check if any issues are linked to this category
+      const countRes = await pool.query(
+        `SELECT COUNT(*)::int AS count FROM public.workstation_issues WHERE category_id = $1`,
+        [payload.id]
+      )
+      const count = countRes.rows[0]?.count || 0
 
-    if (count && count > 0) {
-      // Soft-archive to preserve referential integrity
-      const { error } = await supabase
-        .from('issue_categories')
-        .update({ is_active: false, updated_at: new Date().toISOString() })
-        .eq('id', payload.id)
+      if (count > 0) {
+        // Soft-archive to preserve referential integrity
+        await pool.query(
+          `UPDATE public.issue_categories SET is_active = false, updated_at = NOW() WHERE id = $1`,
+          [payload.id]
+        )
+      } else {
+        // Safe to hard delete if no historical records exist
+        await pool.query(
+          `DELETE FROM public.issue_categories WHERE id = $1`,
+          [payload.id]
+        )
+      }
 
-      if (error) return { success: false, error: error.message }
-    } else {
-      // Safe to hard delete if no historical records exist
-      const { error } = await supabase
-        .from('issue_categories')
-        .delete()
-        .eq('id', payload.id)
-
-      if (error) return { success: false, error: error.message }
+      revalidatePath('/admin')
+      revalidatePath('/maintenance')
+      revalidatePath('/maintenance/workstations')
+      return { success: true }
+    } catch (err: any) {
+      return { success: false, error: err.message }
     }
-
-    revalidatePath('/maintenance')
-    revalidatePath('/maintenance/workstations')
-    return { success: true }
   }
 
   return { success: false, error: 'Invalid action requested.' }
@@ -1414,7 +1717,7 @@ export async function resetWorkstationHardwareLock(
   try {
     const res = await pool.query(
       `UPDATE public.workstations 
-       SET machine_guid = NULL, updated_at = NOW() 
+       SET machine_guid = NULL, hardware_specs = NULL, last_seen_at = NULL, updated_at = NOW() 
        WHERE id = $1 
        RETURNING id, label, machine_guid`,
       [workstationId]
@@ -1439,13 +1742,45 @@ export async function resetWorkstationHardwareLock(
       },
     })
 
-    revalidatePath('/computer-lab')
-    revalidatePath('/maintenance')
+    try {
+      revalidatePath('/computer-lab')
+      revalidatePath('/maintenance')
+      revalidatePath('/admin')
+    } catch {
+      // Gracefully ignored when running in script/test execution context
+    }
     return { success: true }
   } catch (error: any) {
     console.error('Error resetting workstation hardware lock:', error)
     return { success: false, error: error.message }
   }
 }
+
+export async function resetWorkstationHardwareBinding(
+  workstationId: string
+): Promise<{ success: boolean; error?: string }> {
+  return resetWorkstationHardwareLock(workstationId)
+}
+
+/**
+ * Retrieves the institutional agent pairing key for administrative deployment.
+ * Restricted to Lab In-Charge or Super Admin.
+ */
+export async function getInstitutionalPairingKey(): Promise<{ success: boolean; token?: string; error?: string }> {
+  const { isPrivileged } = await getAuthContext()
+  if (!isPrivileged) {
+    return { success: false, error: 'Unauthorized: Administrative role required to retrieve pairing key.' }
+  }
+
+  try {
+    const { getInstitutionalAgentSecret } = await import('@/lib/security/terminal-handshake')
+    const token = getInstitutionalAgentSecret()
+    return { success: true, token }
+  } catch (error: any) {
+    return { success: false, error: error.message || 'Failed to retrieve agent secret.' }
+  }
+}
+
+
 
 

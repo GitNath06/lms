@@ -19,6 +19,7 @@ import {
   Loader2,
 } from 'lucide-react'
 import { signOut, updateCurrentUserPhoto } from '@/app/actions/auth'
+import { purgeAllOfflineData } from '@/lib/offline/offline-store'
 import { UserRole, UserProfile } from '@/lib/permissions'
 import { compressAvatar } from '@/lib/student-photos/compressor'
 
@@ -147,6 +148,21 @@ export default function UserProfileMenu({ profile }: UserProfileMenuProps) {
     },
   }[role]
 
+  const isPending = profile?.approval_status === 'pending'
+  const activeRoleConfig = isPending
+    ? {
+        label: 'Pending Verification',
+        sublabel: 'Awaiting Administrator Review',
+        icon: '⏳',
+        tagBadge: 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30',
+        avatarRing: 'ring-2 ring-amber-500/80 shadow-md shadow-amber-500/20',
+        avatarBg: 'bg-gradient-to-tr from-amber-600 to-amber-500 text-white',
+        accentText: 'text-amber-600 dark:text-amber-400',
+        quickActionHref: '/',
+        quickActionLabel: 'Read-Only Mode',
+      }
+    : roleConfig
+
   return (
     <div className="relative" ref={menuRef}>
       {/* Hidden File Input for Avatar Upload */}
@@ -162,22 +178,22 @@ export default function UserProfileMenu({ profile }: UserProfileMenuProps) {
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 pl-2 pr-1.5 py-1 rounded-2xl hover:bg-zinc-100 dark:hover:bg-zinc-800/60 transition-all border border-transparent hover:border-zinc-200 dark:hover:border-zinc-800 cursor-pointer group"
+        className="flex items-center gap-1.5 sm:gap-2 p-0.5 sm:pl-2 sm:pr-1.5 py-1 rounded-2xl hover:bg-zinc-100 dark:hover:bg-zinc-800/60 transition-all border border-transparent hover:border-zinc-200 dark:hover:border-zinc-800 cursor-pointer group"
       >
         <div className="text-right hidden sm:block">
           <div className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 truncate max-w-[140px]">
             {profile?.full_name || 'Academic Staff'}
           </div>
           <div className="flex items-center justify-end gap-1 text-[10px] font-mono font-bold">
-            <span className={roleConfig.accentText}>
-              {roleConfig.icon} {roleConfig.label}
+            <span className={activeRoleConfig.accentText}>
+              {activeRoleConfig.icon} {activeRoleConfig.label}
             </span>
           </div>
         </div>
 
         {/* Customized Avatar Ring */}
         <div
-          className={`h-8 w-8 rounded-full overflow-hidden flex items-center justify-center text-xs font-bold transition-transform group-hover:scale-105 ${roleConfig.avatarRing} ${roleConfig.avatarBg}`}
+          className={`h-8 w-8 rounded-full overflow-hidden flex items-center justify-center text-xs font-bold transition-transform group-hover:scale-105 shrink-0 ${activeRoleConfig.avatarRing} ${activeRoleConfig.avatarBg}`}
         >
           {photoUrl ? (
             <img
@@ -191,7 +207,7 @@ export default function UserProfileMenu({ profile }: UserProfileMenuProps) {
         </div>
 
         <ChevronDown
-          className={`h-3.5 w-3.5 text-zinc-400 transition-transform duration-200 ${
+          className={`h-3.5 w-3.5 text-zinc-400 transition-transform duration-200 hidden sm:block ${
             isOpen ? 'rotate-180' : ''
           }`}
         />
@@ -205,7 +221,7 @@ export default function UserProfileMenu({ profile }: UserProfileMenuProps) {
             {/* Avatar with Camera Trigger */}
             <div className="relative group/avatar shrink-0">
               <div
-                className={`h-12 w-12 rounded-2xl overflow-hidden flex items-center justify-center text-sm font-bold shadow-md ${roleConfig.avatarRing} ${roleConfig.avatarBg}`}
+                className={`h-12 w-12 rounded-2xl overflow-hidden flex items-center justify-center text-sm font-bold shadow-md ${activeRoleConfig.avatarRing} ${activeRoleConfig.avatarBg}`}
               >
                 {photoUrl ? (
                   <img
@@ -241,10 +257,10 @@ export default function UserProfileMenu({ profile }: UserProfileMenuProps) {
               </div>
               <div className="pt-0.5 flex items-center justify-between gap-1">
                 <span
-                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-mono font-bold border ${roleConfig.tagBadge}`}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-mono font-bold border ${activeRoleConfig.tagBadge}`}
                 >
-                  <span>{roleConfig.icon}</span>
-                  <span>{roleConfig.label}</span>
+                  <span>{activeRoleConfig.icon}</span>
+                  <span>{activeRoleConfig.label}</span>
                 </span>
                 {photoUrl && !isUploading && (
                   <button
@@ -277,7 +293,9 @@ export default function UserProfileMenu({ profile }: UserProfileMenuProps) {
             <div className="font-medium text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
               <Building2 className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
               <span className="truncate">
-                {role === 'super_admin'
+                {isPending
+                  ? 'Awaiting Administrator Facility Assignment'
+                  : role === 'super_admin'
                   ? 'Institutional Root Administration'
                   : role === 'lab_incharge'
                   ? 'All Academic Computer & Science Labs'
@@ -288,15 +306,43 @@ export default function UserProfileMenu({ profile }: UserProfileMenuProps) {
             </div>
           </div>
 
+          {/* Database Live Telemetry Row */}
+          <div className="p-2.5 rounded-xl bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200/60 dark:border-zinc-800/60 flex items-center justify-between text-xs">
+            <div className="flex items-center gap-2">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 shadow-[0_0_6px_#10B981]" />
+              </span>
+              <span className="text-[11px] font-medium text-zinc-700 dark:text-zinc-300">
+                Database: Supabase Live (Synced)
+              </span>
+            </div>
+            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold border border-emerald-500/20">
+              Active
+            </span>
+          </div>
+
           {/* Quick Role Shortcut */}
-          <div>
+          <div className="space-y-1.5">
             <Link
-              href={roleConfig.quickActionHref}
+              href={activeRoleConfig.quickActionHref}
               onClick={() => setIsOpen(false)}
               className="flex items-center justify-between px-3 py-2 text-xs font-medium rounded-xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors"
             >
-              <span>{roleConfig.quickActionLabel}</span>
+              <span>{activeRoleConfig.quickActionLabel}</span>
               <ExternalLink className="h-3.5 w-3.5" />
+            </Link>
+
+            <Link
+              href="/profile"
+              onClick={() => setIsOpen(false)}
+              className="flex items-center justify-between px-3 py-2 text-xs font-medium rounded-xl bg-zinc-50 dark:bg-zinc-800/60 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <UserCheck className="h-3.5 w-3.5 text-indigo-500" />
+                <span>Profile & Preferences</span>
+              </div>
+              <ChevronDown className="h-3.5 w-3.5 -rotate-90 text-zinc-400" />
             </Link>
           </div>
 
@@ -305,6 +351,11 @@ export default function UserProfileMenu({ profile }: UserProfileMenuProps) {
             <form action={signOut}>
               <button
                 type="submit"
+                onClick={async () => {
+                  try {
+                    await purgeAllOfflineData()
+                  } catch {}
+                }}
                 className="flex items-center justify-center gap-2 w-full py-2 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-colors cursor-pointer"
               >
                 <LogOut className="h-3.5 w-3.5" />

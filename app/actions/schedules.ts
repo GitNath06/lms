@@ -2,12 +2,14 @@
 
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
-import { Database } from '@/types/database'
+import type { Database } from '@/types/database'
 import { isSupabaseConfigured } from '@/lib/supabase/config'
 import { recordAuditEvent } from '@/lib/audit'
 import { getPgPool } from '@/lib/db'
-import { MASTER_ROUTINE, computeCombinedTimeRange } from '@/lib/master-data'
+import { getServerUserScope } from '@/lib/context/server-user-scope'
+import { computeCombinedTimeRange } from '@/lib/master-data'
 import { parseSlotTimeRange, sortSessionsChronologically } from '@/lib/utils'
+import { getSlotRange, slotRangesOverlap as rangesOverlap } from '@/lib/scheduling/conflict-engine'
 
 function cleanMergedSubjectName(name?: string, fallbackPrimary?: string, fallbackSecondary?: string): string {
   if (name) {
@@ -30,92 +32,71 @@ function cleanMergedSubjectName(name?: string, fallbackPrimary?: string, fallbac
 type ScheduleInsert = Database['public']['Tables']['schedules']['Insert']
 type LabRow = Database['public']['Tables']['labs']['Row']
 
-const DEFAULT_LABS: LabRow[] = [
-  { id: 'comp', name: 'Computer Lab 01', type: 'computer_lab', capacity: 40, status: 'Operational', is_active: true },
-  { id: 'phys', name: 'Physics Laboratory', type: 'physics_lab', capacity: 38, status: 'Operational', is_active: true },
-  { id: 'chem', name: 'Chemistry Laboratory', type: 'chemistry_lab', capacity: 40, status: 'Operational', is_active: true },
-  { id: 'bio', name: 'Biology Laboratory', type: 'biology_lab', capacity: 35, status: 'Operational', is_active: true },
-]
-
-const SLOT_ORDER = ['t1', 't2', 't3', 't4', 't5', 't6', 't7', 't8', 't9', 't10']
-
-function getSlotRange(startSlotId: string, span: number = 1): { start: number; end: number } {
-  const startIdx = SLOT_ORDER.indexOf(startSlotId)
-  const safeStart = startIdx === -1 ? 0 : startIdx
-  return {
-    start: safeStart,
-    end: safeStart + (span || 1) - 1,
-  }
-}
-
-function rangesOverlap(r1: { start: number; end: number }, r2: { start: number; end: number }): boolean {
-  return r1.start <= r2.end && r1.end >= r2.start
-}
-
-// 1. Fetch or Seed Labs
+// 1. Fetch Active Labs
 export async function getLabs(): Promise<LabRow[]> {
-  if (!isSupabaseConfigured()) {
-    return DEFAULT_LABS
-  }
-
   try {
-    const supabase = await createClient()
-    const { data, error } = await supabase
-      .from('labs')
-      .select('*')
-      .eq('is_active', true)
-      .order('name')
-
-    if (!error && data && data.length > 0) {
-      return data as LabRow[]
-    }
-
-    return DEFAULT_LABS
+    const pool = getPgPool()
+    const res = await pool.query(`
+      SELECT id, name, code, capacity, type, status, is_active
+      FROM public.labs
+      WHERE is_active = true
+      ORDER BY name ASC;
+    `)
+    return (res.rows as LabRow[]) || []
   } catch (e) {
-    return DEFAULT_LABS
-  }
-}
-
-// 2. Fetch Schedules
-export async function getSchedules(filters?: { dayKey?: string; labId?: string }) {
-  if (!isSupabaseConfigured()) {
+    console.error('Failed to get labs:', e)
     return []
   }
+}
 
+// 2. Fetch Schedules with Dynamic Teacher Inheritance
+export async function getSchedules(filters?: { dayKey?: string; labId?: string }) {
   try {
-    const supabase = await createClient()
-
-    let query = supabase
-      .from('schedules')
-      .select(`
-        *,
-        labs (id, name, code, type),
-        profiles (id, full_name)
-      `)
-      .order('start_time', { ascending: true })
+    const pool = getPgPool()
+    let query = `
+      SELECT 
+        s.*,
+        s.specific_date::text as specific_date,
+        json_build_object('id', l.id, 'name', l.name, 'code', l.code, 'type', l.type) as labs,
+        CASE 
+          WHEN COALESCE(sp.id, csp.id) IS NOT NULL THEN
+            json_build_object('id', COALESCE(sp.id, csp.id), 'full_name', COALESCE(sp.full_name, csp.full_name))
+          ELSE NULL 
+        END as profiles,
+        COALESCE(sp.id, csp.id) as resolved_teacher_id,
+        COALESCE(sp.full_name, csp.full_name) as teacher_name
+      FROM public.schedules s
+      LEFT JOIN public.labs l ON l.id = s.lab_id
+      LEFT JOIN public.profiles sp ON sp.id = s.teacher_id
+      LEFT JOIN public.class_subjects cs ON cs.id = s.class_subject_id
+      LEFT JOIN public.profiles csp ON csp.id = cs.teacher_id
+      WHERE 1=1
+    `
+    const params: any[] = []
 
     if (filters?.dayKey) {
-      query = query.eq('day_key', filters.dayKey)
+      params.push(filters.dayKey)
+      query += ` AND s.day_key = $${params.length}`
     }
 
     if (filters?.labId && filters.labId !== 'all') {
-      query = query.eq('lab_id', filters.labId)
+      params.push(filters.labId)
+      query += ` AND (s.lab_id = $${params.length} OR s.metadata->>'secondary_lab_id' = $${params.length} OR s.metadata->>'secondaryLabKey' = $${params.length})`
     }
 
-    const { data, error } = await query
+    query += ` ORDER BY s.start_time ASC;`
 
-    if (error || !data || data.length === 0) {
-      return []
-    }
-
-    return sortSessionsChronologically((data as any[]) || [])
+    const res = await pool.query(query, params)
+    return sortSessionsChronologically((res.rows as any[]) || [])
   } catch (e) {
+    console.error('Failed to get schedules:', e)
     return []
   }
 }
 
 // 3. Create / Book a Schedule Slot with Conflict Checking
 export async function createSchedule(data: {
+  id?: string
   lab_id: string
   teacher_id?: string | null
   subject_name: string
@@ -125,10 +106,17 @@ export async function createSchedule(data: {
   span?: number
   start_time: string
   end_time: string
+  status?: string
   class_subject_id?: string | null
   academic_year_id?: string | null
+  specific_date?: string | null
   metadata?: any
 }) {
+  const userScope = await getServerUserScope()
+  if (userScope.approvalStatus !== 'approved') {
+    return { error: 'Permission denied: Your account is pending verification and not approved for scheduling operations.' }
+  }
+
   if (!isSupabaseConfigured()) {
     revalidatePath('/schedules')
     revalidatePath('/')
@@ -191,7 +179,7 @@ export async function createSchedule(data: {
     let resolvedAcademicYearId = data.academic_year_id || null
     let displaySubjectName = data.subject_name
     let displayBatchName = data.batch_name
-    let resolvedTeacherId = data.teacher_id || null
+    let resolvedTeacherId = userScope.role === 'teacher' ? userScope.userId : (data.teacher_id || null)
 
     if (resolvedClassSubjectId) {
       const { data: cs } = await supabase
@@ -207,7 +195,7 @@ export async function createSchedule(data: {
       if (cs) {
         targetClassId = (cs as any).class_id
         resolvedAcademicYearId = (cs as any).academic_year_id
-        if (!resolvedTeacherId) resolvedTeacherId = (cs as any).teacher_id
+        if (!resolvedTeacherId && userScope.role !== 'teacher') resolvedTeacherId = (cs as any).teacher_id
         const sub = (cs as any).subjects
         const cls = (cs as any).classes
         if (sub?.code && sub?.name) {
@@ -218,25 +206,58 @@ export async function createSchedule(data: {
         }
       }
     } else {
-      // Look up candidate class_subjects
+      // Look up candidate class_subjects with strict relational matching (NO loose grade fuzzy-matching)
+      if (!resolvedAcademicYearId) {
+        const { data: currYear } = await supabase
+          .from('academic_years')
+          .select('id')
+          .eq('is_current', true)
+          .maybeSingle()
+        resolvedAcademicYearId = currYear?.id || null
+      }
+
       const norm = (s?: string | null) => (s ? s.trim().toLowerCase() : '')
-      const { data: csList } = await supabase
-        .from('class_subjects')
+      let csQuery = (supabase.from('class_subjects') as any)
         .select(`
           id, class_id, subject_id, teacher_id, academic_year_id,
           classes:class_id ( id, name, grade ),
           subjects:subject_id ( id, code, name )
         `)
 
+      if (resolvedAcademicYearId) {
+        csQuery = csQuery.eq('academic_year_id', resolvedAcademicYearId)
+      }
+
+      const { data: csList } = await csQuery
+
       if (csList && csList.length > 0) {
         const normBatch = norm(data.batch_name)
         const normSub = norm(data.subject_name)
+        const cleanBatch = normBatch.replace(/[^a-z0-9]/g, '')
+        const cleanSub = normSub.replace(/[^a-z0-9]/g, '')
+
         const matched = (csList as any[]).find((cs) => {
           const clsName = norm(cs.classes?.name)
           const clsId = norm(cs.class_id)
           const subCode = norm(cs.subjects?.code)
-          const classMatch = normBatch === clsName || normBatch === clsId || normBatch.includes(clsName) || (cs.classes?.grade && normBatch.includes(String(cs.classes.grade)))
-          const subjectMatch = subCode && normSub.includes(subCode)
+          const subName = norm(cs.subjects?.name)
+          const cleanClsName = clsName.replace(/[^a-z0-9]/g, '')
+          const cleanClsId = clsId.replace(/[^a-z0-9]/g, '')
+          const cleanSubCode = subCode.replace(/[^a-z0-9]/g, '')
+
+          // Strict alphanumeric class equality or exact prefix match (never match across sections/streams)
+          const classMatch =
+            normBatch === clsName ||
+            normBatch === clsId ||
+            (cleanBatch.length > 0 && cleanBatch === cleanClsName) ||
+            (cleanBatch.length > 0 && cleanBatch === cleanClsId) ||
+            (cleanClsName.length > 1 && cleanBatch.startsWith(cleanClsName))
+
+          // Subject code or full subject title match
+          const subjectMatch =
+            (cleanSubCode.length > 0 && cleanSub.includes(cleanSubCode)) ||
+            (subName.length > 0 && normSub.includes(subName))
+
           return classMatch && subjectMatch
         })
 
@@ -244,17 +265,47 @@ export async function createSchedule(data: {
           resolvedClassSubjectId = matched.id
           targetClassId = matched.class_id
           resolvedAcademicYearId = matched.academic_year_id
-          if (!resolvedTeacherId) resolvedTeacherId = matched.teacher_id
+          if (!resolvedTeacherId && userScope.role !== 'teacher') resolvedTeacherId = matched.teacher_id
           const sub = matched.subjects
           const cls = matched.classes
           if (sub?.code && sub?.name) {
             displaySubjectName = `${sub.code} - ${sub.name}`
           }
-          if (cls?.name) {
+          if (cls?.name && !displayBatchName) {
             displayBatchName = cls.name
+          }
+        } else {
+          resolvedClassSubjectId = null
+          const { data: clsMatch } = await supabase
+            .from('classes')
+            .select('id, name')
+            .or(`id.ilike.${data.batch_name},name.ilike.${data.batch_name}`)
+            .limit(1)
+            .maybeSingle()
+          if (clsMatch) {
+            targetClassId = clsMatch.id
+            if (!displayBatchName) displayBatchName = clsMatch.name
           }
         }
       }
+    }
+
+    if (!resolvedClassSubjectId && targetClassId) {
+      const { data: fallbackCs } = await supabase
+        .from('class_subjects')
+        .select('id, academic_year_id')
+        .eq('class_id', targetClassId)
+        .limit(1)
+        .maybeSingle()
+      if (fallbackCs) {
+        resolvedClassSubjectId = fallbackCs.id
+        if (!resolvedAcademicYearId) resolvedAcademicYearId = fallbackCs.academic_year_id || null
+      }
+    }
+
+    // Safety lock: If user is a teacher, ensure teacher_id strictly matches the authenticated teacher ID
+    if (userScope.role === 'teacher') {
+      resolvedTeacherId = userScope.userId
     }
 
     // 3-Way Multi-Period Span Conflict Detection (Room, Teacher, Cohort)
@@ -262,12 +313,25 @@ export async function createSchedule(data: {
 
     const { data: daySchedules } = await supabase
       .from('schedules')
-      .select('id, lab_id, teacher_id, subject_name, batch_name, slot_id, span, metadata, class_subject_id, class_subjects(class_id)')
+      .select('id, lab_id, teacher_id, subject_name, batch_name, slot_id, span, metadata, specific_date, class_subject_id, class_subjects(class_id)')
       .eq('day_key', data.day_key)
       .neq('status', 'cancelled')
 
     const activeDaySchedules = (daySchedules as any[]) || []
     for (const existing of activeDaySchedules) {
+      if (data.id && existing.id === data.id) {
+        continue;
+      }
+      if (existing.status === 'skipped' || existing.metadata?.status === 'rejected' || existing.metadata?.is_skipped) {
+        continue;
+      }
+      if (existing.specific_date && data.specific_date) {
+        const existDateStr = String(existing.specific_date).split('T')[0];
+        const reqDateStr = String(data.specific_date).split('T')[0];
+        if (existDateStr !== reqDateStr) {
+          continue; // Different calendar dates do not collide
+        }
+      }
       const existRange = getSlotRange(existing.slot_id || 't1', existing.span || 1)
       if (rangesOverlap(targetRange, existRange)) {
         const existSecLabId = existing.metadata?.secondary_lab_id || existing.metadata?.secondaryLabKey
@@ -308,21 +372,46 @@ export async function createSchedule(data: {
       }
     }
 
-    const scheduleStatus = data.metadata?.status || (data as any).status || 'scheduled'
+    const VALID_PG_SESSION_STATUSES = new Set(['scheduled', 'in_progress', 'completed', 'cancelled'])
+    const rawPgStatus = (data as any).status
+    const pgStatus: 'scheduled' | 'in_progress' | 'completed' | 'cancelled' =
+      VALID_PG_SESSION_STATUSES.has(rawPgStatus) ? rawPgStatus : 'scheduled'
+
+    const uiStatus = data.metadata?.status || ((data as any).status === 'requested' ? 'requested' : 'confirmed')
+
+    const effectiveSpan = data.span || 1
+    let startTime = data.start_time
+    let endTime = data.end_time
+    if (effectiveSpan > 1 && data.slot_id) {
+      const combined = computeCombinedTimeRange(data.slot_id, effectiveSpan)
+      const parsed = parseSlotTimeRange(combined)
+      if (parsed.startTime) startTime = parsed.startTime
+      if (parsed.endTime) endTime = parsed.endTime
+    }
+
+    const mergedMetadata = {
+      ...(data.metadata || {}),
+      status: uiStatus,
+      is_adhoc: Boolean(data.specific_date || data.metadata?.is_adhoc),
+    }
+
+    const scheduleId = data.id || `sess-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
     const payload: ScheduleInsert = {
+      id: scheduleId,
       lab_id: data.lab_id,
       teacher_id: resolvedTeacherId,
       subject_name: displaySubjectName,
       batch_name: displayBatchName,
       day_key: data.day_key,
       slot_id: data.slot_id,
-      span: data.span || 1,
-      start_time: data.start_time,
-      end_time: data.end_time,
-      is_merged: (data.span || 1) > 1,
-      status: scheduleStatus,
-      metadata: data.metadata || null,
+      span: effectiveSpan,
+      start_time: startTime,
+      end_time: endTime,
+      is_merged: effectiveSpan > 1,
+      status: pgStatus,
+      specific_date: data.specific_date || null,
+      metadata: mergedMetadata,
       class_subject_id: resolvedClassSubjectId,
       academic_year_id: resolvedAcademicYearId,
     }
@@ -338,30 +427,39 @@ export async function createSchedule(data: {
     }
 
     // If a teacher submits a slot request, notify Super Admin & Lab Incharge
-    if (scheduleStatus === 'requested') {
+    if (uiStatus === 'requested') {
       const teacherName = data.metadata?.teacher || 'Subject Teacher'
       const notifId1 = `notif-slot-req-${Date.now()}-admin`
       const notifId2 = `notif-slot-req-${Date.now()}-incharge`
+      const sessId = newSchedule?.id || scheduleId
       try {
-        await supabase.from('lab_notifications').insert([
-          {
-            id: notifId1,
-            target_role: 'super_admin',
-            title: `Slot Booking Request: ${teacherName}`,
-            message: `${teacherName} has requested a practical session for "${data.subject_name}" (${data.batch_name}) on ${data.day_key.toUpperCase()} Period ${data.slot_id.toUpperCase()}.`,
-            severity: 'info',
-            is_read: false,
-          },
-          {
-            id: notifId2,
-            target_role: 'lab_incharge',
-            title: `Slot Booking Request: ${teacherName}`,
-            message: `${teacherName} has requested a practical session for "${data.subject_name}" (${data.batch_name}) on ${data.day_key.toUpperCase()} Period ${data.slot_id.toUpperCase()}.`,
-            severity: 'info',
-            is_read: false,
-          },
-        ] as any)
-      } catch {}
+        const pool = getPgPool()
+        const metaJson = JSON.stringify({
+          schedule_id: sessId,
+          slot_id: data.slot_id,
+          day_key: data.day_key,
+          specific_date: data.specific_date,
+          action_url: `/schedules?focusSlotId=${sessId}`
+        });
+        await pool.query(
+          `INSERT INTO public.lab_notifications (id, incident_id, target_role, title, message, severity, is_read, metadata, created_at)
+           VALUES 
+             ($1, NULL, 'super_admin', $2, $3, 'info', false, $4::jsonb, NOW()),
+             ($5, NULL, 'lab_incharge', $6, $7, 'info', false, $4::jsonb, NOW())
+           ON CONFLICT (id) DO NOTHING;`,
+          [
+            notifId1,
+            `Slot Booking Request: ${teacherName}`,
+            `${teacherName} has requested a practical session for "${data.subject_name}" (${data.batch_name}) on ${data.day_key.toUpperCase()} Period ${data.slot_id.toUpperCase()}.`,
+            metaJson,
+            notifId2,
+            `Slot Booking Request: ${teacherName}`,
+            `${teacherName} has requested a practical session for "${data.subject_name}" (${data.batch_name}) on ${data.day_key.toUpperCase()} Period ${data.slot_id.toUpperCase()}.`,
+          ]
+        )
+      } catch (notifErr) {
+        console.warn('Could not insert slot request notifications:', notifErr)
+      }
     }
 
     revalidatePath('/schedules')
@@ -388,8 +486,9 @@ export async function createSchedule(data: {
     })
 
     return { success: true, schedule: newSchedule }
-  } catch (e) {
-    return { success: true }
+  } catch (e: any) {
+    console.error('Failed to create schedule:', e)
+    return { error: e?.message || 'Failed to create schedule slot.' }
   }
 }
 
@@ -403,6 +502,11 @@ export async function mergeSchedules(
     teacher_id?: string
   }
 ) {
+  const userScope = await getServerUserScope()
+  if (userScope.approvalStatus !== 'approved') {
+    return { error: 'Permission denied: Your account is not approved for session operations.' }
+  }
+
   if (!isSupabaseConfigured()) {
     revalidatePath('/schedules')
     revalidatePath('/')
@@ -520,6 +624,11 @@ export async function mergeSchedules(
 
 // 5. Unmerge / Split Session
 export async function unmergeSchedule(scheduleId: string) {
+  const userScope = await getServerUserScope()
+  if (userScope.approvalStatus !== 'approved') {
+    return { error: 'Permission denied: Your account is not approved for session operations.' }
+  }
+
   if (!isSupabaseConfigured()) {
     revalidatePath('/schedules')
     revalidatePath('/')
@@ -607,6 +716,11 @@ export async function unmergeSchedule(scheduleId: string) {
 
 // 6. Delete / Cancel Schedule
 export async function deleteSchedule(scheduleId: string): Promise<{ success: boolean; error?: string }> {
+  const userScope = await getServerUserScope()
+  if (userScope.approvalStatus !== 'approved') {
+    return { success: false, error: 'Permission denied: Your account is pending verification and not approved for schedule deletion.' }
+  }
+
   if (!isSupabaseConfigured()) {
     revalidatePath('/schedules')
     revalidatePath('/admin')
@@ -662,6 +776,11 @@ export async function deleteSchedule(scheduleId: string): Promise<{ success: boo
 
 // 6b. Reset Schedules to Authoritative Master Routine
 export async function resetSchedulesToMaster(): Promise<{ success: boolean; count?: number; error?: string }> {
+  const userScope = await getServerUserScope()
+  if (userScope.role !== 'super_admin' || userScope.approvalStatus !== 'approved') {
+    return { success: false, error: 'Unauthorized: Resetting master schedules is restricted to approved Super Administrators.' }
+  }
+
   try {
     const pool = getPgPool()
     const client = await pool.connect()
@@ -669,13 +788,11 @@ export async function resetSchedulesToMaster(): Promise<{ success: boolean; coun
     try {
       await client.query('BEGIN')
 
-      // Ensure all 5 standard labs exist in public.labs
+      // Ensure the 3 standard institutional labs exist in public.labs
       const standardLabs = [
-        { id: 'comp', name: 'Computer Engineering Lab 01', code: 'LAB-COMP-01', type: 'computer_lab', capacity: 40 },
-        { id: 'phys', name: 'Physics Laboratory', code: 'LAB-PHYS-01', type: 'physics_lab', capacity: 38 },
-        { id: 'chem', name: 'Chemistry Laboratory', code: 'LAB-CHEM-01', type: 'chemistry_lab', capacity: 40 },
-        { id: 'bio', name: 'Biology & Life Sciences Lab', code: 'LAB-BIO-01', type: 'biology_lab', capacity: 35 },
-        { id: 'elec', name: 'Electronics & Hardware Lab', code: 'LAB-ELEC-01', type: 'electronics_lab', capacity: 30 },
+        { id: 'comp', name: 'Computer Lab', code: 'COMP', type: 'computer_lab', capacity: 48 },
+        { id: 'phys', name: 'Physics Lab', code: 'PHYS', type: 'physics_lab', capacity: 38 },
+        { id: 'chem', name: 'Chemistry Lab', code: 'CHEM', type: 'chemistry_lab', capacity: 40 },
       ]
       for (const lab of standardLabs) {
         await client.query(`
@@ -685,117 +802,16 @@ export async function resetSchedulesToMaster(): Promise<{ success: boolean; coun
         `, [lab.id, lab.name, lab.code, lab.type, lab.capacity])
       }
 
-      // Clear existing schedules table
-      await client.query('DELETE FROM public.schedules;')
-
-      // Fetch authoritative class_subjects to map canonical assignments
-      const csRes = await client.query(`
-        SELECT cs.id, cs.academic_year_id, cs.class_id, cs.subject_id, cs.teacher_id,
-               c.name as class_name, c.grade as class_grade,
-               s.code as subject_code, s.name as subject_name
-        FROM public.class_subjects cs
-        JOIN public.classes c ON c.id = cs.class_id
-        JOIN public.subjects s ON s.id = cs.subject_id;
+      // Reset all schedules to default 'scheduled' status and clear skipped metadata
+      const updateRes = await client.query(`
+        UPDATE public.schedules
+        SET status = 'scheduled',
+            metadata = jsonb_set(
+              COALESCE(metadata, '{}'::jsonb),
+              '{is_skipped}',
+              'false'::jsonb
+            );
       `)
-      const csList = csRes.rows
-
-      // Re-seed all items from MASTER_ROUTINE with canonical class_subject_id
-      for (const item of MASTER_ROUTINE) {
-        const { startTime, endTime } = parseSlotTimeRange(item.timeSlot)
-        const labId =
-          item.labKey === 'comp'
-            ? 'comp'
-            : item.labKey === 'phys'
-            ? 'phys'
-            : item.labKey === 'chem'
-            ? 'chem'
-            : item.labKey === 'bio'
-            ? 'bio'
-            : 'elec'
-
-        const subjectName = `${item.subjectCode} - ${item.subjectTitle}`
-        const batchName = item.grade || 'Class 12'
-        const span = item.span || 1
-        const isMerged = Boolean(item.mergedParts && item.mergedParts.length > 0)
-        const status = item.status || 'scheduled'
-        const metadata = {
-          teacher: item.teacher,
-          labName: item.lab,
-          studentsCount: item.defaultStudents,
-          category: item.category,
-          dotColor: item.dotColor,
-          badgeColor: item.badgeColor,
-          accentColor: item.accentColor,
-          secondaryLab: item.secondaryLab,
-          secondaryLabKey: item.secondaryLabKey,
-          isDualLab: item.isDualLab,
-          coTeacher: item.coTeacher,
-          mergedParts: item.mergedParts,
-        }
-
-        const matchedCs = csList.find((cs: any) => {
-          const cCode = cs.subject_code.toUpperCase()
-          const sSubject = item.subjectCode?.toUpperCase() || ''
-          const sBatch = (item.grade || '').toUpperCase()
-          let subjectMatch = false
-          if (item.id === 'mon-6' || sSubject.includes('WMAD/OS')) {
-            subjectMatch = (cCode === 'WMAD-11')
-          } else if (sSubject.includes(cCode) || cCode.includes(sSubject)) {
-            subjectMatch = true
-          } else if (cCode === 'WMAD-11' && sSubject.includes('WMAD')) {
-            subjectMatch = true
-          } else if (cCode === 'SCI-6' && sSubject.includes('COMP-6')) {
-            subjectMatch = true
-          } else if (cCode === 'ICT-7' && sSubject.includes('COMP-7')) {
-            subjectMatch = true
-          } else if (cCode === 'ICT-8' && sSubject.includes('COMP-8')) {
-            subjectMatch = true
-          } else if (cCode === 'COMP-11' && sSubject.includes('COMP-11')) {
-            subjectMatch = true
-          } else if (cCode === 'COMP-12' && (sSubject.includes('COMP-12') || sSubject.includes('JAVA-12'))) {
-            subjectMatch = true
-          } else if (cCode === 'WPD-9' && sSubject.includes('COMP-09')) {
-            subjectMatch = true
-          } else if (cCode === 'DBMS-10' && sSubject.includes('COMP-10')) {
-            subjectMatch = true
-          }
-          if (!subjectMatch) return false
-          const gradeMatch = sBatch.includes(String(cs.class_grade))
-          if (!gradeMatch) return false
-          if (cs.class_grade === 12) {
-            if (cs.class_id === '12mgt' && sSubject.includes('BUSINESS')) return true
-            if (cs.class_id === '12eng' && !sSubject.includes('BUSINESS')) return true
-            return false
-          }
-          return true
-        })
-
-        const classSubjectId = matchedCs?.id || null
-        const academicYearId = matchedCs?.academic_year_id || '2083'
-        const teacherId = matchedCs?.teacher_id || null
-
-        await client.query(`
-          INSERT INTO public.schedules (
-            id, lab_id, teacher_id, subject_name, batch_name, start_time, end_time, slot_id, day_key, span, is_merged, status, metadata, class_subject_id, academic_year_id
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15);
-        `, [
-          item.id,
-          labId,
-          teacherId,
-          subjectName,
-          batchName,
-          startTime,
-          endTime,
-          item.slotId,
-          item.dayKey,
-          span,
-          isMerged,
-          status,
-          JSON.stringify(metadata),
-          classSubjectId,
-          academicYearId,
-        ])
-      }
 
       await client.query('COMMIT')
     } catch (err) {
@@ -811,7 +827,7 @@ export async function resetSchedulesToMaster(): Promise<{ success: boolean; coun
       entityId: 'master_routine_reset',
       entityLabel: 'Master Timetable Schedule Reset',
       before: { status: 'custom_modified' },
-      after: { status: 'restored_to_master_baseline', total_routines: MASTER_ROUTINE.length },
+      after: { status: 'restored_to_master_baseline' },
       metadata: { operation: 'reset_schedules_to_master' },
     })
 
@@ -819,7 +835,7 @@ export async function resetSchedulesToMaster(): Promise<{ success: boolean; coun
     revalidatePath('/admin')
     revalidatePath('/')
 
-    return { success: true, count: MASTER_ROUTINE.length }
+    return { success: true }
   } catch (err: any) {
     console.error('[DATABASE ERROR] Reset schedules to master failed:', err)
     return { success: false, error: err?.message || 'Failed to reset schedules.' }
@@ -848,6 +864,11 @@ export async function updateSchedule(
     metadata?: any
   }
 ): Promise<{ success: boolean; schedule?: any; error?: string }> {
+  const userScope = await getServerUserScope()
+  if (userScope.approvalStatus !== 'approved') {
+    return { success: false, error: 'Permission denied: Your account is not approved for timetable modifications.' }
+  }
+
   if (!isSupabaseConfigured()) {
     revalidatePath('/schedules')
     revalidatePath('/')
@@ -875,7 +896,14 @@ export async function updateSchedule(
     if (data.span !== undefined) updatePayload.span = data.span
     if (data.start_time !== undefined) updatePayload.start_time = data.start_time
     if (data.end_time !== undefined) updatePayload.end_time = data.end_time
-    if (data.status !== undefined) updatePayload.status = data.status
+    if (data.status !== undefined) {
+      const VALID_PG_SESSION_STATUSES = new Set(['scheduled', 'in_progress', 'completed', 'cancelled'])
+      updatePayload.status = VALID_PG_SESSION_STATUSES.has(data.status as any) ? data.status : 'scheduled'
+      updatePayload.metadata = {
+        ...(updatePayload.metadata || beforeSchedule?.metadata || {}),
+        status: data.status,
+      }
+    }
     if (data.metadata !== undefined) updatePayload.metadata = data.metadata
 
     if (data.class_subject_id !== undefined) {
@@ -921,7 +949,7 @@ export async function updateSchedule(
         span: data.span || 1,
         start_time: data.start_time || '10:10',
         end_time: data.end_time || '11:00',
-        status: data.status || 'scheduled',
+        status: (data.status && ['scheduled', 'in_progress', 'completed', 'cancelled'].includes(data.status)) ? data.status : 'scheduled',
         metadata: data.metadata || {},
         class_subject_id: updatePayload.class_subject_id || null,
         academic_year_id: updatePayload.academic_year_id || null,
@@ -981,6 +1009,11 @@ export async function updateScheduleStatus(scheduleId: string, data: {
   skipped_by?: string
   decline_reason?: string
 }) {
+  const userScope = await getServerUserScope()
+  if (userScope.approvalStatus !== 'approved') {
+    return { success: false, error: 'Permission denied: Your account is not approved for session status changes.' }
+  }
+
   if (!isSupabaseConfigured()) {
     revalidatePath('/schedules')
     revalidatePath('/')
@@ -998,15 +1031,21 @@ export async function updateScheduleStatus(scheduleId: string, data: {
     const currentMeta = (existing as any)?.metadata || {}
     const updatedMeta = {
       ...currentMeta,
+      status: data.status,
       is_skipped: data.is_skipped ?? (data.status === 'skipped'),
-      skipped_reason: data.skipped_reason || currentMeta.skipped_reason,
-      skipped_by: data.skipped_by || currentMeta.skipped_by,
-      decline_reason: data.decline_reason || currentMeta.decline_reason,
+      skipped_reason: data.status === 'confirmed' ? null : (data.skipped_reason || currentMeta.skipped_reason || null),
+      skipped_by: data.status === 'confirmed' ? null : (data.skipped_by || currentMeta.skipped_by || null),
+      decline_reason: data.status === 'confirmed' ? null : (data.decline_reason || currentMeta.decline_reason || null),
     }
+
+    const VALID_PG_SESSION_STATUSES = new Set(['scheduled', 'in_progress', 'completed', 'cancelled'])
+    const pgStatus = VALID_PG_SESSION_STATUSES.has(data.status)
+      ? data.status
+      : (data.status === 'skipped' ? 'cancelled' : 'scheduled')
 
     const { error } = await (supabase.from('schedules') as any)
       .update({
-        status: data.status,
+        status: pgStatus,
         metadata: updatedMeta,
       })
       .eq('id', scheduleId)
@@ -1035,37 +1074,43 @@ export async function updateScheduleStatus(scheduleId: string, data: {
     })
 
     // If declined with reason, notify the teacher
-    if (data.status === 'skipped' && data.decline_reason && currentMeta.teacher) {
+    if (data.status === 'skipped' && data.decline_reason) {
       const notifId = `notif-slot-dec-${Date.now()}`
       try {
-        await supabase.from('lab_notifications').insert([
-          {
-            id: notifId,
-            target_role: 'teacher',
-            title: `Slot Request Declined: ${subjectName}`,
-            message: `Your booking request was declined. Reason: "${data.decline_reason}"`,
-            severity: 'warning',
-            is_read: false,
-          },
-        ] as any)
-      } catch {}
+        const pool = getPgPool()
+        await pool.query(
+          `INSERT INTO public.lab_notifications (id, target_role, title, message, severity, is_read, created_at)
+           VALUES ($1, 'teacher', $2, $3, 'warning', false, NOW())
+           ON CONFLICT (id) DO NOTHING;`,
+          [
+            notifId,
+            `Slot Request Declined: ${subjectName}`,
+            `Your booking request for ${subjectName} was declined. Reason: "${data.decline_reason}"`,
+          ]
+        )
+      } catch (notifErr) {
+        console.warn('Could not insert slot decline notification:', notifErr)
+      }
     }
 
     // If approved, notify the teacher
-    if (data.status === 'confirmed' && currentMeta.teacher) {
+    if (data.status === 'confirmed') {
       const notifId = `notif-slot-app-${Date.now()}`
       try {
-        await supabase.from('lab_notifications').insert([
-          {
-            id: notifId,
-            target_role: 'teacher',
-            title: `Slot Request Approved: ${subjectName}`,
-            message: `Your booking request for ${subjectName} has been approved and confirmed.`,
-            severity: 'info',
-            is_read: false,
-          },
-        ] as any)
-      } catch {}
+        const pool = getPgPool()
+        await pool.query(
+          `INSERT INTO public.lab_notifications (id, target_role, title, message, severity, is_read, created_at)
+           VALUES ($1, 'teacher', $2, $3, 'info', false, NOW())
+           ON CONFLICT (id) DO NOTHING;`,
+          [
+            notifId,
+            `Slot Request Approved: ${subjectName}`,
+            `Your booking request for ${subjectName} has been approved and confirmed.`,
+          ]
+        )
+      } catch (notifErr) {
+        console.warn('Could not insert slot approval notification:', notifErr)
+      }
     }
 
     revalidatePath('/schedules')

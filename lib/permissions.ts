@@ -23,8 +23,11 @@ export interface UserProfile {
   department: string | null
   photo_url?: string | null
   avatar_url?: string | null
+  honorific?: string | null
+  bio?: string | null
+  teaching_preferences?: Record<string, any> | null
   is_active: boolean
-  approval_status?: 'pending' | 'approved' | 'rejected' | null
+  approval_status?: 'pending' | 'approved' | 'rejected' | 'suspended' | null
   permissions?: UserPermissions
   custom_permissions?: UserPermissions
   created_at: string
@@ -83,4 +86,18 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, UserPermissions> = {
     can_manage_users: false,
     can_access_admin: false,
   },
+}
+
+export const PENDING_ROLE_PERMISSIONS: UserPermissions = {
+  can_view_logs: true,
+  can_create_logs: false,
+  can_delete_logs: false,
+  can_view_incidents: true,
+  can_report_incidents: false,
+  can_manage_incidents: false,
+  can_resolve_incidents: false,
+  can_manage_schedules: false,
+  can_manage_maintenance: false,
+  can_manage_users: false,
+  can_access_admin: false,
 }

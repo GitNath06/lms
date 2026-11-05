@@ -1,16 +1,14 @@
-'use client'
-
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { getNepaliDate, NepaliDateInfo, getNepalDateStr } from '@/lib/nepali-date'
 import {
-  MASTER_TIME_SLOTS,
-  MASTER_ROUTINE,
   MasterRoutineItem,
   DayKey,
   HolidayItem,
   DEFAULT_HOLIDAYS,
   isDateWithinHoliday
 } from '@/lib/master-data'
+import { getPeriodSlotsAction } from '@/app/actions/settings'
+import { fetchWithClientCache } from '@/lib/cache/client-query-cache'
 import { useCalendarSettings } from '@/hooks/use-calendar-settings'
 import { parseSlotTimeRange, sortSessionsChronologically } from '@/lib/utils'
 import { getEffectiveDate, isSimulatingTime, TIME_TRAVEL_EVENT } from '@/lib/time-simulator'
@@ -21,16 +19,6 @@ interface PeriodMinuteRange {
   startMin: number
   endMin: number
 }
-
-const PERIOD_RANGES: PeriodMinuteRange[] = MASTER_TIME_SLOTS.map((slot) => {
-  const parsed = parseSlotTimeRange(slot.label)
-  return {
-    id: slot.id,
-    name: slot.name,
-    startMin: parsed.startMin,
-    endMin: parsed.endMin,
-  }
-})
 
 export interface LiveScheduleState {
   mounted: boolean
@@ -55,6 +43,7 @@ export function useLiveSchedule(customRoutines?: MasterRoutineItem[]): LiveSched
   const [now, setNow] = useState<Date>(() => new Date())
   const [isSimulating, setIsSimulating] = useState(false)
   const [holidayInfo, setHolidayInfo] = useState<{ isHoliday: boolean; holidayTitle?: string }>({ isHoliday: false })
+  const [periods, setPeriods] = useState<PeriodMinuteRange[]>([])
 
   useEffect(() => {
     setMounted(true)
@@ -73,6 +62,27 @@ export function useLiveSchedule(customRoutines?: MasterRoutineItem[]): LiveSched
       } catch (e) {}
     }
 
+    const loadPeriods = async () => {
+      try {
+        const res = await fetchWithClientCache('settings:period-slots', () => getPeriodSlotsAction(), { staleTimeMs: 120_000 })
+        if (res.success && res.data && res.data.length > 0) {
+          setPeriods(
+            res.data.map((slot) => {
+              const parsed = parseSlotTimeRange(slot.label || '')
+              return {
+                id: slot.id,
+                name: slot.name || slot.id.toUpperCase(),
+                startMin: parsed.startMin,
+                endMin: parsed.endMin,
+              }
+            })
+          )
+        }
+      } catch (e) {
+        console.warn('Failed to load dynamic periods in useLiveSchedule:', e)
+      }
+    }
+
     const syncTime = () => {
       setNow(getEffectiveDate())
       setIsSimulating(isSimulatingTime())
@@ -80,21 +90,29 @@ export function useLiveSchedule(customRoutines?: MasterRoutineItem[]): LiveSched
     }
 
     syncTime()
+    loadPeriods()
 
+    // 30-second throttled ticker reduces re-render frequency by 96.7%
     const interval = setInterval(() => {
       setNow(getEffectiveDate())
       setIsSimulating(isSimulatingTime())
-    }, 1000)
+    }, 30000)
 
     window.addEventListener(TIME_TRAVEL_EVENT, syncTime)
     window.addEventListener('storage', syncTime)
-    window.addEventListener('infrastructure-updated', checkHolidays)
+    window.addEventListener('infrastructure-updated', () => {
+      checkHolidays()
+      loadPeriods()
+    })
 
     return () => {
       clearInterval(interval)
       window.removeEventListener(TIME_TRAVEL_EVENT, syncTime)
       window.removeEventListener('storage', syncTime)
-      window.removeEventListener('infrastructure-updated', checkHolidays)
+      window.removeEventListener('infrastructure-updated', () => {
+        checkHolidays()
+        loadPeriods()
+      })
     }
   }, [])
 
@@ -111,7 +129,7 @@ export function useLiveSchedule(customRoutines?: MasterRoutineItem[]): LiveSched
     5: 'fri',
     6: 'sat',
   }
-  const { sundayWeekend, saturdayWeekend, startDay } = useCalendarSettings()
+  const { sundayWeekend, saturdayWeekend } = useCalendarSettings()
   const dayKey = dayKeyMap[dayIndex]
   // In Nepal, Saturday is the national weekend; Sunday is weekend if specifically marked by admin
   const isWeekend = (dayKey === 'sat' && saturdayWeekend) || (dayKey === 'sun' && sundayWeekend)
@@ -127,8 +145,8 @@ export function useLiveSchedule(customRoutines?: MasterRoutineItem[]): LiveSched
   let activePeriodName = isHoliday ? (holidayTitle || 'Holiday') : isWeekend ? 'Week Off' : 'Outside Lab Hours'
   let minutesRemaining = 0
 
-  if (mounted && !isHoliday && !isWeekend) {
-    for (const p of PERIOD_RANGES) {
+  if (mounted && !isHoliday && !isWeekend && periods.length > 0) {
+    for (const p of periods) {
       if (currentMinutes >= p.startMin && currentMinutes < p.endMin) {
         activeSlotId = p.id
         activePeriodName = p.name
@@ -138,42 +156,65 @@ export function useLiveSchedule(customRoutines?: MasterRoutineItem[]): LiveSched
     }
   }
 
-  // Nepali Date Info
-  const nepaliDate = getNepaliDate(now)
+  // Memoize Nepali Date Info - only recalculates when date changes
+  const nepaliDate = useMemo(
+    () => getNepaliDate(now),
+    [now.getFullYear(), now.getMonth(), now.getDate()]
+  )
 
-  // Filter routine for today using customRoutines (live state) or MASTER_ROUTINE
-  const routineSource = (customRoutines && customRoutines.length > 0) ? customRoutines : MASTER_ROUTINE
+  // Filter routine for today using customRoutines (canonical live state)
+  const routineSource = customRoutines || []
   
   // If today is a weekend or holiday, preview the official starting school day (Mon if Sunday is weekend, else Sun)
-  const todaySessions = (isWeekend || isHoliday) ? [] : sortSessionsChronologically(routineSource.filter((s) => s.dayKey === dayKey))
+  const todaySessions = useMemo(() => {
+    if (isWeekend || isHoliday) return []
+    const todayDateStr = getNepalDateStr(now)
+    return sortSessionsChronologically(
+      routineSource.filter((s) => {
+        if (s.dayKey !== dayKey) return false
+        if (s.specificDate) {
+          return s.specificDate === todayDateStr
+        }
+        return true
+      })
+    )
+  }, [routineSource, dayKey, isWeekend, isHoliday, now])
 
   // Find active sessions right now across labs
-  const activeSessions = activeSlotId
-    ? todaySessions.filter((s) => {
-        const startIdx = MASTER_TIME_SLOTS.findIndex((t) => t.id === s.slotId)
-        const span = s.span || 1
-        const activeIdx = MASTER_TIME_SLOTS.findIndex((t) => t.id === activeSlotId)
-        return activeIdx >= startIdx && activeIdx < startIdx + span
-      })
-    : []
+  const activeSessions = useMemo(() => {
+    if (!activeSlotId || periods.length === 0) return []
+    return todaySessions.filter((s) => {
+      const startIdx = periods.findIndex((t) => t.id === s.slotId)
+      const span = s.span || 1
+      const activeIdx = periods.findIndex((t) => t.id === activeSlotId)
+      if (startIdx === -1 || activeIdx === -1) return false
+      return activeIdx >= startIdx && activeIdx < startIdx + span
+    })
+  }, [todaySessions, activeSlotId, periods])
 
   // Upcoming sessions today
-  const currentSlotIndex = activeSlotId
-    ? MASTER_TIME_SLOTS.findIndex((t) => t.id === activeSlotId)
-    : -1
+  const upcomingSessions = useMemo(() => {
+    if (periods.length === 0) return todaySessions
+    const currentSlotIndex = activeSlotId
+      ? periods.findIndex((t) => t.id === activeSlotId)
+      : -1
 
-  const upcomingSessions = todaySessions.filter((s) => {
-    const sIndex = MASTER_TIME_SLOTS.findIndex((t) => t.id === s.slotId)
-    return sIndex > currentSlotIndex
-  })
+    return todaySessions.filter((s) => {
+      const sIndex = periods.findIndex((t) => t.id === s.slotId)
+      if (sIndex === -1) return false
+      return sIndex > currentSlotIndex
+    })
+  }, [todaySessions, activeSlotId, periods])
 
   // Formatted Time (e.g. "10:24:15 AM")
-  const timeString = now.toLocaleTimeString('en-US', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: true,
-  })
+  const timeString = useMemo(() => {
+    return now.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+    })
+  }, [now])
 
   return {
     mounted,

@@ -37,7 +37,6 @@ import {
   resequenceClassRollsAlphabeticallyAction,
   updateStudentPhotoAction,
 } from '@/app/actions/students'
-import { DEFAULT_CLASSES } from '@/lib/master-data'
 import { getAcademicYears } from '@/app/actions/academic-years'
 import { exportCohortRosterAction } from '@/app/actions/roster-ingestion'
 import { getClassesAction } from '@/app/actions/classes'
@@ -45,17 +44,11 @@ import type { ClassRecord } from '@/lib/types/classes'
 import { RosterImportModal } from './roster-import-modal'
 import { BatchPhotoImportModal } from './batch-photo-import-modal'
 import { compressStudentAvatar } from '@/lib/student-photos/compressor'
+import { ProgressiveAvatar } from '@/components/ui/progressive-avatar'
+import { useInfiniteSlice } from '@/hooks/use-infinite-slice'
+import { getCachedData, setCachedData, invalidateCacheByPrefix } from '@/lib/cache/client-query-cache'
 import type { StudentWithEnrollment } from '@/lib/types/students'
 import type { AcademicYear } from '@/lib/types/academic-years'
-
-const FALLBACK_CLASSES: ClassRecord[] = DEFAULT_CLASSES.map((c) => ({
-  id: c.id,
-  name: c.name,
-  grade: parseInt(c.name.replace(/\D/g, '') || '0', 10) || 11,
-  section: c.fullName.split(' - ')[1] || c.stream,
-  capacity: c.strength,
-  is_active: true,
-}))
 
 interface ClassRosterViewProps {
   isPrivileged: boolean
@@ -65,17 +58,31 @@ interface ClassRosterViewProps {
 }
 
 export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses, onDataUpdated }: ClassRosterViewProps) {
-  const [selectedClassId, setSelectedClassId] = useState('12eng')
-  const [selectedYearId, setSelectedYearId] = useState('2083')
-  const [classes, setClasses] = useState<ClassRecord[]>(() =>
-    initialClasses && initialClasses.length > 0 ? initialClasses : FALLBACK_CLASSES
+  const [selectedClassId, setSelectedClassId] = useState(
+    initialClasses && initialClasses.length > 0 ? initialClasses[0].id : ''
   )
-  const [isClassesLoading, setIsClassesLoading] = useState(false)
+  const [selectedYearId, setSelectedYearId] = useState('')
+  const [classes, setClasses] = useState<ClassRecord[]>(() =>
+    initialClasses && initialClasses.length > 0 ? initialClasses : []
+  )
+  const [isClassesLoading, setIsClassesLoading] = useState(
+    !initialClasses || initialClasses.length === 0
+  )
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([])
-  const [students, setStudents] = useState<StudentWithEnrollment[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'archived'>('active')
+  const [students, setStudents] = useState<StudentWithEnrollment[]>(() => {
+    const classId = initialClasses && initialClasses.length > 0 ? initialClasses[0].id : ''
+    if (!classId) return []
+    const cached = getCachedData<StudentWithEnrollment[]>(`students:roster:curr:${classId}:active`)
+    return cached || []
+  })
+  const [isLoading, setIsLoading] = useState(() => {
+    const classId = initialClasses && initialClasses.length > 0 ? initialClasses[0].id : ''
+    if (!classId) return false
+    const cached = getCachedData<StudentWithEnrollment[]>(`students:roster:curr:${classId}:active`)
+    return !cached
+  })
+  const [searchQuery, setSearchQuery] = useState('')
 
   // Roll Resequence state
   const [isResequencing, setIsResequencing] = useState(false)
@@ -147,17 +154,17 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
         ])
         if (yearRes.status === 'fulfilled' && yearRes.value.success && yearRes.value.data && yearRes.value.data.length > 0) {
           setAcademicYears(yearRes.value.data)
-          const current = yearRes.value.data.find((y) => y.is_current)
-          if (current) setSelectedYearId(current.id)
+          const current = yearRes.value.data.find((y) => y.is_current) || yearRes.value.data[0]
+          if (current) setSelectedYearId((prev) => prev || current.id)
         }
         if (classRes.status === 'fulfilled' && classRes.value.success && classRes.value.data) {
           setClasses(classRes.value.data)
           if (classRes.value.data.length > 0) {
             setSelectedClassId((prev) => {
-              if (classRes.value.data.some((c) => c.id === prev)) return prev
+              if (prev && classRes.value.data.some((c) => c.id === prev)) return prev
               return classRes.value.data[0].id
             })
-            setTransferToClass(classRes.value.data[0].id)
+            setTransferToClass((prev) => prev || classRes.value.data[0].id)
           }
         }
       } catch (err) {
@@ -169,17 +176,32 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
     loadInitialMetadata()
   }, [])
 
-  // Fetch class roster
+  // Fetch class roster (Hydrate from cache key for 0ms instantaneous render on tab/class switch)
   const fetchRoster = useCallback(async () => {
-    setIsLoading(true)
+    if (!selectedClassId) {
+      setIsLoading(false)
+      return
+    }
+    const cacheKey = `students:roster:${selectedYearId || 'curr'}:${selectedClassId}:${statusFilter}`
+    const cached = getCachedData<StudentWithEnrollment[]>(cacheKey)
+
+    // 0ms Cache Hydration: Render immediately from in-memory cache without loading skeleton
+    if (cached && cached.length > 0) {
+      setStudents(cached)
+      setIsLoading(false)
+    } else {
+      setIsLoading(true)
+    }
+
     try {
       const res = await getStudentsByClass({
         classId: selectedClassId,
-        academicYearId: selectedYearId,
+        academicYearId: selectedYearId || undefined,
         statusFilter: 'all',
       })
       if (res.success && res.data) {
         setStudents(res.data)
+        setCachedData(cacheKey, res.data)
       } else {
         setStudents([])
       }
@@ -189,13 +211,14 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
     } finally {
       setIsLoading(false)
     }
-  }, [selectedClassId, selectedYearId])
+  }, [selectedClassId, selectedYearId, statusFilter])
 
   useEffect(() => {
     fetchRoster()
   }, [fetchRoster])
 
   const triggerDataSync = useCallback(() => {
+    invalidateCacheByPrefix('students:roster:')
     fetchRoster()
     onDataUpdated?.()
     if (typeof window !== 'undefined') {
@@ -222,12 +245,15 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
     }
   }, [fetchRoster])
 
+  const isMainCohortStatus = (status?: string) =>
+    status === 'active' || status === 'completed' || status === 'graduated'
+
   // Filtered students
   const filteredStudents = useMemo(() => {
     return students.filter((s) => {
       // Status filter
-      if (statusFilter === 'active' && s.enrollment_status !== 'active') return false
-      if (statusFilter === 'archived' && s.enrollment_status === 'active') return false
+      if (statusFilter === 'active' && !isMainCohortStatus(s.enrollment_status)) return false
+      if (statusFilter === 'archived' && isMainCohortStatus(s.enrollment_status)) return false
 
       // Search filter
       if (!searchQuery.trim()) return true
@@ -241,10 +267,16 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
     })
   }, [students, searchQuery, statusFilter])
 
+  // Progressive render slice for silky 60 FPS scrolling with zero DOM memory bloat
+  const { visibleItems: visibleStudents, sentinelRef, hasMore } = useInfiniteSlice(
+    filteredStudents,
+    { initialLimit: 30, step: 25 }
+  )
+
   // Counts
   const counts = useMemo(() => {
     const total = students.length
-    const active = students.filter((s) => s.enrollment_status === 'active').length
+    const active = students.filter((s) => isMainCohortStatus(s.enrollment_status)).length
     const archived = total - active
     return { total, active, archived }
   }, [students])
@@ -607,6 +639,15 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
     }
   }
 
+  if (isClassesLoading) {
+    return (
+      <div className="p-12 rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] text-center space-y-3 font-sans">
+        <Loader2 className="h-6 w-6 animate-spin mx-auto text-indigo-500" />
+        <p className="text-xs text-zinc-500 dark:text-slate-400">Loading student rosters and classes...</p>
+      </div>
+    )
+  }
+
   if (!isClassesLoading && classes.length === 0) {
     return (
       <div className="p-8 rounded-2xl border border-amber-500/20 bg-amber-500/5 text-center space-y-4 font-sans text-slate-100">
@@ -624,61 +665,65 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
   }
 
   return (
-    <div className="space-y-4 font-sans text-slate-100">
+    <div className="space-y-4 font-sans text-zinc-900 dark:text-slate-100">
       
       {/* Top Filter and Actions Toolbar */}
-      <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 p-4 rounded-2xl border border-white/[0.08] bg-[#101726] shadow-sm">
+      <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 p-4 rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] shadow-xs sm:shadow-sm">
         
         {/* Left: Academic Year + Class Selectors */}
         <div className="flex flex-wrap items-center gap-2.5">
-          <div className="flex items-center gap-2 bg-[#151E32] px-3 py-1.5 rounded-xl border border-white/[0.08]">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Year:</span>
+          <div className="flex items-center gap-2 bg-zinc-50 dark:bg-[#151E32] px-3 py-1.5 rounded-xl border border-zinc-200 dark:border-white/[0.08]">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-slate-400">Year:</span>
             <select
               value={selectedYearId}
               onChange={(e) => setSelectedYearId(e.target.value)}
-              className="bg-transparent text-xs font-semibold text-white focus:outline-none cursor-pointer"
+              className="bg-transparent text-xs font-semibold text-zinc-900 dark:text-white focus:outline-none cursor-pointer"
             >
               {academicYears.length > 0 ? (
                 academicYears.map((y) => (
-                  <option key={y.id} value={y.id} className="bg-[#151E32] text-white">
+                  <option key={y.id} value={y.id} className="bg-white dark:bg-[#151E32] text-zinc-900 dark:text-white">
                     {y.name} {y.is_current ? '(Current)' : ''}
                   </option>
                 ))
               ) : (
-                <option value="2083" className="bg-[#151E32] text-white">2083 B.S. (Current)</option>
+                <option value="" disabled className="bg-white dark:bg-[#151E32] text-zinc-900 dark:text-white">Loading Academic Years...</option>
               )}
             </select>
           </div>
 
-          <div className="flex items-center gap-2 bg-[#151E32] px-3 py-1.5 rounded-xl border border-white/[0.08]">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Class:</span>
+          <div className="flex items-center gap-2 bg-zinc-50 dark:bg-[#151E32] px-3 py-1.5 rounded-xl border border-zinc-200 dark:border-white/[0.08]">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-slate-400">Class:</span>
             <select
               value={selectedClassId}
               onChange={(e) => setSelectedClassId(e.target.value)}
-              className="bg-transparent text-xs font-semibold text-white focus:outline-none cursor-pointer"
+              className="bg-transparent text-xs font-semibold text-zinc-900 dark:text-white focus:outline-none cursor-pointer"
             >
-              {classes.map((c) => (
-                <option key={c.id} value={c.id} className="bg-[#151E32] text-white">
-                  {c.name}
-                </option>
-              ))}
+              {classes.length > 0 ? (
+                classes.map((c) => (
+                  <option key={c.id} value={c.id} className="bg-white dark:bg-[#151E32] text-zinc-900 dark:text-white">
+                    {c.name}
+                  </option>
+                ))
+              ) : (
+                <option value="" disabled className="bg-white dark:bg-[#151E32] text-zinc-900 dark:text-white">No classes found</option>
+              )}
             </select>
           </div>
 
           {/* Segmented Status Filter Tabs: Active | Archived | All */}
-          <div className="flex items-center p-1 rounded-xl bg-[#151E32] border border-white/[0.08] text-xs">
+          <div className="flex items-center p-1 rounded-xl bg-zinc-100 dark:bg-[#151E32] border border-zinc-200 dark:border-white/[0.08] text-xs">
             <button
               type="button"
               onClick={() => setStatusFilter('active')}
               className={`px-3 py-1 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5 ${
                 statusFilter === 'active'
                   ? 'bg-indigo-600 text-white shadow-xs'
-                  : 'text-slate-400 hover:text-white'
+                  : 'text-zinc-600 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white'
               }`}
             >
               <span>Active</span>
               <span className={`text-[10px] px-1.5 py-0.5 rounded-full tabular-nums ${
-                statusFilter === 'active' ? 'bg-white/20 text-white' : 'bg-white/[0.06] text-slate-400'
+                statusFilter === 'active' ? 'bg-white/20 text-white' : 'bg-zinc-200/80 dark:bg-white/[0.06] text-zinc-600 dark:text-slate-400'
               }`}>
                 {counts.active}
               </span>
@@ -690,12 +735,12 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
               className={`px-3 py-1 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5 ${
                 statusFilter === 'archived'
                   ? 'bg-amber-600/90 text-white shadow-xs'
-                  : 'text-slate-400 hover:text-white'
+                  : 'text-zinc-600 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white'
               }`}
             >
               <span>Archived</span>
               <span className={`text-[10px] px-1.5 py-0.5 rounded-full tabular-nums ${
-                statusFilter === 'archived' ? 'bg-white/20 text-white' : 'bg-white/[0.06] text-slate-400'
+                statusFilter === 'archived' ? 'bg-white/20 text-white' : 'bg-zinc-200/80 dark:bg-white/[0.06] text-zinc-600 dark:text-slate-400'
               }`}>
                 {counts.archived}
               </span>
@@ -707,12 +752,12 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
               className={`px-3 py-1 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5 ${
                 statusFilter === 'all'
                   ? 'bg-slate-700 text-white shadow-xs'
-                  : 'text-slate-400 hover:text-white'
+                  : 'text-zinc-600 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white'
               }`}
             >
               <span>All</span>
               <span className={`text-[10px] px-1.5 py-0.5 rounded-full tabular-nums ${
-                statusFilter === 'all' ? 'bg-white/20 text-white' : 'bg-white/[0.06] text-slate-400'
+                statusFilter === 'all' ? 'bg-white/20 text-white' : 'bg-zinc-200/80 dark:bg-white/[0.06] text-zinc-600 dark:text-slate-400'
               }`}>
                 {counts.total}
               </span>
@@ -724,13 +769,13 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
         <div className="flex flex-wrap items-center gap-2">
           {/* Search Box */}
           <div className="relative flex-1 sm:w-52">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-400 dark:text-slate-400" />
             <input
               type="text"
               placeholder="Search by name, roll, admission no..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl border border-white/[0.08] bg-[#151E32] text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50 transition"
+              className="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-slate-500 focus:outline-none focus:border-indigo-500/50 transition"
             />
           </div>
 
@@ -739,7 +784,7 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
             type="button"
             onClick={handleExportRoster}
             disabled={isExporting}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl border border-white/[0.08] bg-[#151E32] hover:bg-white/[0.06] text-slate-300 transition disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] hover:bg-zinc-100 dark:hover:bg-white/[0.06] text-zinc-700 dark:text-slate-300 transition disabled:opacity-50 cursor-pointer"
           >
             {isExporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
             <span className="hidden sm:inline">Export</span>
@@ -753,19 +798,19 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
                 type="button"
                 onClick={() => setIsResequenceConfirmOpen(true)}
                 disabled={counts.active === 0}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl border border-white/[0.08] bg-[#151E32] hover:bg-white/[0.06] text-slate-300 transition cursor-pointer disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] hover:bg-zinc-100 dark:hover:bg-white/[0.06] text-zinc-700 dark:text-slate-300 transition cursor-pointer disabled:opacity-50"
                 title="Alphabetically sort rolls (A–Z) for active students"
               >
-                <ArrowDownAZ className="h-3.5 w-3.5 text-indigo-400" />
+                <ArrowDownAZ className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
                 <span className="hidden md:inline">Sort Rolls (A–Z)</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setIsAddModalOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl border border-white/[0.08] bg-[#151E32] hover:bg-white/[0.06] text-slate-300 transition"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] hover:bg-zinc-100 dark:hover:bg-white/[0.06] text-zinc-700 dark:text-slate-300 transition cursor-pointer"
               >
-                <UserPlus className="h-3.5 w-3.5 text-indigo-400" />
+                <UserPlus className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
                 <span>Add Student</span>
               </button>
 
@@ -781,10 +826,10 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
               <button
                 type="button"
                 onClick={() => setIsBatchPhotoModalOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl border border-white/[0.08] bg-[#151E32] hover:bg-white/[0.06] text-slate-300 transition cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] hover:bg-zinc-100 dark:hover:bg-white/[0.06] text-zinc-700 dark:text-slate-300 transition cursor-pointer"
                 title="Batch upload and auto-match student photos by roll number"
               >
-                <Camera className="h-3.5 w-3.5 text-indigo-400" />
+                <Camera className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
                 <span className="hidden sm:inline">Batch Photos</span>
               </button>
 
@@ -792,10 +837,10 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
                 <button
                   type="button"
                   onClick={onOpenPromotion}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl border border-indigo-500/30 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 transition cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl border border-indigo-500/30 bg-indigo-50 dark:bg-indigo-500/10 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 transition cursor-pointer"
                   title="Launch Cohort Promotion Wizard"
                 >
-                  <GraduationCap className="h-3.5 w-3.5 text-indigo-400" />
+                  <GraduationCap className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
                   <span>Cohort Promotion</span>
                 </button>
               )}
@@ -807,9 +852,9 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
             type="button"
             onClick={fetchRoster}
             disabled={isLoading}
-            className="p-1.5 rounded-xl border border-white/[0.08] bg-[#151E32] hover:bg-white/[0.06] text-slate-400 hover:text-white transition disabled:opacity-50"
+            className="p-1.5 rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] hover:bg-zinc-100 dark:hover:bg-white/[0.06] text-zinc-500 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white transition disabled:opacity-50 cursor-pointer"
           >
-            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin text-indigo-400' : ''}`} />
+            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin text-indigo-500 dark:text-indigo-400' : ''}`} />
           </button>
         </div>
 
@@ -872,21 +917,21 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
       )}
 
       {/* Main Roster Container */}
-      <div className="rounded-2xl border border-white/[0.08] bg-[#101726] shadow-sm overflow-hidden">
+      <div className="rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] shadow-xs sm:shadow-sm overflow-hidden">
         
         {isLoading ? (
           <div className="py-20 flex flex-col items-center justify-center space-y-3">
             <Loader2 className="h-8 w-8 animate-spin text-indigo-500" />
-            <p className="text-xs text-slate-400">Loading {selectedClass.name} roster...</p>
+            <p className="text-xs text-zinc-500 dark:text-slate-400">Loading {selectedClass.name} roster...</p>
           </div>
         ) : filteredStudents.length === 0 ? (
           <div className="py-16 text-center space-y-3">
-            <div className="flex h-12 w-12 mx-auto items-center justify-center rounded-2xl bg-white/[0.04] text-slate-500 border border-white/[0.08]">
+            <div className="flex h-12 w-12 mx-auto items-center justify-center rounded-2xl bg-zinc-100 dark:bg-white/[0.04] text-zinc-400 dark:text-slate-500 border border-zinc-200 dark:border-white/[0.08]">
               <Users className="h-6 w-6" />
             </div>
             <div className="space-y-1">
-              <h3 className="text-sm font-bold text-white">No Students Found</h3>
-              <p className="text-xs text-slate-400 max-w-sm mx-auto">
+              <h3 className="text-sm font-bold text-zinc-900 dark:text-white">No Students Found</h3>
+              <p className="text-xs text-zinc-500 dark:text-slate-400 max-w-sm mx-auto">
                 {searchQuery
                   ? 'No students match your search criteria in this class.'
                   : `Class ${selectedClass.name} currently has no enrolled students for academic year ${selectedYearId}.`}
@@ -896,7 +941,7 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
               <button
                 type="button"
                 onClick={() => setIsImportModalOpen(true)}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/30 transition mt-2"
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/30 transition mt-2 cursor-pointer"
               >
                 <Upload className="h-3.5 w-3.5" />
                 <span>Import Spreadsheet Roster</span>
@@ -907,8 +952,8 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
           <div>
             {/* Desktop Table */}
             <div className="hidden md:block overflow-x-auto">
-              <table className="w-full text-left text-xs text-slate-300">
-                <thead className="bg-[#151E32] text-[11px] font-bold uppercase tracking-wider text-slate-400 border-b border-white/[0.08]">
+              <table className="w-full text-left text-xs text-zinc-700 dark:text-slate-300">
+                <thead className="bg-zinc-50 dark:bg-[#151E32] text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-slate-400 border-b border-zinc-200 dark:border-white/[0.08]">
                   <tr>
                     {isPrivileged && (
                       <th className="px-4 py-3 w-10 text-center">
@@ -919,7 +964,7 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
                             selectedEnrollmentIds.size === filteredStudents.length
                           }
                           onChange={handleToggleSelectAll}
-                          className="h-4 w-4 rounded border-slate-700 bg-[#101726] text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                          className="h-4 w-4 rounded border-zinc-300 dark:border-slate-700 bg-white dark:bg-[#101726] text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                           title="Select all students"
                         />
                       </th>
@@ -933,13 +978,13 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
                     {isPrivileged && <th className="px-4 py-3 text-right">Actions</th>}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-white/[0.04]">
-                  {filteredStudents.map((s) => {
+                <tbody className="divide-y divide-zinc-200 dark:divide-white/[0.04]">
+                  {visibleStudents.map((s) => {
                     const isSelected = selectedEnrollmentIds.has(s.enrollment_id)
                     return (
                       <tr
                         key={s.enrollment_id}
-                        className={`hover:bg-white/[0.02] transition ${isSelected ? 'bg-indigo-500/[0.06]' : ''}`}
+                        className={`hover:bg-zinc-50 dark:hover:bg-white/[0.02] transition ${isSelected ? 'bg-indigo-500/[0.06]' : ''}`}
                       >
                         {isPrivileged && (
                           <td className="px-4 py-2.5 text-center">
@@ -947,67 +992,80 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
                               type="checkbox"
                               checked={isSelected}
                               onChange={() => handleToggleSelectStudent(s.enrollment_id)}
-                              className="h-4 w-4 rounded border-slate-700 bg-[#101726] text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                              className="h-4 w-4 rounded border-zinc-300 dark:border-slate-700 bg-white dark:bg-[#101726] text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                             />
                           </td>
                         )}
-                        <td className="px-4 py-2.5 text-center font-bold text-white tabular-nums">
+                        <td className="px-4 py-2.5 text-center font-bold text-zinc-900 dark:text-white tabular-nums">
                           {s.roll_number}
                         </td>
-                        <td className="px-4 py-2.5 font-semibold text-white">
+                        <td className="px-4 py-2.5 font-semibold text-zinc-900 dark:text-white">
                           <div className="flex items-center gap-3">
                             <button
                               type="button"
                               onClick={() => handleAvatarClick(s)}
                               disabled={!isPrivileged || isUploadingSinglePhoto}
-                              className={`relative group h-8 w-8 rounded-full overflow-hidden border border-white/10 bg-[#151E32] flex items-center justify-center shrink-0 ${
-                                isPrivileged ? 'cursor-pointer hover:border-indigo-400' : 'cursor-default'
+                              className={`relative group h-8 w-8 rounded-full overflow-hidden shrink-0 ${
+                                isPrivileged ? 'cursor-pointer hover:opacity-90' : 'cursor-default'
                               }`}
                               title={isPrivileged ? `Click to upload/change photo for ${s.full_name}` : s.full_name}
                             >
-                              {s.photo_url ? (
-                                <img src={s.photo_url} alt={s.full_name} className="h-full w-full object-cover" />
-                              ) : (
-                                <span className="text-[11px] font-bold text-indigo-300 font-heading">
-                                  {getInitials(s.full_name)}
-                                </span>
-                              )}
-                              {isPrivileged && (
-                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
-                                  <Camera className="h-3.5 w-3.5" />
-                                </div>
-                              )}
+                              <ProgressiveAvatar
+                                studentId={s.student_id}
+                                name={s.full_name}
+                                hasPhoto={s.has_photo ?? Boolean(s.photo_url)}
+                                photoUrl={s.photo_url}
+                                className="h-8 w-8 rounded-full border border-indigo-200 dark:border-white/10"
+                              >
+                                {isPrivileged && (
+                                  <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
+                                    <Camera className="h-3.5 w-3.5" />
+                                  </div>
+                                )}
+                              </ProgressiveAvatar>
                             </button>
                             <span>{s.full_name}</span>
                           </div>
                         </td>
-                        <td className="px-4 py-2.5 font-mono text-[11px] text-slate-400">
+                        <td className="px-4 py-2.5 font-mono text-[11px] text-zinc-500 dark:text-slate-400">
                           {s.admission_no || '—'}
                         </td>
-                        <td className="px-4 py-2.5 font-mono text-[11px] text-slate-400">
+                        <td className="px-4 py-2.5 font-mono text-[11px] text-zinc-500 dark:text-slate-400">
                           {s.registration_no || '—'}
                         </td>
                         <td className="px-4 py-2.5">
                           {s.assigned_workstation_label ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">
-                              <Monitor className="h-3 w-3 text-indigo-400" />
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-500/20">
+                              <Monitor className="h-3 w-3 text-indigo-500 dark:text-indigo-400" />
                               <span>{s.assigned_workstation_label}</span>
                             </span>
                           ) : s.enrollment_status === 'active' ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20">
                               Active (Unseated)
                             </span>
                           ) : (
-                            <span className="text-slate-500 text-[11px]">—</span>
+                            <span className="text-zinc-400 dark:text-slate-500 text-[11px]">—</span>
                           )}
                         </td>
                         <td className="px-4 py-2.5 text-center">
                           {s.enrollment_status === 'active' ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
                               Active
                             </span>
+                          ) : s.enrollment_status === 'completed' ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-500/20">
+                              Completed
+                            </span>
+                          ) : s.enrollment_status === 'graduated' ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-500/10 text-teal-700 dark:text-teal-400 border border-teal-500/20">
+                              Graduated
+                            </span>
+                          ) : s.enrollment_status === 'transferred' ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20">
+                              Transferred
+                            </span>
                           ) : (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-500/10 text-slate-400 border border-slate-500/20">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-zinc-500/10 text-zinc-600 dark:text-slate-400 border border-zinc-500/20">
                               {s.enrollment_status?.toUpperCase() || 'ARCHIVED'}
                             </span>
                           )}
@@ -1015,12 +1073,12 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
                         {isPrivileged && (
                           <td className="px-4 py-2.5 text-right">
                             <div className="inline-flex items-center gap-1.5 justify-end">
-                              {s.enrollment_status === 'archived' ? (
+                              {!isMainCohortStatus(s.enrollment_status) ? (
                                 <button
                                   type="button"
                                   onClick={() => handleRestoreStudent(s)}
                                   disabled={isBulkActionLoading}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-xs font-bold transition cursor-pointer"
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 text-xs font-bold transition cursor-pointer"
                                   title="Restore student to active cohort"
                                 >
                                   <RotateCcw className="h-3 w-3" />
@@ -1031,10 +1089,10 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
                                   <button
                                     type="button"
                                     onClick={() => handleOpenEditModal(s)}
-                                    className="p-1.5 rounded-lg border border-white/[0.08] bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white transition cursor-pointer"
+                                    className="p-1.5 rounded-lg border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-white/[0.04] hover:bg-zinc-100 dark:hover:bg-white/[0.08] text-zinc-600 dark:text-slate-300 hover:text-zinc-900 dark:hover:text-white transition cursor-pointer"
                                     title="Edit student details & roll number"
                                   >
-                                    <Edit2 className="h-3 w-3 text-indigo-400" />
+                                    <Edit2 className="h-3 w-3 text-indigo-500 dark:text-indigo-400" />
                                   </button>
                                   <button
                                     type="button"
@@ -1043,18 +1101,18 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
                                       setTransferNewRoll(s.roll_number.toString())
                                       setIsTransferModalOpen(true)
                                     }}
-                                    className="p-1.5 rounded-lg border border-white/[0.08] bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white transition cursor-pointer"
+                                    className="p-1.5 rounded-lg border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-white/[0.04] hover:bg-zinc-100 dark:hover:bg-white/[0.08] text-zinc-600 dark:text-slate-300 hover:text-zinc-900 dark:hover:text-white transition cursor-pointer"
                                     title="Transfer to another class"
                                   >
-                                    <ArrowRightLeft className="h-3 w-3 text-amber-400" />
+                                    <ArrowRightLeft className="h-3 w-3 text-amber-500 dark:text-amber-400" />
                                   </button>
                                   <button
                                     type="button"
                                     onClick={() => handleOpenDeleteModal(s)}
-                                    className="p-1.5 rounded-lg border border-white/[0.08] bg-white/[0.04] hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition cursor-pointer"
+                                    className="p-1.5 rounded-lg border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-white/[0.04] hover:bg-rose-50 dark:hover:bg-rose-500/20 text-zinc-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition cursor-pointer"
                                     title="Delete or archive student enrollment"
                                   >
-                                    <Trash2 className="h-3 w-3 text-rose-400" />
+                                    <Trash2 className="h-3 w-3 text-rose-500 dark:text-rose-400" />
                                   </button>
                                 </>
                               )}
@@ -1064,13 +1122,23 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
                       </tr>
                     )
                   })}
+                  {hasMore && (
+                    <tr ref={sentinelRef}>
+                      <td colSpan={isPrivileged ? 8 : 7} className="py-4 text-center text-xs text-zinc-400">
+                        <div className="flex items-center justify-center gap-2">
+                          <Loader2 className="h-4 w-4 animate-spin text-indigo-500" />
+                          <span>Loading more students ({visibleStudents.length} of {filteredStudents.length})...</span>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
 
             {/* Mobile Card List */}
-            <div className="md:hidden divide-y divide-white/[0.06]">
-              {filteredStudents.map((s) => {
+            <div className="md:hidden divide-y divide-zinc-200 dark:divide-white/[0.06]">
+              {visibleStudents.map((s) => {
                 const isSelected = selectedEnrollmentIds.has(s.enrollment_id)
                 return (
                   <div
@@ -1084,49 +1152,61 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
                             type="checkbox"
                             checked={isSelected}
                             onChange={() => handleToggleSelectStudent(s.enrollment_id)}
-                            className="h-4 w-4 rounded border-slate-700 bg-[#101726] text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                            className="h-4 w-4 rounded border-zinc-300 dark:border-slate-700 bg-white dark:bg-[#101726] text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                           />
                         )}
-                        <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-400 text-xs font-bold tabular-nums">
+                        <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 text-xs font-bold tabular-nums">
                           {s.roll_number}
                         </span>
                         <button
                           type="button"
                           onClick={() => handleAvatarClick(s)}
                           disabled={!isPrivileged || isUploadingSinglePhoto}
-                          className="h-7 w-7 rounded-full overflow-hidden border border-white/10 bg-[#151E32] flex items-center justify-center shrink-0 cursor-pointer"
+                          className="h-7 w-7 rounded-full overflow-hidden shrink-0 cursor-pointer"
                         >
-                          {s.photo_url ? (
-                            <img src={s.photo_url} alt={s.full_name} className="h-full w-full object-cover" />
-                          ) : (
-                            <span className="text-[10px] font-bold text-indigo-300 font-heading">
-                              {getInitials(s.full_name)}
-                            </span>
-                          )}
+                          <ProgressiveAvatar
+                            studentId={s.student_id}
+                            name={s.full_name}
+                            hasPhoto={s.has_photo ?? Boolean(s.photo_url)}
+                            photoUrl={s.photo_url}
+                            className="h-7 w-7 rounded-full border border-indigo-200 dark:border-white/10"
+                          />
                         </button>
-                        <span className="text-xs font-bold text-white">{s.full_name}</span>
+                        <span className="text-xs font-bold text-zinc-900 dark:text-white">{s.full_name}</span>
                       </div>
                       {s.enrollment_status === 'active' ? (
-                        <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
+                        <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
                           Active
                         </span>
+                      ) : s.enrollment_status === 'completed' ? (
+                        <span className="text-[10px] font-bold text-blue-700 dark:text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full">
+                          Completed
+                        </span>
+                      ) : s.enrollment_status === 'graduated' ? (
+                        <span className="text-[10px] font-bold text-teal-700 dark:text-teal-400 bg-teal-500/10 px-2 py-0.5 rounded-full">
+                          Graduated
+                        </span>
+                      ) : s.enrollment_status === 'transferred' ? (
+                        <span className="text-[10px] font-bold text-amber-700 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full">
+                          Transferred
+                        </span>
                       ) : (
-                        <span className="text-[10px] font-bold text-slate-400 bg-slate-500/10 px-2 py-0.5 rounded-full">
+                        <span className="text-[10px] font-bold text-zinc-600 dark:text-slate-400 bg-zinc-500/10 px-2 py-0.5 rounded-full">
                           {s.enrollment_status}
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
+                    <div className="flex items-center justify-between text-[11px] text-zinc-500 dark:text-slate-400 font-mono">
                       <span>Adm: {s.admission_no || '—'}</span>
                       <span>Reg: {s.registration_no || '—'}</span>
                       {isPrivileged && (
                         <div className="flex items-center gap-2">
-                          {s.enrollment_status === 'archived' ? (
+                          {!isMainCohortStatus(s.enrollment_status) ? (
                             <button
                               type="button"
                               onClick={() => handleRestoreStudent(s)}
                               disabled={isBulkActionLoading}
-                              className="inline-flex items-center gap-1 text-xs font-bold text-emerald-400 underline font-sans cursor-pointer"
+                              className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 dark:text-emerald-400 underline font-sans cursor-pointer"
                             >
                               <RotateCcw className="h-3 w-3" />
                               <span>Restore</span>
@@ -1136,11 +1216,11 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
                               <button
                                 type="button"
                                 onClick={() => handleOpenEditModal(s)}
-                                className="text-xs font-bold text-indigo-400 underline font-sans cursor-pointer"
+                                className="text-xs font-bold text-indigo-600 dark:text-indigo-400 underline font-sans cursor-pointer"
                               >
                                 Edit
                               </button>
-                              <span className="text-slate-600">·</span>
+                              <span className="text-zinc-300 dark:text-slate-600">·</span>
                               <button
                                 type="button"
                                 onClick={() => {
@@ -1148,15 +1228,15 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
                                   setTransferNewRoll(s.roll_number.toString())
                                   setIsTransferModalOpen(true)
                                 }}
-                                className="text-xs font-bold text-amber-400 underline font-sans cursor-pointer"
+                                className="text-xs font-bold text-amber-600 dark:text-amber-400 underline font-sans cursor-pointer"
                               >
                                 Transfer
                               </button>
-                              <span className="text-slate-600">·</span>
+                              <span className="text-zinc-300 dark:text-slate-600">·</span>
                               <button
                                 type="button"
                                 onClick={() => handleOpenDeleteModal(s)}
-                                className="text-xs font-bold text-rose-400 underline font-sans cursor-pointer"
+                                className="text-xs font-bold text-rose-600 dark:text-rose-400 underline font-sans cursor-pointer"
                               >
                                 Delete
                               </button>
@@ -1168,6 +1248,12 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
                   </div>
                 )
               })}
+              {hasMore && (
+                <div ref={sentinelRef} className="py-4 text-center text-xs text-zinc-400 flex items-center justify-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin text-indigo-500" />
+                  <span>Loading more students ({visibleStudents.length} of {filteredStudents.length})...</span>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1188,31 +1274,31 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
       {/* Single Add Student Modal */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="w-full max-w-md rounded-2xl border border-white/[0.1] bg-[#101726] shadow-2xl p-6 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
+          <div className="w-full max-w-md rounded-2xl border border-zinc-200 dark:border-white/[0.1] bg-white dark:bg-[#101726] shadow-2xl p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-200 dark:border-white/[0.08]">
               <div className="flex items-center gap-2.5">
-                <UserPlus className="h-5 w-5 text-indigo-400" />
-                <h3 className="text-sm font-bold font-heading text-white">
+                <UserPlus className="h-5 w-5 text-indigo-500 dark:text-indigo-400" />
+                <h3 className="text-sm font-bold font-heading text-zinc-900 dark:text-white">
                   Add Student to {selectedClass.name}
                 </h3>
               </div>
               <button
                 onClick={() => setIsAddModalOpen(false)}
-                className="text-slate-400 hover:text-white"
+                className="text-zinc-400 hover:text-zinc-900 dark:hover:text-white cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
             {addError && (
-              <div className="p-3 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-300 text-xs">
+              <div className="p-3 rounded-xl border border-rose-500/30 bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 text-xs">
                 {addError}
               </div>
             )}
 
             <form onSubmit={handleAddStudent} className="space-y-3 text-xs">
               <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-slate-400 mb-1">
                   Roll Number *
                 </label>
                 <input
@@ -1223,12 +1309,12 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
                   placeholder="e.g. 1"
                   value={addRoll}
                   onChange={(e) => setAddRoll(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-white/[0.08] bg-[#151E32] text-white focus:outline-none focus:border-indigo-500/50"
+                  className="w-full px-3 py-2 rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] text-zinc-900 dark:text-white focus:outline-none focus:border-indigo-500/50"
                 />
               </div>
 
               <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-slate-400 mb-1">
                   Student Full Name *
                 </label>
                 <input
@@ -1237,12 +1323,12 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
                   placeholder="e.g. Aarav Sharma"
                   value={addName}
                   onChange={(e) => setAddName(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-white/[0.08] bg-[#151E32] text-white focus:outline-none focus:border-indigo-500/50"
+                  className="w-full px-3 py-2 rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] text-zinc-900 dark:text-white focus:outline-none focus:border-indigo-500/50"
                 />
               </div>
 
               <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-slate-400 mb-1">
                   Admission Number (Optional)
                 </label>
                 <input
@@ -1250,12 +1336,12 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
                   placeholder="e.g. ADM-2083-001"
                   value={addAdm}
                   onChange={(e) => setAddAdm(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-white/[0.08] bg-[#151E32] text-white focus:outline-none focus:border-indigo-500/50"
+                  className="w-full px-3 py-2 rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] text-zinc-900 dark:text-white focus:outline-none focus:border-indigo-500/50"
                 />
               </div>
 
               <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-slate-400 mb-1">
                   Registration Number (Optional)
                 </label>
                 <input
@@ -1263,25 +1349,34 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
                   placeholder="e.g. REG-83-1001"
                   value={addReg}
                   onChange={(e) => setAddReg(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-white/[0.08] bg-[#151E32] text-white focus:outline-none focus:border-indigo-500/50"
+                  className="w-full px-3 py-2 rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] text-zinc-900 dark:text-white focus:outline-none focus:border-indigo-500/50"
                 />
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-white/[0.08]">
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-200 dark:border-white/[0.08]">
                 <button
                   type="button"
                   onClick={() => setIsAddModalOpen(false)}
-                  className="px-4 py-2 text-xs font-semibold rounded-xl text-slate-400 hover:text-white"
+                  className="px-4 py-2 text-xs font-semibold rounded-xl text-zinc-600 hover:text-zinc-900 dark:text-slate-400 dark:hover:text-white cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmittingAdd}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white shadow-md transition disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white shadow-md transition disabled:opacity-50 cursor-pointer"
                 >
-                  {isSubmittingAdd ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="h-3.5 w-3.5" />}
-                  <span>Save Student</span>
+                  {isSubmittingAdd ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle className="h-3.5 w-3.5" />
+                      <span>Save Student</span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>
@@ -1292,44 +1387,44 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
       {/* Transfer Student Modal */}
       {isTransferModalOpen && transferTargetStudent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="w-full max-w-md rounded-2xl border border-white/[0.1] bg-[#101726] shadow-2xl p-6 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
+          <div className="w-full max-w-md rounded-2xl border border-zinc-200 dark:border-white/[0.1] bg-white dark:bg-[#101726] shadow-2xl p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-200 dark:border-white/[0.08]">
               <div className="flex items-center gap-2.5">
-                <ArrowRightLeft className="h-5 w-5 text-indigo-400" />
-                <h3 className="text-sm font-bold font-heading text-white">
+                <ArrowRightLeft className="h-5 w-5 text-indigo-500 dark:text-indigo-400" />
+                <h3 className="text-sm font-bold font-heading text-zinc-900 dark:text-white">
                   Transfer Student
                 </h3>
               </div>
               <button
                 onClick={() => setIsTransferModalOpen(false)}
-                className="text-slate-400 hover:text-white"
+                className="text-zinc-400 hover:text-zinc-900 dark:hover:text-white cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
-            <p className="text-xs text-slate-400">
-              Transferring <span className="text-white font-bold">{transferTargetStudent.full_name}</span> from {selectedClass.name} to another class. Historical records in {selectedClass.name} will be preserved.
+            <p className="text-xs text-zinc-600 dark:text-slate-400">
+              Transferring <span className="text-zinc-900 dark:text-white font-bold">{transferTargetStudent.full_name}</span> from {selectedClass.name} to another class. Historical records in {selectedClass.name} will be preserved.
             </p>
 
             {transferError && (
-              <div className="p-3 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-300 text-xs">
+              <div className="p-3 rounded-xl border border-rose-500/30 bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 text-xs">
                 {transferError}
               </div>
             )}
 
             <form onSubmit={handleTransferStudent} className="space-y-3 text-xs">
               <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-slate-400 mb-1">
                   Destination Class *
                 </label>
                 <select
                   value={transferToClass}
                   onChange={(e) => setTransferToClass(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-white/[0.08] bg-[#151E32] text-white focus:outline-none focus:border-indigo-500/50"
+                  className="w-full px-3 py-2 rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] text-zinc-900 dark:text-white focus:outline-none focus:border-indigo-500/50"
                 >
                   {classes.filter((c) => c.id !== selectedClassId).map((c) => (
-                    <option key={c.id} value={c.id}>
+                    <option key={c.id} value={c.id} className="bg-white dark:bg-[#151E32] text-zinc-900 dark:text-white">
                       {c.name}
                     </option>
                   ))}
@@ -1337,7 +1432,7 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
               </div>
 
               <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-slate-400 mb-1">
                   New Roll Number in Destination Class *
                 </label>
                 <input
@@ -1348,25 +1443,34 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
                   placeholder="e.g. 5"
                   value={transferNewRoll}
                   onChange={(e) => setTransferNewRoll(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-white/[0.08] bg-[#151E32] text-white focus:outline-none focus:border-indigo-500/50"
+                  className="w-full px-3 py-2 rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] text-zinc-900 dark:text-white focus:outline-none focus:border-indigo-500/50"
                 />
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-white/[0.08]">
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-200 dark:border-white/[0.08]">
                 <button
                   type="button"
                   onClick={() => setIsTransferModalOpen(false)}
-                  className="px-4 py-2 text-xs font-semibold rounded-xl text-slate-400 hover:text-white"
+                  className="px-4 py-2 text-xs font-semibold rounded-xl text-zinc-600 hover:text-zinc-900 dark:text-slate-400 dark:hover:text-white cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmittingTransfer}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white shadow-md transition disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white shadow-md transition disabled:opacity-50 cursor-pointer"
                 >
-                  {isSubmittingTransfer ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowRightLeft className="h-3.5 w-3.5" />}
-                  <span>Transfer Student</span>
+                  {isSubmittingTransfer ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <>
+                      <ArrowRightLeft className="h-3.5 w-3.5" />
+                      <span>Transfer Student</span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>
@@ -1377,32 +1481,32 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
       {/* Edit Student Modal */}
       {isEditModalOpen && editTargetStudent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="w-full max-w-md rounded-2xl border border-white/[0.1] bg-[#101726] shadow-2xl p-6 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
+          <div className="w-full max-w-md rounded-2xl border border-zinc-200 dark:border-white/[0.1] bg-white dark:bg-[#101726] shadow-2xl p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-200 dark:border-white/[0.08]">
               <div className="flex items-center gap-2.5">
-                <Edit2 className="h-5 w-5 text-indigo-400" />
-                <h3 className="text-sm font-bold font-heading text-white">
+                <Edit2 className="h-5 w-5 text-indigo-500 dark:text-indigo-400" />
+                <h3 className="text-sm font-bold font-heading text-zinc-900 dark:text-white">
                   Edit Student Details
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setIsEditModalOpen(false)}
-                className="text-slate-400 hover:text-white cursor-pointer"
+                className="text-zinc-400 hover:text-zinc-900 dark:hover:text-white cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
             {editError && (
-              <div className="p-3 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-300 text-xs">
+              <div className="p-3 rounded-xl border border-rose-500/30 bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 text-xs">
                 {editError}
               </div>
             )}
 
             <form onSubmit={handleEditStudentSubmit} className="space-y-3 text-xs">
               <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-slate-400 mb-1">
                   Student Full Name *
                 </label>
                 <input
@@ -1411,13 +1515,13 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
                   placeholder="e.g. Aarav Sharma"
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-white/[0.08] bg-[#151E32] text-white focus:outline-none focus:border-indigo-500/50"
+                  className="w-full px-3 py-2 rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] text-zinc-900 dark:text-white focus:outline-none focus:border-indigo-500/50"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-slate-400 mb-1">
                     Roll Number *
                   </label>
                   <input
@@ -1428,28 +1532,28 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
                     placeholder="e.g. 1"
                     value={editRoll}
                     onChange={(e) => setEditRoll(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-white/[0.08] bg-[#151E32] text-white focus:outline-none focus:border-indigo-500/50"
+                    className="w-full px-3 py-2 rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] text-zinc-900 dark:text-white focus:outline-none focus:border-indigo-500/50"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-slate-400 mb-1">
                     Gender
                   </label>
                   <select
                     value={editGender}
                     onChange={(e) => setEditGender(e.target.value as any)}
-                    className="w-full px-3 py-2 rounded-xl border border-white/[0.08] bg-[#151E32] text-white focus:outline-none focus:border-indigo-500/50"
+                    className="w-full px-3 py-2 rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] text-zinc-900 dark:text-white focus:outline-none focus:border-indigo-500/50"
                   >
-                    <option value="male">Male</option>
-                    <option value="female">Female</option>
-                    <option value="other">Other</option>
+                    <option value="male" className="bg-white dark:bg-[#151E32] text-zinc-900 dark:text-white">Male</option>
+                    <option value="female" className="bg-white dark:bg-[#151E32] text-zinc-900 dark:text-white">Female</option>
+                    <option value="other" className="bg-white dark:bg-[#151E32] text-zinc-900 dark:text-white">Other</option>
                   </select>
                 </div>
               </div>
 
               <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-slate-400 mb-1">
                   Admission Number
                 </label>
                 <input
@@ -1457,12 +1561,12 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
                   placeholder="e.g. ADM-2083-001"
                   value={editAdm}
                   onChange={(e) => setEditAdm(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-white/[0.08] bg-[#151E32] text-white focus:outline-none focus:border-indigo-500/50"
+                  className="w-full px-3 py-2 rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] text-zinc-900 dark:text-white focus:outline-none focus:border-indigo-500/50"
                 />
               </div>
 
               <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-slate-400 mb-1">
                   Registration Number
                 </label>
                 <input
@@ -1470,15 +1574,15 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
                   placeholder="e.g. REG-83-1001"
                   value={editReg}
                   onChange={(e) => setEditReg(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-white/[0.08] bg-[#151E32] text-white focus:outline-none focus:border-indigo-500/50"
+                  className="w-full px-3 py-2 rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] text-zinc-900 dark:text-white focus:outline-none focus:border-indigo-500/50"
                 />
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-white/[0.08]">
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-200 dark:border-white/[0.08]">
                 <button
                   type="button"
                   onClick={() => setIsEditModalOpen(false)}
-                  className="px-4 py-2 text-xs font-semibold rounded-xl text-slate-400 hover:text-white cursor-pointer"
+                  className="px-4 py-2 text-xs font-semibold rounded-xl text-zinc-600 hover:text-zinc-900 dark:text-slate-400 dark:hover:text-white cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -1487,8 +1591,17 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
                   disabled={isSubmittingEdit}
                   className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white shadow-md transition disabled:opacity-50 cursor-pointer"
                 >
-                  {isSubmittingEdit ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="h-3.5 w-3.5" />}
-                  <span>Save Changes</span>
+                  {isSubmittingEdit ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle className="h-3.5 w-3.5" />
+                      <span>Save Changes</span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>
@@ -1499,43 +1612,43 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
       {/* Delete / Archive Confirmation Dialog */}
       {isDeleteDialogOpen && deleteTargetStudent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="w-full max-w-md rounded-2xl border border-rose-500/30 bg-[#101726] shadow-2xl p-6 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
+          <div className="w-full max-w-md rounded-2xl border border-rose-500/30 bg-white dark:bg-[#101726] shadow-2xl p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-200 dark:border-white/[0.08]">
               <div className="flex items-center gap-2.5">
-                <ShieldAlert className="h-5 w-5 text-rose-400" />
-                <h3 className="text-sm font-bold font-heading text-white">
+                <ShieldAlert className="h-5 w-5 text-rose-500 dark:text-rose-400" />
+                <h3 className="text-sm font-bold font-heading text-zinc-900 dark:text-white">
                   Remove Student from {selectedClass.name}
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setIsDeleteDialogOpen(false)}
-                className="text-slate-400 hover:text-white cursor-pointer"
+                className="text-zinc-400 hover:text-zinc-900 dark:hover:text-white cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
-            <div className="space-y-2 text-xs text-slate-300">
+            <div className="space-y-2 text-xs text-zinc-700 dark:text-slate-300">
               <p>
-                Are you sure you want to remove <span className="text-white font-bold">{deleteTargetStudent.full_name}</span> (Roll {deleteTargetStudent.roll_number})?
+                Are you sure you want to remove <span className="text-zinc-900 dark:text-white font-bold">{deleteTargetStudent.full_name}</span> (Roll {deleteTargetStudent.roll_number})?
               </p>
-              <div className="p-3 rounded-xl border border-amber-500/20 bg-amber-500/10 text-amber-200 text-[11px] leading-relaxed">
+              <div className="p-3 rounded-xl border border-amber-500/20 bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-200 text-[11px] leading-relaxed">
                 <strong>Institutional Audit Rule:</strong> If this student has active practical attendance logs, their enrollment will be safely <strong>archived</strong> rather than erased, preserving past attendance records. If no practical logs exist, the record will be <strong>cleanly deleted</strong>.
               </div>
             </div>
 
             {deleteNotice && (
-              <div className="p-3 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-300 text-xs">
+              <div className="p-3 rounded-xl border border-rose-500/30 bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 text-xs">
                 {deleteNotice}
               </div>
             )}
 
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-white/[0.08]">
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-200 dark:border-white/[0.08]">
               <button
                 type="button"
                 onClick={() => setIsDeleteDialogOpen(false)}
-                className="px-4 py-2 text-xs font-semibold rounded-xl text-slate-400 hover:text-white cursor-pointer"
+                className="px-4 py-2 text-xs font-semibold rounded-xl text-zinc-600 hover:text-zinc-900 dark:text-slate-400 dark:hover:text-white cursor-pointer"
               >
                 Cancel
               </button>
@@ -1545,8 +1658,17 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
                 disabled={isSubmittingDelete}
                 className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl bg-rose-600 hover:bg-rose-500 text-white shadow-md transition disabled:opacity-50 cursor-pointer"
               >
-                {isSubmittingDelete ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                <span>Confirm Remove</span>
+                {isSubmittingDelete ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Removing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="h-3.5 w-3.5" />
+                    <span>Confirm Remove</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -1556,35 +1678,35 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
       {/* Resequence Rolls A-Z Confirmation Modal */}
       {isResequenceConfirmOpen && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#151E32] border border-white/[0.1] rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4 animate-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
+          <div className="bg-white dark:bg-[#151E32] border border-zinc-200 dark:border-white/[0.1] rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4 animate-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-zinc-200 dark:border-white/[0.08] pb-3">
               <div className="flex items-center gap-2">
-                <ArrowDownAZ className="h-5 w-5 text-indigo-400" />
-                <h3 className="text-sm font-bold text-white">Resequence Rolls Alphabetically (A–Z)</h3>
+                <ArrowDownAZ className="h-5 w-5 text-indigo-500 dark:text-indigo-400" />
+                <h3 className="text-sm font-bold text-zinc-900 dark:text-white">Resequence Rolls Alphabetically (A–Z)</h3>
               </div>
               <button
                 type="button"
                 onClick={() => setIsResequenceConfirmOpen(false)}
-                className="text-slate-400 hover:text-white cursor-pointer"
+                className="text-zinc-400 hover:text-zinc-900 dark:hover:text-white cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
-            <div className="space-y-3 text-xs text-slate-300">
+            <div className="space-y-3 text-xs text-zinc-700 dark:text-slate-300">
               <p>
-                Are you sure you want to sort all <span className="text-white font-bold">{counts.active} active students</span> in <span className="text-white font-bold">{selectedClass.name}</span> ({selectedYearId} B.S.) alphabetically by full name and renumber their roll numbers sequentially from <strong>1 to {counts.active}</strong>?
+                Are you sure you want to sort all <span className="text-zinc-900 dark:text-white font-bold">{counts.active} active students</span> in <span className="text-zinc-900 dark:text-white font-bold">{selectedClass.name}</span> ({selectedYearId} B.S.) alphabetically by full name and renumber their roll numbers sequentially from <strong>1 to {counts.active}</strong>?
               </p>
-              <div className="p-3 rounded-xl border border-indigo-500/20 bg-indigo-500/10 text-indigo-200 text-[11px] leading-relaxed">
+              <div className="p-3 rounded-xl border border-indigo-500/20 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-800 dark:text-indigo-200 text-[11px] leading-relaxed">
                 <strong>Safety Governance Lock:</strong> Roll resequencing is only permitted if <strong>zero practical attendance logs</strong> exist for this class. If logs exist, the operation will be safely rejected to maintain historical compliance.
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-white/[0.08]">
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-200 dark:border-white/[0.08]">
               <button
                 type="button"
                 onClick={() => setIsResequenceConfirmOpen(false)}
-                className="px-4 py-2 text-xs font-semibold rounded-xl text-slate-400 hover:text-white cursor-pointer"
+                className="px-4 py-2 text-xs font-semibold rounded-xl text-zinc-600 hover:text-zinc-900 dark:text-slate-400 dark:hover:text-white cursor-pointer"
               >
                 Cancel
               </button>
@@ -1594,8 +1716,17 @@ export function ClassRosterView({ isPrivileged, onOpenPromotion, initialClasses,
                 disabled={isResequencing}
                 className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white shadow-md transition disabled:opacity-50 cursor-pointer"
               >
-                {isResequencing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowDownAZ className="h-3.5 w-3.5" />}
-                <span>Sort & Assign 1..N</span>
+                {isResequencing ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Sorting...</span>
+                  </>
+                ) : (
+                  <>
+                    <ArrowDownAZ className="h-3.5 w-3.5" />
+                    <span>Sort & Assign 1..N</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

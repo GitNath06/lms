@@ -326,7 +326,7 @@ export default function FleetRoutineModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-y-auto font-sans animate-in fade-in duration-200">
-      <div className="bg-white dark:bg-[#0B0F19] border border-zinc-200 dark:border-zinc-800 rounded-2xl w-full max-w-5xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+      <div className="bg-white dark:bg-[#0B0F19] border border-zinc-200 dark:border-zinc-800 rounded-2xl w-full max-w-5xl max-h-[calc(100dvh-2rem)] flex flex-col shadow-2xl overflow-hidden">
         {/* 1. COMPACT PURPOSE-BUILT HEADER */}
         <div className="p-4 sm:p-5 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40 flex items-start justify-between gap-4 shrink-0">
           <div className="space-y-1">

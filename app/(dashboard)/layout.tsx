@@ -6,12 +6,17 @@ import CloudSyncStatus from '@/components/layout/cloud-sync-status'
 import NotificationBell from '@/components/layout/notification-bell'
 import CommandPalette from '@/components/command-palette'
 import TimeTravelController from '@/components/dev/time-travel-controller'
+import TerminalSimulatorController from '@/components/dev/terminal-simulator-controller'
 import CollapsibleSidebar from '@/components/layout/collapsible-sidebar'
 import MobileNav from '@/components/layout/mobile-nav'
 import UserProfileMenu from '@/components/layout/user-profile-menu'
 import HeaderSearchTrigger from '@/components/layout/header-search-trigger'
+import ClientStorageEvictor from '@/components/layout/client-storage-evictor'
+import { MobileBottomNav } from '@/components/layout/mobile-bottom-nav'
+import { PwaInstallPrompt } from '@/components/pwa/pwa-install-prompt'
 import { getCurrentUserProfile, signOut } from '@/app/actions/auth'
 import { AcademicYearProvider, HistoricalArchiveShield } from '@/lib/context/academic-year-context'
+import PendingVerificationBanner from '@/components/dashboard/pending-verification-banner'
 
 export default async function DashboardLayout({
   children,
@@ -29,46 +34,56 @@ export default async function DashboardLayout({
     (role as string) === 'coordinator' ||
     profile?.permissions?.can_manage_maintenance === true
 
-  const roleLabel =
-    isSuperAdmin
-      ? 'Super Admin'
-      : role === 'lab_incharge'
-      ? 'Lab Incharge'
-      : role === 'hod'
-      ? 'Head of Department'
-      : 'Teacher'
+  const isPending = profile?.approval_status === 'pending'
 
-  const roleColor =
-    isSuperAdmin
-      ? 'text-amber-600 dark:text-amber-400'
-      : role === 'lab_incharge' || role === 'hod'
-      ? 'text-indigo-600 dark:text-indigo-400'
-      : 'text-zinc-600 dark:text-slate-400'
+  const roleLabel = isPending
+    ? 'Pending Verification'
+    : isSuperAdmin
+    ? 'Super Admin'
+    : role === 'lab_incharge'
+    ? 'Lab Incharge'
+    : role === 'hod'
+    ? 'Head of Department'
+    : 'Teacher'
+
+  const roleColor = isPending || isSuperAdmin
+    ? 'text-amber-600 dark:text-amber-400'
+    : role === 'lab_incharge' || role === 'hod'
+    ? 'text-indigo-600 dark:text-indigo-400'
+    : 'text-zinc-600 dark:text-slate-400'
 
   return (
     <AcademicYearProvider>
+      {/* Purge obsolete prototype localStorage keys once on mount */}
+      <ClientStorageEvictor />
+
       <div className="flex h-screen bg-canvas text-zinc-900 dark:text-zinc-100 transition-colors duration-200 print:h-auto print:bg-white print:p-0 print:m-0 print:block">
         {/* Global Command Palette */}
         <CommandPalette />
 
-        {/* Dev Time Travel Engine Controller */}
-        <TimeTravelController />
+        {/* Dev Time Travel Engine Controller (Development only) */}
+        {process.env.NODE_ENV === 'development' && <TimeTravelController />}
+
+        {/* Dev Station Rig & Telemetry Simulator (Development only) */}
+        {process.env.NODE_ENV === 'development' && <TerminalSimulatorController />}
 
         {/* Collapsible Sidebar with Animated Toggle */}
         <CollapsibleSidebar
           isSuperAdmin={isSuperAdmin}
           canAccessMaintenance={canAccessMaintenance}
+          isPending={isPending}
         />
 
         {/* Main Container */}
         <div className="flex-1 flex flex-col overflow-hidden print:overflow-visible print:block print:h-auto print:bg-white">
           {/* Topbar with Live Nepali Calendar & Real-time Clock */}
-          <header className="h-16 glass-header flex items-center justify-between px-4 sm:px-6 z-20 print:hidden gap-4">
+          <header className="h-16 glass-header flex items-center justify-between px-2.5 sm:px-6 z-40 print:hidden gap-1.5 sm:gap-4">
             {/* Zone 1: Context (Mobile Nav, Period Beacon & Live Clock) */}
-            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            <div className="flex items-center gap-1.5 sm:gap-3 shrink-0 min-w-0">
               <MobileNav
                 isSuperAdmin={isSuperAdmin}
                 canAccessMaintenance={canAccessMaintenance}
+                isPending={isPending}
                 profileName={profile?.full_name}
                 roleLabel={roleLabel}
                 roleColor={roleColor}
@@ -76,24 +91,20 @@ export default async function DashboardLayout({
               <LiveClockHeader />
             </div>
 
-            {/* Zone 2: Centered Global Search Trigger */}
-            <div className="hidden md:flex flex-1 justify-center max-w-md mx-2 lg:mx-auto">
-              <HeaderSearchTrigger />
-            </div>
+            {/* Zone 2: Flexible Center Spacer */}
+            <div className="flex-1 min-w-2" />
 
             {/* Zone 3: Utilities & User Identity */}
-            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-              <div className="md:hidden">
-                <HeaderSearchTrigger />
-              </div>
+            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+              <HeaderSearchTrigger />
               <CloudSyncStatus />
-              <div className="h-4 w-px bg-zinc-200/80 dark:bg-zinc-800/80 mx-0.5 hidden sm:block" />
+              <div className="h-4 w-px bg-zinc-200/80 dark:bg-zinc-800/80 mx-0.5 hidden xs:block" />
               <NotificationBell
                 currentUserRole={role}
                 currentUserName={profile?.full_name}
               />
               <ThemeToggle />
-              <div className="h-4 w-px bg-zinc-200/80 dark:bg-zinc-800/80 mx-0.5" />
+              <div className="h-4 w-px bg-zinc-200/80 dark:bg-zinc-800/80 mx-0.5 hidden xs:block" />
 
               {/* In-App Enhanced User Profile Menu */}
               <UserProfileMenu profile={profile} />
@@ -103,10 +114,17 @@ export default async function DashboardLayout({
           {/* Ambient Historical Archive Shield */}
           <HistoricalArchiveShield />
 
-          {/* Page Content */}
-          <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 bg-canvas print:p-0 print:m-0 print:bg-white print:overflow-visible print:block">
+          {/* Page Content with safe padding for persistent mobile dock */}
+          <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 pb-24 md:pb-8 bg-canvas print:p-0 print:m-0 print:bg-white print:overflow-visible print:block">
+            <PendingVerificationBanner profile={profile} />
             {children}
           </main>
+
+          {/* Ergonomic Mobile Bottom Navigation Dock */}
+          <MobileBottomNav />
+
+          {/* PWA Smart Install Prompt */}
+          <PwaInstallPrompt />
         </div>
       </div>
     </AcademicYearProvider>

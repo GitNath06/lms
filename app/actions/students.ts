@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getPgPool } from '@/lib/db'
 import { getServerUserScope } from '@/lib/context/server-user-scope'
 import { recordAuditEvent } from '@/lib/audit'
+import { uploadStudentPhotoToStorage } from '@/lib/storage/supabase-storage'
 import type {
   Student,
   StudentEnrollment,
@@ -81,6 +82,9 @@ export async function getStudentsByClass(params: {
 }): Promise<{ success: boolean; data: StudentWithEnrollment[]; error?: string }> {
   try {
     const scope = await getServerUserScope()
+    if (scope.approvalStatus !== 'approved') {
+      return { success: false, data: [], error: 'Access denied: Account not approved.' }
+    }
 
     if (!isClassAuthorized(scope.assignedClasses, scope.isPrivileged, params.classId)) {
       return { success: false, data: [], error: `Access denied: You do not have permission to view roster for ${params.classId}.` }
@@ -103,11 +107,11 @@ export async function getStudentsByClass(params: {
     }
 
     const filter = params.statusFilter || 'active'
-    let statusClause = `AND se.status = 'active'`
+    let statusClause = `AND se.status IN ('active', 'completed', 'graduated')`
     if (filter === 'archived') {
-      statusClause = `AND se.status = 'archived'`
+      statusClause = `AND se.status IN ('archived', 'transferred')`
     } else if (filter === 'all') {
-      statusClause = `AND se.status IN ('active', 'archived', 'transferred', 'graduated', 'completed')`
+      statusClause = `AND se.status IN ('active', 'completed', 'graduated', 'archived', 'transferred')`
     }
 
     const query = `
@@ -124,7 +128,7 @@ export async function getStudentsByClass(params: {
         s.full_name,
         s.gender,
         s.is_active,
-        s.photo_url,
+        (s.photo_url IS NOT NULL AND s.photo_url != '') AS has_photo,
         w.label AS assigned_workstation_label
       FROM public.student_enrollments se
       JOIN public.students s ON s.id = se.student_id
@@ -154,7 +158,8 @@ export async function getStudentsByClass(params: {
         is_active: row.is_active,
         assigned_workstation_label: wsLabel,
         is_unseated: !wsLabel && row.enrollment_status === 'active',
-        photo_url: row.photo_url || null,
+        photo_url: null,
+        has_photo: Boolean(row.has_photo),
       }
     })
 
@@ -174,8 +179,8 @@ export async function createStudentWithEnrollment(
   input: CreateStudentWithEnrollmentInput
 ): Promise<{ success: boolean; data?: { studentId: string; enrollmentId: string }; error?: string }> {
   const scope = await getServerUserScope()
-  if (!scope.isPrivileged) {
-    return { success: false, error: 'Access denied: Only administrators can create and enroll students.' }
+  if (!scope.isPrivileged || scope.approvalStatus !== 'approved') {
+    return { success: false, error: 'Access denied: Only approved administrators can create and enroll students.' }
   }
 
   const { student, enrollment } = input
@@ -238,8 +243,8 @@ export async function upsertStudent(
   input: UpsertStudentInput
 ): Promise<{ success: boolean; data?: Student; error?: string }> {
   const scope = await getServerUserScope()
-  if (!scope.isPrivileged) {
-    return { success: false, error: 'Access denied: Only administrators can modify student identities.' }
+  if (!scope.isPrivileged || scope.approvalStatus !== 'approved') {
+    return { success: false, error: 'Access denied: Only approved administrators can modify student identities.' }
   }
 
   if (!input.full_name || !input.full_name.trim()) {
@@ -308,8 +313,8 @@ export async function updateEnrollment(
   }
 ): Promise<{ success: boolean; error?: string }> {
   const scope = await getServerUserScope()
-  if (!scope.isPrivileged) {
-    return { success: false, error: 'Access denied: Only administrators can update student enrollments.' }
+  if (!scope.isPrivileged || scope.approvalStatus !== 'approved') {
+    return { success: false, error: 'Access denied: Only approved administrators can update student enrollments.' }
   }
 
   try {
@@ -362,28 +367,50 @@ export async function softDeleteStudent(
   reason?: string
 ): Promise<{ success: boolean; error?: string }> {
   const scope = await getServerUserScope()
-  if (!scope.isPrivileged) {
-    return { success: false, error: 'Access denied: Only administrators can archive students.' }
+  if (!scope.isPrivileged || scope.approvalStatus !== 'approved') {
+    return { success: false, error: 'Access denied: Only approved administrators can archive students.' }
   }
 
+  const pool = getPgPool()
+  const client = await pool.connect()
+
   try {
-    const supabase = await createClient()
-    const { error } = await supabase
-      .from('students')
-      .update({
-        is_active: false,
-        archived_at: new Date().toISOString(),
-        archive_reason: reason || 'Archived by administrator',
-      })
-      .eq('id', studentId)
+    await client.query('BEGIN')
 
-    if (error) return { success: false, error: error.message }
+    // 1. Soft-deactivate student identity
+    await client.query(
+      `UPDATE public.students 
+       SET is_active = false, archived_at = NOW(), archive_reason = $1 
+       WHERE id = $2;`,
+      [reason || 'Archived by administrator', studentId]
+    )
 
+    // 2. Mark active enrollment as archived
+    await client.query(
+      `UPDATE public.student_enrollments 
+       SET status = 'archived' 
+       WHERE student_id = $1 AND status = 'active';`,
+      [studentId]
+    )
+
+    // 3. Clear workstation seating allocations
+    await client.query(
+      `DELETE FROM public.workstation_seat_plans 
+       WHERE enrollment_id IN (
+         SELECT id FROM public.student_enrollments WHERE student_id = $1
+       );`,
+      [studentId]
+    )
+
+    await client.query('COMMIT')
     revalidateStudentPaths()
     return { success: true }
   } catch (err: unknown) {
+    await client.query('ROLLBACK')
     const msg = err instanceof Error ? err.message : 'Unknown error'
     return { success: false, error: msg }
+  } finally {
+    client.release()
   }
 }
 
@@ -399,8 +426,8 @@ export async function transferStudentEnrollment(input: {
   section?: string | null
 }): Promise<{ success: boolean; newEnrollmentId?: string; error?: string }> {
   const scope = await getServerUserScope()
-  if (!scope.isPrivileged) {
-    return { success: false, error: 'Access denied: Only administrators can transfer students.' }
+  if (!scope.isPrivileged || scope.approvalStatus !== 'approved') {
+    return { success: false, error: 'Access denied: Only approved administrators can transfer students.' }
   }
 
   try {
@@ -477,8 +504,8 @@ export async function updateStudentDetailsAction(input: {
   gender?: string | null
 }): Promise<{ success: boolean; error?: string }> {
   const scope = await getServerUserScope()
-  if (!scope.isPrivileged) {
-    return { success: false, error: 'Access denied: Only administrators can edit student records.' }
+  if (!scope.isPrivileged || scope.approvalStatus !== 'approved') {
+    return { success: false, error: 'Access denied: Only approved administrators can edit student records.' }
   }
 
   const { studentId, enrollmentId, fullName, rollNumber, admissionNo, registrationNo, gender } = input
@@ -605,8 +632,8 @@ export async function deleteStudentEnrollmentAction(input: {
   studentId: string
 }): Promise<{ success: boolean; actionTaken?: 'deleted' | 'archived'; error?: string }> {
   const scope = await getServerUserScope()
-  if (!scope.isPrivileged) {
-    return { success: false, error: 'Access denied: Only administrators can delete or unenroll students.' }
+  if (!scope.isPrivileged || scope.approvalStatus !== 'approved') {
+    return { success: false, error: 'Access denied: Only approved administrators can delete or unenroll students.' }
   }
 
   const pool = getPgPool()
@@ -677,8 +704,8 @@ export async function bulkArchiveStudentsAction(
   enrollmentIds: string[]
 ): Promise<{ success: boolean; count?: number; error?: string }> {
   const scope = await getServerUserScope()
-  if (!scope.isPrivileged) {
-    return { success: false, error: 'Access denied: Only administrators can archive students.' }
+  if (!scope.isPrivileged || scope.approvalStatus !== 'approved') {
+    return { success: false, error: 'Access denied: Only approved administrators can archive students.' }
   }
 
   if (!enrollmentIds || enrollmentIds.length === 0) {
@@ -723,8 +750,8 @@ export async function bulkDeleteStudentsAction(
   items: Array<{ enrollmentId: string; studentId: string }>
 ): Promise<{ success: boolean; deletedCount: number; archivedCount: number; error?: string }> {
   const scope = await getServerUserScope()
-  if (!scope.isPrivileged) {
-    return { success: false, deletedCount: 0, archivedCount: 0, error: 'Access denied: Only administrators can delete students.' }
+  if (!scope.isPrivileged || scope.approvalStatus !== 'approved') {
+    return { success: false, deletedCount: 0, archivedCount: 0, error: 'Access denied: Only approved administrators can delete students.' }
   }
 
   if (!items || items.length === 0) {
@@ -760,8 +787,8 @@ export async function restoreStudentEnrollmentAction(
   requestedRollNumber?: number
 ): Promise<{ success: boolean; newRollNumber?: number; restoredStudentName?: string; error?: string }> {
   const scope = await getServerUserScope()
-  if (!scope.isPrivileged) {
-    return { success: false, error: 'Access denied: Only administrators can restore archived students.' }
+  if (!scope.isPrivileged || scope.approvalStatus !== 'approved') {
+    return { success: false, error: 'Access denied: Only approved administrators can restore archived students.' }
   }
 
   const pool = getPgPool()
@@ -853,8 +880,8 @@ export async function resequenceClassRollsAlphabeticallyAction(params: {
   academicYearId: string
 }): Promise<{ success: boolean; count?: number; error?: string }> {
   const scope = await getServerUserScope()
-  if (!scope.isPrivileged) {
-    return { success: false, error: 'Access denied: Only administrators can resequence roll numbers.' }
+  if (!scope.isPrivileged || scope.approvalStatus !== 'approved') {
+    return { success: false, error: 'Access denied: Only approved administrators can resequence roll numbers.' }
   }
 
   const pool = getPgPool()
@@ -970,10 +997,10 @@ export async function wipeClassCohortDataAction(params: {
   error?: string
 }> {
   const scope = await getServerUserScope()
-  if (!scope.isPrivileged || scope.role !== 'super_admin') {
+  if (!scope.isPrivileged || scope.role !== 'super_admin' || scope.approvalStatus !== 'approved') {
     return {
       success: false,
-      error: 'Unauthorized: Wiping class cohort data is restricted exclusively to Super Administrators.',
+      error: 'Unauthorized: Wiping class cohort data is restricted exclusively to approved Super Administrators.',
     }
   }
 
@@ -1015,15 +1042,37 @@ export async function wipeClassCohortDataAction(params: {
     let enrollmentsDeleted = enrollmentIds.length
     let studentsDeleted = 0
 
+    // Step A: Clean up practical logs and linked attendance for this cohort & academic year
+    // (Runs unconditionally, even if 0 student enrollments exist, to purge orphan logs)
+    await client.query(`
+      DELETE FROM public.log_attendance
+      WHERE log_id IN (
+        SELECT id FROM public.practical_logs
+        WHERE (
+          LOWER(TRIM(batch_group)) IN (LOWER(TRIM($1)), LOWER(TRIM($2)))
+          OR class_subject_id IN (SELECT id FROM public.class_subjects WHERE class_id = $1)
+        ) AND (academic_year_id = $3 OR academic_year_id IS NULL)
+      );
+    `, [effectiveClassId, className, params.academicYearId])
+
+    const prLogRes = await client.query(`
+      DELETE FROM public.practical_logs 
+      WHERE (
+        LOWER(TRIM(batch_group)) IN (LOWER(TRIM($1)), LOWER(TRIM($2)))
+        OR class_subject_id IN (SELECT id FROM public.class_subjects WHERE class_id = $1)
+      ) AND (academic_year_id = $3 OR academic_year_id IS NULL);
+    `, [effectiveClassId, className, params.academicYearId])
+    logsDeleted += prLogRes.rowCount || 0
+
     if (enrollmentIds.length > 0) {
-      // Step A: Count and delete log_attendance
+      // Step B: Clean any remaining log_attendance rows by enrollment_id
       const attRes = await client.query(
         `DELETE FROM public.log_attendance WHERE enrollment_id = ANY($1::uuid[]);`,
         [enrollmentIds]
       )
-      logsDeleted = attRes.rowCount || 0
+      logsDeleted += attRes.rowCount || 0
 
-      // Step B: Delete workstation seats and overrides
+      // Step C: Delete workstation seats and overrides
       await client.query(
         `DELETE FROM public.workstation_seat_plans WHERE enrollment_id = ANY($1::uuid[]);`,
         [enrollmentIds]
@@ -1033,13 +1082,13 @@ export async function wipeClassCohortDataAction(params: {
         [enrollmentIds]
       )
 
-      // Step C: Delete enrollments
+      // Step D: Delete enrollments
       await client.query(
         `DELETE FROM public.student_enrollments WHERE id = ANY($1::uuid[]);`,
         [enrollmentIds]
       )
 
-      // Step D: Delete orphaned student person records (those with no remaining enrollments)
+      // Step E: Delete orphaned student person records (those with no remaining enrollments)
       for (const studentId of candidateStudentIds) {
         const remRes = await client.query(
           `SELECT count(*)::int AS cnt FROM public.student_enrollments WHERE student_id = $1;`,
@@ -1107,7 +1156,7 @@ export async function updateStudentPhotoAction(params: {
 }): Promise<{ success: boolean; error?: string }> {
   try {
     const scope = await getServerUserScope()
-    if (!scope.isPrivileged) {
+    if (!scope.isPrivileged || scope.approvalStatus !== 'approved') {
       return { success: false, error: 'Access denied: Insufficient privileges to update student photo.' }
     }
 
@@ -1123,9 +1172,14 @@ export async function updateStudentPhotoAction(params: {
 
     const prevStudent = studentRes.rows[0]
 
+    let finalPhotoUrl = params.photoUrl
+    if (finalPhotoUrl && (finalPhotoUrl.startsWith('data:image/') || !finalPhotoUrl.startsWith('http'))) {
+      finalPhotoUrl = await uploadStudentPhotoToStorage(params.studentId, finalPhotoUrl)
+    }
+
     await pool.query(
       `UPDATE public.students SET photo_url = $1, updated_at = NOW() WHERE id = $2;`,
-      [params.photoUrl, params.studentId]
+      [finalPhotoUrl, params.studentId]
     )
 
     await recordAuditEvent({
@@ -1134,7 +1188,7 @@ export async function updateStudentPhotoAction(params: {
       entityId: params.studentId,
       entityLabel: `Student Photo Update — ${prevStudent.full_name}`,
       before: { photo_url: prevStudent.photo_url },
-      after: { photo_url: params.photoUrl ? 'UPDATED_IMAGE' : null },
+      after: { photo_url: finalPhotoUrl ? 'UPDATED_IMAGE' : null },
       metadata: {
         actor_id: scope.userId,
         actor_name: scope.fullName,
@@ -1161,7 +1215,7 @@ export async function batchUpdateStudentPhotosAction(params: {
 }): Promise<{ success: boolean; count: number; error?: string }> {
   try {
     const scope = await getServerUserScope()
-    if (!scope.isPrivileged) {
+    if (!scope.isPrivileged || scope.approvalStatus !== 'approved') {
       return { success: false, count: 0, error: 'Access denied: Insufficient privileges for batch photo import.' }
     }
 
@@ -1169,13 +1223,24 @@ export async function batchUpdateStudentPhotosAction(params: {
       return { success: true, count: 0 }
     }
 
+    // Process all photo uploads to Supabase Storage before DB transaction
+    const processedUpdates = await Promise.all(
+      params.updates.map(async (item) => {
+        let finalUrl = item.photoUrl
+        if (finalUrl && (finalUrl.startsWith('data:image/') || !finalUrl.startsWith('http'))) {
+          finalUrl = await uploadStudentPhotoToStorage(item.studentId, finalUrl)
+        }
+        return { studentId: item.studentId, photoUrl: finalUrl }
+      })
+    )
+
     const pool = getPgPool()
     const client = await pool.connect()
 
     try {
       await client.query('BEGIN')
 
-      for (const item of params.updates) {
+      for (const item of processedUpdates) {
         await client.query(
           `UPDATE public.students SET photo_url = $1, updated_at = NOW() WHERE id = $2;`,
           [item.photoUrl, item.studentId]
@@ -1188,9 +1253,9 @@ export async function batchUpdateStudentPhotosAction(params: {
         action: 'UPDATE',
         entityType: 'student',
         entityId: 'batch-photo-import',
-        entityLabel: `Batch Student Photo Import (${params.updates.length} students)`,
+        entityLabel: `Batch Student Photo Import (${processedUpdates.length} students)`,
         metadata: {
-          total_updated: params.updates.length,
+          total_updated: processedUpdates.length,
           actor_id: scope.userId,
           actor_name: scope.fullName,
           timestamp: new Date().toISOString(),
@@ -1201,7 +1266,7 @@ export async function batchUpdateStudentPhotosAction(params: {
       revalidatePath('/maintenance')
       revalidatePath('/records')
 
-      return { success: true, count: params.updates.length }
+      return { success: true, count: processedUpdates.length }
     } catch (batchErr) {
       await client.query('ROLLBACK')
       throw batchErr
@@ -1211,6 +1276,36 @@ export async function batchUpdateStudentPhotosAction(params: {
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unknown batch photo update error'
     return { success: false, count: 0, error: msg }
+  }
+}
+
+/**
+ * Phase 4 Batch Avatar Action
+ * Lazily fetches avatars in chunks of up to 15 student IDs for on-screen visible students.
+ */
+export async function getStudentAvatarsBatch(
+  studentIds: string[]
+): Promise<Record<string, string>> {
+  if (!studentIds || !studentIds.length) return {}
+  const cleanIds = studentIds.slice(0, 15).filter(Boolean)
+  if (!cleanIds.length) return {}
+
+  try {
+    const pool = getPgPool()
+    const res = await pool.query(
+      `SELECT id, photo_url FROM public.students WHERE id = ANY($1::uuid[]) AND photo_url IS NOT NULL AND photo_url != '';`,
+      [cleanIds]
+    )
+    const map: Record<string, string> = {}
+    for (const row of res.rows) {
+      if (row.id && row.photo_url) {
+        map[row.id] = row.photo_url
+      }
+    }
+    return map
+  } catch (err) {
+    console.warn('getStudentAvatarsBatch error:', err)
+    return {}
   }
 }
 

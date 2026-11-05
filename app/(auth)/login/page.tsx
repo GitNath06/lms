@@ -4,37 +4,27 @@ import React, { useState, Suspense, useEffect } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import {
   FlaskConical,
-  Shield,
   UserCheck,
   AlertCircle,
   ArrowRight,
-  Sparkles,
   Key,
   CheckCircle2,
   Lock,
   Mail,
   Eye,
   EyeOff,
-  Cpu,
-  Atom,
-  TestTube2,
   Activity,
-  ChevronRight,
   Building2,
   Clock,
   Loader2,
   X,
-  HelpCircle,
-  Phone,
   Check,
-  RotateCcw,
   KeyRound,
   ShieldCheck,
   FileSpreadsheet,
   Calendar,
-  Wrench,
 } from 'lucide-react'
-import { signIn } from '@/app/actions/auth'
+import { signIn, getDemoAccountPassword } from '@/app/actions/auth'
 import {
   generateAndSendSignupOtp,
   verifySignupAndCreateAccount,
@@ -45,22 +35,31 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import ThemeToggle from '@/components/ui/theme-toggle'
 import { INSTITUTION_NAME } from '@/lib/institution'
+import PasswordRequirementsChecklist from '@/components/auth/password-requirements-checklist'
+import { validatePasswordPolicy } from '@/lib/auth-policy'
 
-const DEMO_ACCOUNTS = [
+interface DemoAccount {
+  roleLabel: string
+  name: string
+  email: string
+  icon: string
+  accentColor: string
+  desc: string
+}
+
+const DEMO_ACCOUNTS: DemoAccount[] = [
   {
     roleLabel: 'Super Admin',
     name: 'System Admin',
     email: 'admin@rrl.edu.np',
-    password: 'Admin@12345',
     icon: '👑',
     accentColor: 'border-amber-500/50 text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/20',
     desc: 'Full institutional governance & user management',
   },
   {
     roleLabel: 'Lab Incharge',
-    name: 'Dr. Rajesh Sharma',
+    name: 'Laboratory In-Charge',
     email: 'incharge@rrl.edu.np',
-    password: 'Incharge@12345',
     icon: '🔬',
     accentColor: 'border-indigo-500/50 text-indigo-600 dark:text-indigo-400 bg-indigo-500/10 hover:bg-indigo-500/20',
     desc: 'Equipment inventory, repairs & laboratory oversight',
@@ -69,25 +68,22 @@ const DEMO_ACCOUNTS = [
     roleLabel: 'HOD',
     name: 'Head of Department',
     email: 'hod@rrl.edu.np',
-    password: 'Hod@12345',
     icon: '🏛️',
     accentColor: 'border-purple-500/50 text-purple-600 dark:text-purple-400 bg-purple-500/10 hover:bg-purple-500/20',
     desc: 'Academic compliance & escalated incident review',
   },
   {
     roleLabel: 'Teacher (Phys)',
-    name: 'Dr. Prakash Adhikari',
+    name: 'Physics Department Faculty',
     email: 'p.adhikari@rrl.edu.np',
-    password: 'Teacher@12345',
     icon: '👨‍🏫',
     accentColor: 'border-emerald-500/50 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20',
     desc: 'Physics practical session logging & syllabus tracking',
   },
   {
     roleLabel: 'Teacher (Comp)',
-    name: 'Er. Anish Karki',
+    name: 'Computer Department Faculty',
     email: 'a.karki@rrl.edu.np',
-    password: 'Teacher@12345',
     icon: '👨‍🏫',
     accentColor: 'border-cyan-500/50 text-cyan-600 dark:text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20',
     desc: 'Computer lab exercises & attendance submission',
@@ -96,7 +92,6 @@ const DEMO_ACCOUNTS = [
     roleLabel: 'Teacher (General)',
     name: 'General Faculty',
     email: 'teacher@rrl.edu.np',
-    password: 'Teacher@12345',
     icon: '👨‍🏫',
     accentColor: 'border-teal-500/50 text-teal-600 dark:text-teal-400 bg-teal-500/10 hover:bg-teal-500/20',
     desc: 'General instructor practical logging profile',
@@ -120,15 +115,27 @@ function LoginForm() {
   const [isRegisterOpen, setIsRegisterOpen] = useState(false)
   const [regStep, setRegStep] = useState<'form' | 'otp' | 'success'>('form')
   const [regName, setRegName] = useState('')
-  const [regDept, setRegDept] = useState('Science Department')
+  const [regDept, setRegDept] = useState('')
   const [regEmail, setRegEmail] = useState('')
   const [regPhone, setRegPhone] = useState('')
   const [regPass, setRegPass] = useState('')
+  const [regConfirmPass, setRegConfirmPass] = useState('')
+  const [showRegPass, setShowRegPass] = useState(false)
+  const [showRegConfirmPass, setShowRegConfirmPass] = useState(false)
+  const [showForgotNewPass, setShowForgotNewPass] = useState(false)
+  const [isAutoSigningIn, setIsAutoSigningIn] = useState(false)
   const [regOtp, setRegOtp] = useState('')
   const [regDevOtp, setRegDevOtp] = useState<string | undefined>()
   const [regError, setRegError] = useState<string | null>(null)
   const [regLoading, setRegLoading] = useState(false)
   const [regTimer, setRegTimer] = useState(60)
+
+  const regPassVal = React.useMemo(() => validatePasswordPolicy(regPass), [regPass])
+  const isRegFormValid =
+    regName.trim().length >= 2 &&
+    regEmail.includes('@') &&
+    regPassVal.isValid &&
+    regPass === regConfirmPass
 
   // Forgot Password Modal with Email OTP State
   const [isForgotOpen, setIsForgotOpen] = useState(false)
@@ -139,6 +146,8 @@ function LoginForm() {
   const [forgotDevOtp, setForgotDevOtp] = useState<string | undefined>()
   const [forgotError, setForgotError] = useState<string | null>(null)
   const [forgotLoading, setForgotLoading] = useState(false)
+
+  const forgotPassVal = React.useMemo(() => validatePasswordPolicy(forgotNewPass), [forgotNewPass])
 
   // Countdown timer for OTP resends
   useEffect(() => {
@@ -158,25 +167,50 @@ function LoginForm() {
     }
   }, [searchParams])
 
-  // Handle 1-Click Demo Select (auto-populates Email + Password)
-  function handleSelectDemo(acc: (typeof DEMO_ACCOUNTS)[0]) {
+  // Handle 1-Click Demo Select (auto-populates Email + Password in development)
+  async function handleSelectDemo(acc: DemoAccount) {
     setEmail(acc.email)
-    setPassword(acc.password)
     setSelectedDemo(acc.email)
     setError(null)
+    if (process.env.NODE_ENV === 'development') {
+      try {
+        const pwd = await getDemoAccountPassword(acc.email)
+        if (pwd) setPassword(pwd)
+      } catch {
+        // Graceful fallback
+      }
+    }
   }
 
-  // Handle Instant 1-Click Demo Login
-  async function handleInstantDemoLogin(acc: (typeof DEMO_ACCOUNTS)[0]) {
+  // Handle Instant 1-Click Demo Login (development only)
+  async function handleInstantDemoLogin(acc: DemoAccount) {
     setEmail(acc.email)
-    setPassword(acc.password)
     setSelectedDemo(acc.email)
     setError(null)
     setLoading(true)
 
+    let pwd = password
+    if (process.env.NODE_ENV === 'development' && (!pwd || email !== acc.email)) {
+      try {
+        const fetched = await getDemoAccountPassword(acc.email)
+        if (fetched) {
+          pwd = fetched
+          setPassword(fetched)
+        }
+      } catch {
+        // Graceful fallback
+      }
+    }
+
+    if (!pwd) {
+      setError('Please enter the password for this account.')
+      setLoading(false)
+      return
+    }
+
     const formData = new FormData()
     formData.set('email', acc.email)
-    formData.set('password', acc.password)
+    formData.set('password', pwd)
     formData.set('redirect', redirectTarget)
 
     try {
@@ -220,10 +254,21 @@ function LoginForm() {
   const handleSendSignupOtp = async (e: React.FormEvent) => {
     e.preventDefault()
     setRegError(null)
+
+    if (!regPassVal.isValid) {
+      setRegError(`Password requirement not met: ${regPassVal.errors.join(', ')}.`)
+      return
+    }
+
+    if (regPass !== regConfirmPass) {
+      setRegError('Password and confirmation password do not match.')
+      return
+    }
+
     setRegLoading(true)
 
     try {
-      const res = await generateAndSendSignupOtp(regEmail, regName)
+      const res = await generateAndSendSignupOtp(regEmail, regName, regPass)
       if (res.success) {
         setRegDevOtp(res.devOtp)
         setRegStep('otp')
@@ -252,6 +297,25 @@ function LoginForm() {
 
       const res = await verifySignupAndCreateAccount(formData, regOtp)
       if (res.success) {
+        // Auto-authenticate so user enters profile page immediately to manage their details and see verification status
+        setIsAutoSigningIn(true)
+        try {
+          const loginData = new FormData()
+          loginData.set('email', regEmail)
+          loginData.set('password', regPass)
+          loginData.set('redirect', '/profile')
+          const signInRes = await signIn(loginData)
+          if (!signInRes?.error) {
+            router.push('/profile')
+            return
+          }
+        } catch (err: any) {
+          if (err?.message?.includes('NEXT_REDIRECT')) {
+            return
+          }
+        } finally {
+          setIsAutoSigningIn(false)
+        }
         setRegStep('success')
       } else {
         setRegError(res.error || 'Verification code failed. Please try again.')
@@ -284,6 +348,12 @@ function LoginForm() {
   const handleVerifyForgotOtp = async (e: React.FormEvent) => {
     e.preventDefault()
     setForgotError(null)
+
+    if (!forgotPassVal.isValid) {
+      setForgotError(`New password requirement not met: ${forgotPassVal.errors.join(', ')}.`)
+      return
+    }
+
     setForgotLoading(true)
 
     try {
@@ -457,6 +527,14 @@ function LoginForm() {
               onClick={() => {
                 setIsRegisterOpen(true)
                 setRegStep('form')
+                setRegName('')
+                setRegDept('')
+                setRegEmail('')
+                setRegPhone('')
+                setRegPass('')
+                setRegConfirmPass('')
+                setRegOtp('')
+                setRegDevOtp(undefined)
                 setRegError(null)
               }}
               className="font-semibold text-indigo-600 dark:text-indigo-400 hover:underline font-mono text-xs cursor-pointer inline-flex items-center gap-1.5 group"
@@ -468,7 +546,8 @@ function LoginForm() {
         </div>
       </div>
 
-      {/* ⚡ Sleek 1-Click Evaluation / Demo Accounts Bar */}
+      {/* ⚡ Sleek 1-Click Evaluation / Demo Accounts Bar (Hidden in production) */}
+      {process.env.NEXT_PUBLIC_SHOW_DEMO_ACCOUNTS === 'true' && (
       <div className="p-4 rounded-2xl glass-glow-card shadow-sm space-y-2.5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -517,6 +596,7 @@ function LoginForm() {
           * Roles are resolved automatically by the server based on credentials.
         </p>
       </div>
+      )}
 
       {/* ========================================================================= */}
       {/* 🛡️ MODAL 1: Email-OTP Verified Registration (3-Step Flow) */}
@@ -551,7 +631,11 @@ function LoginForm() {
 
             {/* STEP 1: Details Form */}
             {regStep === 'form' && (
-              <form onSubmit={handleSendSignupOtp} className="space-y-3 font-sans">
+              <form onSubmit={handleSendSignupOtp} className="space-y-3 font-sans" autoComplete="off">
+                {/* Decoy fields to intercept Chrome's automated credential autofill */}
+                <input type="text" name="fake_usernameremembered" className="hidden" tabIndex={-1} autoComplete="off" aria-hidden="true" />
+                <input type="password" name="fake_passwordremembered" className="hidden" tabIndex={-1} autoComplete="off" aria-hidden="true" />
+
                 <p className="text-xs text-zinc-500 leading-relaxed">
                   Enter your details. A 6-digit code will be sent to your email to verify your account.
                 </p>
@@ -562,6 +646,9 @@ function LoginForm() {
                   </label>
                   <Input
                     required
+                    name="new_faculty_fullname"
+                    autoComplete="off"
+                    data-lpignore="true"
                     value={regName}
                     onChange={(e) => setRegName(e.target.value)}
                     placeholder="Full Name"
@@ -576,6 +663,9 @@ function LoginForm() {
                     </label>
                     <Input
                       required
+                      name="new_faculty_department"
+                      autoComplete="off"
+                      data-lpignore="true"
                       value={regDept}
                       onChange={(e) => setRegDept(e.target.value)}
                       placeholder="e.g. Science"
@@ -588,6 +678,9 @@ function LoginForm() {
                     </label>
                     <Input
                       type="tel"
+                      name="new_faculty_phone"
+                      autoComplete="off"
+                      data-lpignore="true"
                       value={regPhone}
                       onChange={(e) => setRegPhone(e.target.value)}
                       placeholder="98XXXXXXXX"
@@ -603,6 +696,9 @@ function LoginForm() {
                   <Input
                     required
                     type="email"
+                    name="new_faculty_email"
+                    autoComplete="off"
+                    data-lpignore="true"
                     value={regEmail}
                     onChange={(e) => setRegEmail(e.target.value)}
                     placeholder="example@mail.com"
@@ -610,19 +706,69 @@ function LoginForm() {
                   />
                 </div>
 
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                    Password
-                  </label>
-                  <Input
-                    required
-                    type="password"
-                    value={regPass}
-                    onChange={(e) => setRegPass(e.target.value)}
-                    placeholder="••••••••••••"
-                    className="h-10 text-xs rounded-xl font-sans"
-                  />
+                {/* Dual Password with Visibility Toggles */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                      Password
+                    </label>
+                    <div className="relative">
+                      <Input
+                        required
+                        type={showRegPass ? 'text' : 'password'}
+                        name="new_faculty_password"
+                        autoComplete="new-password"
+                        data-lpignore="true"
+                        value={regPass}
+                        onChange={(e) => setRegPass(e.target.value)}
+                        placeholder="••••••••••••"
+                        className="h-10 text-xs rounded-xl font-sans pr-9"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowRegPass(!showRegPass)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors cursor-pointer"
+                        tabIndex={-1}
+                      >
+                        {showRegPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                      Confirm Password
+                    </label>
+                    <div className="relative">
+                      <Input
+                        required
+                        type={showRegConfirmPass ? 'text' : 'password'}
+                        name="new_faculty_confirm_password"
+                        autoComplete="new-password"
+                        data-lpignore="true"
+                        value={regConfirmPass}
+                        onChange={(e) => setRegConfirmPass(e.target.value)}
+                        placeholder="••••••••••••"
+                        className="h-10 text-xs rounded-xl font-sans pr-9"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowRegConfirmPass(!showRegConfirmPass)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors cursor-pointer"
+                        tabIndex={-1}
+                      >
+                        {showRegConfirmPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
                 </div>
+
+                {/* Interactive Password Requirements Checklist */}
+                <PasswordRequirementsChecklist
+                  password={regPass}
+                  confirmPassword={regConfirmPass}
+                  showConfirmMatch={true}
+                />
 
                 <div className="pt-2 flex items-center justify-end gap-2">
                   <Button
@@ -636,8 +782,8 @@ function LoginForm() {
                   </Button>
                   <Button
                     type="submit"
-                    disabled={regLoading}
-                    className="text-xs font-mono font-bold bg-indigo-600 hover:bg-indigo-700 text-white gap-1.5 cursor-pointer shadow-sm active:scale-[0.98] transition-all"
+                    disabled={regLoading || !isRegFormValid}
+                    className="text-xs font-mono font-bold bg-indigo-600 hover:bg-indigo-700 text-white gap-1.5 cursor-pointer shadow-sm active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {regLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Mail className="h-3.5 w-3.5" />}
                     <span>Send Verification Code</span>
@@ -762,7 +908,7 @@ function LoginForm() {
               </form>
             )}
 
-            {/* STEP 3: Verification Success & Pending Approval Notice */}
+            {/* STEP 3: Verification Success & Immediate Read-Only Preview Access */}
             {regStep === 'success' && (
               <div className="text-center space-y-4 py-3 font-sans animate-in zoom-in-95 duration-200">
                 <div className="h-14 w-14 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto border border-emerald-500/20">
@@ -770,33 +916,56 @@ function LoginForm() {
                 </div>
                 <div className="space-y-1">
                   <h4 className="text-base font-bold text-zinc-950 dark:text-white">
-                    Email Verified!
+                    Email Verified Successfully!
                   </h4>
                   <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed px-2">
-                    Your institutional registration has been submitted and is currently in the <strong>Super Admin Review Queue</strong>.
+                    Your institutional registration is complete and has been forwarded to the <strong>Super Administrator Review Queue</strong>.
                   </p>
                 </div>
 
                 <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-left space-y-1 text-xs text-amber-800 dark:text-amber-300">
                   <div className="font-bold flex items-center gap-1.5">
                     <Clock className="h-3.5 w-3.5" />
-                    <span>Pending Super Admin Review</span>
+                    <span>Read-Only Preview Access Granted</span>
                   </div>
                   <p className="text-[11px] opacity-90 leading-relaxed">
-                    Email Verified! Your application is pending Super Admin review. You will receive access once approved.
+                    You can enter the laboratory workspace now in <strong>Read-Only Preview</strong> mode to explore schedules, rooms, and devices. Practical session recording and administrative tools will be unlocked once approved.
                   </p>
                 </div>
 
                 <Button
                   type="button"
-                  onClick={() => {
-                    setIsRegisterOpen(false)
-                    setEmail(regEmail)
-                    setError('Your account is pending Super Admin approval. Please await administrator verification.')
+                  disabled={isAutoSigningIn}
+                  onClick={async () => {
+                    setIsAutoSigningIn(true)
+                    try {
+                      const loginData = new FormData()
+                      loginData.set('email', regEmail)
+                      loginData.set('password', regPass)
+                      loginData.set('redirect', '/')
+                      await signIn(loginData)
+                      router.push('/')
+                    } catch (err: any) {
+                      if (!err?.message?.includes('NEXT_REDIRECT')) {
+                        router.push('/')
+                      }
+                    } finally {
+                      setIsAutoSigningIn(false)
+                    }
                   }}
-                  className="w-full h-10 text-xs font-mono font-bold bg-zinc-900 hover:bg-zinc-800 text-white dark:bg-white dark:text-zinc-950 cursor-pointer"
+                  className="w-full h-11 text-xs font-mono font-bold bg-indigo-600 hover:bg-indigo-700 text-white gap-2 shadow-md shadow-indigo-500/20 cursor-pointer"
                 >
-                  Return to Sign In
+                  {isAutoSigningIn ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>Entering Dashboard...</span>
+                    </>
+                  ) : (
+                    <>
+                      <ArrowRight className="h-4 w-4" />
+                      <span>Enter Dashboard (Read-Only Preview)</span>
+                    </>
+                  )}
                 </Button>
               </div>
             )}
@@ -918,16 +1087,31 @@ function LoginForm() {
                   <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
                     New Account Password
                   </label>
-                  <Input
-                    required
-                    type="password"
-                    value={forgotNewPass}
-                    onChange={(e) => setForgotNewPass(e.target.value)}
-                    placeholder="••••••••••••"
-                    className="h-10 text-xs rounded-xl"
-                  />
-                  <p className="text-[10px] text-zinc-400">At least 6 characters</p>
+                  <div className="relative">
+                    <Input
+                      required
+                      type={showForgotNewPass ? 'text' : 'password'}
+                      name="reset_new_password"
+                      autoComplete="new-password"
+                      data-lpignore="true"
+                      value={forgotNewPass}
+                      onChange={(e) => setForgotNewPass(e.target.value)}
+                      placeholder="••••••••••••"
+                      className="h-10 text-xs rounded-xl pr-9 font-sans"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowForgotNewPass(!showForgotNewPass)}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors cursor-pointer"
+                      tabIndex={-1}
+                    >
+                      {showForgotNewPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
                 </div>
+
+                {/* Password Requirements Checklist */}
+                <PasswordRequirementsChecklist password={forgotNewPass} />
 
                 <div className="pt-2 flex items-center justify-between">
                   <button
@@ -939,8 +1123,8 @@ function LoginForm() {
                   </button>
                   <Button
                     type="submit"
-                    disabled={forgotLoading || forgotOtp.length !== 6 || forgotNewPass.length < 6}
-                    className="text-xs font-mono font-bold bg-indigo-600 hover:bg-indigo-700 text-white gap-1.5 cursor-pointer"
+                    disabled={forgotLoading || forgotOtp.length !== 6 || !forgotPassVal.isValid}
+                    className="text-xs font-mono font-bold bg-indigo-600 hover:bg-indigo-700 text-white gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {forgotLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Lock className="h-3.5 w-3.5" />}
                     <span>Update Password</span>

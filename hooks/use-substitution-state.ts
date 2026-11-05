@@ -9,6 +9,7 @@ import {
 } from '@/app/actions/substitutions'
 import { createClient } from '@/lib/supabase/client'
 import { isSupabaseConfigured } from '@/lib/supabase/config'
+import { fetchWithClientCache, invalidateCacheByPrefix } from '@/lib/cache/client-query-cache'
 
 const STORAGE_KEY = 'lab_teacher_substitutions_v1'
 const OUTBOX_KEY = 'lab_pending_teacher_substitutions_outbox_v1'
@@ -112,7 +113,7 @@ export function useSubstitutionState() {
   const loadRemoteSubstitutions = useCallback(async () => {
     try {
       await flushOutbox()
-      const remote = await getSubstitutions()
+      const remote = await fetchWithClientCache('substitutions:list', () => getSubstitutions(), { staleTimeMs: 60_000 })
       if (remote && remote.length > 0) {
         const pending = getPendingOutbox()
         const pendingIds = new Set(pending.map((p) => p.id))
@@ -124,8 +125,10 @@ export function useSubstitutionState() {
         setSubstitutions(merged)
         return
       }
-    } catch (e) {
-      console.warn('Using local substitutions cache:', e)
+    } catch (e: any) {
+      if (e?.name !== 'AbortError' && !e?.message?.includes('Failed to fetch')) {
+        console.warn('Using local substitutions cache:', e)
+      }
     }
 
     try {

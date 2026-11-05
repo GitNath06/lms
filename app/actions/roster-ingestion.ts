@@ -81,10 +81,10 @@ export async function validateRosterFileAction(
 ): Promise<{ success: boolean; report?: RosterPreflightReport; error?: string }> {
   try {
     const scope = await getServerUserScope()
-    if (!scope.isPrivileged) {
+    if (!scope.isPrivileged || scope.approvalStatus !== 'approved') {
       return {
         success: false,
-        error: 'Access denied: Only administrators and Lab In-Charges can import class rosters.',
+        error: 'Access denied: Only approved administrators and Lab In-Charges can import class rosters.',
       }
     }
 
@@ -257,10 +257,10 @@ export async function commitRosterIngestionAction(input: {
 }): Promise<{ success: boolean; result?: RosterCommitResult; error?: string }> {
   try {
     const scope = await getServerUserScope()
-    if (!scope.isPrivileged) {
+    if (!scope.isPrivileged || scope.approvalStatus !== 'approved') {
       return {
         success: false,
-        error: 'Access denied: Only administrators and Lab In-Charges can commit roster ingestion.',
+        error: 'Access denied: Only approved administrators and Lab In-Charges can commit roster ingestion.',
       }
     }
 
@@ -393,7 +393,7 @@ export async function exportCohortRosterAction(params: {
 }): Promise<{ success: boolean; dataBase64?: string; fileName?: string; error?: string }> {
   try {
     const scope = await getServerUserScope()
-    if (!scope.isPrivileged && !scope.assignedClasses.includes(params.classId)) {
+    if (scope.approvalStatus !== 'approved' || (!scope.isPrivileged && !scope.assignedClasses.includes(params.classId))) {
       return { success: false, error: 'Access denied: You do not have permission to export this roster.' }
     }
 
@@ -511,8 +511,8 @@ export async function parseNewcomerSpreadsheetAction(
 }> {
   try {
     const scope = await getServerUserScope()
-    if (!scope.isPrivileged) {
-      return { success: false, error: 'Access denied: Only administrators can import student rosters.' }
+    if (!scope.isPrivileged || scope.approvalStatus !== 'approved') {
+      return { success: false, error: 'Access denied: Only approved administrators can import student rosters.' }
     }
 
     const file = formData.get('file') as File | null

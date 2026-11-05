@@ -41,7 +41,10 @@ import {
   deleteMaintenancePlan,
   toggleMaintenancePlanStatus,
 } from '@/app/actions/maintenance'
+import { getMaintenanceRoutineTemplates } from '@/app/actions/maintenance-templates'
 import CreatePlanModal from '@/components/maintenance/create-plan-modal'
+import { MaintenanceTemplateManager } from '@/components/admin/maintenance-template-manager'
+import type { MaintenanceRoutineTemplateRow } from '@/types/database'
 
 interface MaintenanceRoutinesManagerProps {
   isEditModeUnlocked: boolean
@@ -54,89 +57,16 @@ const LAB_LABELS: Record<string, string> = {
   chem: 'Chemistry Laboratory',
   bio: 'Biology Laboratory',
   elec: 'Electronics Laboratory',
+  all: 'All Facilities',
 }
-
-const PRESET_ROUTINES = [
-  {
-    title: 'PC Thermal Paste & Heatsink Servicing',
-    lab_id: 'comp',
-    category: 'Thermal & Hardware',
-    interval_days: 180,
-    severity: 'routine' as const,
-    checklist: [
-      'Clean CPU heatsink and remove old thermal grease',
-      'Apply fresh Arctic MX-4 compound onto processor',
-      'Vacuum intake and exhaust dust filters',
-      'Verify idle and stress temperatures remain < 70°C',
-    ],
-  },
-  {
-    title: 'BIOS Firmware & Driver Patching',
-    lab_id: 'comp',
-    category: 'Firmware & OS',
-    interval_days: 120,
-    severity: 'high' as const,
-    checklist: [
-      'Flash motherboards with latest stable OEM BIOS release',
-      'Update chipset and network adapter drivers',
-      'Verify Secure Boot and TPM 2.0 status across machines',
-    ],
-  },
-  {
-    title: 'PC Deep Dusting & Power Supply Inspection',
-    lab_id: 'comp',
-    category: 'Hardware Maintenance',
-    interval_days: 90,
-    severity: 'routine' as const,
-    checklist: [
-      'Blow out internal dust from case, GPU, and RAM slots',
-      'Check power supply fan spin and exhaust temperature',
-      'Inspect SATA/NVMe drive cables and cable ties',
-    ],
-  },
-  {
-    title: 'Lab Software Image & Compiler Rollout',
-    lab_id: 'comp',
-    category: 'Software & Security',
-    interval_days: 60,
-    severity: 'routine' as const,
-    checklist: [
-      'Deploy latest Windows updates and IDE compilers (VSCode, GCC, Python)',
-      'Update student freeze/restore software (DeepFreeze/RebootRestore)',
-      'Verify network drive mounting and offline cache permissions',
-    ],
-  },
-  {
-    title: 'Fume Hood & Chemical Storage Airflow Check',
-    lab_id: 'chem',
-    category: 'Chemical Safety',
-    interval_days: 30,
-    severity: 'high' as const,
-    checklist: [
-      'Inspect fume hood face velocity and airflow baffles',
-      'Check acid and organic storage cabinet seals',
-      'Test emergency eye-wash station flow rate',
-    ],
-  },
-  {
-    title: 'Optical Bench & Laser Calibration',
-    lab_id: 'phys',
-    category: 'Precision Calibration',
-    interval_days: 90,
-    severity: 'routine' as const,
-    checklist: [
-      'Clean optics with spectrophotometric grade lens paper',
-      'Level precision optical bench rails and micrometers',
-      'Calibrate spectrometer diffraction grating zero-point',
-    ],
-  },
-]
 
 export default function MaintenanceRoutinesManager({
   isEditModeUnlocked,
   triggerToast,
 }: MaintenanceRoutinesManagerProps) {
   const [plans, setPlans] = useState<MaintenancePlanRecord[]>([])
+  const [templates, setTemplates] = useState<MaintenanceRoutineTemplateRow[]>([])
+  const [activeView, setActiveView] = useState<'routines' | 'templates'>('routines')
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [labFilter, setLabFilter] = useState('all')
@@ -152,9 +82,15 @@ export default function MaintenanceRoutinesManager({
   const loadPlans = async () => {
     setLoading(true)
     try {
-      const data = await getMaintenanceOverview('all')
-      setPlans(data.plans || [])
-    } catch (err: any) {
+      const [overviewData, templatesRes] = await Promise.all([
+        getMaintenanceOverview('all'),
+        getMaintenanceRoutineTemplates(),
+      ])
+      setPlans(overviewData.plans || [])
+      if (templatesRes.success && templatesRes.data) {
+        setTemplates(templatesRes.data)
+      }
+    } catch {
       triggerToast('Failed to load maintenance plans.')
     } finally {
       setLoading(false)
@@ -209,15 +145,21 @@ export default function MaintenanceRoutinesManager({
     }
   }
 
-  const handleQuickAddPreset = async (preset: (typeof PRESET_ROUTINES)[0]) => {
+  const handleQuickAddPreset = async (preset: MaintenanceRoutineTemplateRow) => {
     if (!requireEditMode()) return
+    const checklist = Array.isArray(preset.checklist)
+      ? preset.checklist
+      : typeof preset.checklist === 'string'
+      ? JSON.parse(preset.checklist)
+      : []
+
     const res = await saveMaintenancePlan({
       title: preset.title,
       lab_id: preset.lab_id,
       category: preset.category,
       interval_days: preset.interval_days,
-      severity: preset.severity,
-      checklist: preset.checklist,
+      severity: preset.severity as any,
+      checklist,
       target_role: 'lab_incharge',
       description: `Official laboratory preventive routine for ${LAB_LABELS[preset.lab_id] || preset.lab_id}.`,
       is_active: true,
@@ -258,8 +200,43 @@ export default function MaintenanceRoutinesManager({
 
   return (
     <div className="space-y-5 font-sans">
-      {/* Overview Metric Row */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      {/* View Switcher: Active Routines vs Preset Template Manager */}
+      <div className="flex items-center gap-2 p-1.5 rounded-2xl bg-zinc-100 dark:bg-zinc-800/80 border border-zinc-200 dark:border-zinc-700 w-fit">
+        <button
+          type="button"
+          onClick={() => setActiveView('routines')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+            activeView === 'routines'
+              ? 'bg-white dark:bg-zinc-900 text-zinc-950 dark:text-white shadow-xs'
+              : 'text-zinc-600 dark:text-slate-300 hover:text-zinc-900 dark:hover:text-white'
+          }`}
+        >
+          Active Routines ({plans.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveView('templates')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+            activeView === 'templates'
+              ? 'bg-white dark:bg-zinc-900 text-zinc-950 dark:text-white shadow-xs'
+              : 'text-zinc-600 dark:text-slate-300 hover:text-zinc-900 dark:hover:text-white'
+          }`}
+        >
+          <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+          <span>Preset Template Manager ({templates.length})</span>
+        </button>
+      </div>
+
+      {activeView === 'templates' ? (
+        <MaintenanceTemplateManager
+          isEditModeUnlocked={isEditModeUnlocked}
+          triggerToast={triggerToast}
+          onRoutineDeployed={loadPlans}
+        />
+      ) : (
+        <>
+          {/* Overview Metric Row */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="p-4 rounded-2xl border border-zinc-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900/80 shadow-2xs">
           <div className="flex items-center justify-between">
             <span className="text-xs text-zinc-500 font-medium">Configured Routines</span>
@@ -598,22 +575,40 @@ export default function MaintenanceRoutinesManager({
 
       {/* Preset Library Quick Install Section */}
       <Card className="border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40">
-        <CardHeader className="p-4 px-5">
-          <CardTitle className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-amber-500" />
-            Standard Routine Presets
-          </CardTitle>
-          <CardDescription className="text-xs text-zinc-500">
-            Quick-install standard lab maintenance plans
-          </CardDescription>
+        <CardHeader className="p-4 px-5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <CardTitle className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-amber-500" />
+              Standard Routine Presets
+            </CardTitle>
+            <CardDescription className="text-xs text-zinc-500">
+              Quick-install standard lab maintenance plans from registered templates
+            </CardDescription>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => setActiveView('templates')}
+            className="text-xs font-semibold h-7.5 gap-1.5 cursor-pointer text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-900/50 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 shrink-0"
+          >
+            <Sliders className="h-3.5 w-3.5" />
+            <span>Manage Template Presets</span>
+          </Button>
         </CardHeader>
         <CardContent className="p-4 px-5 pt-0">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {PRESET_ROUTINES.map((preset, idx) => {
+            {templates.slice(0, 6).map((preset) => {
               const isInstalled = plans.some((p) => p.title.toLowerCase() === preset.title.toLowerCase())
+              const checklist = Array.isArray(preset.checklist)
+                ? preset.checklist
+                : typeof preset.checklist === 'string'
+                ? JSON.parse(preset.checklist)
+                : []
+
               return (
                 <div
-                  key={idx}
+                  key={preset.id}
                   className="p-3 rounded-xl border border-zinc-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900 flex flex-col justify-between space-y-2 shadow-2xs"
                 >
                   <div className="space-y-1">
@@ -629,7 +624,7 @@ export default function MaintenanceRoutinesManager({
                       {preset.title}
                     </h4>
                     <span className="text-[11px] text-zinc-500 block">
-                      {preset.checklist.length} checklist steps
+                      {checklist.length} checklist steps &bull; {preset.category}
                     </span>
                   </div>
 
@@ -660,6 +655,8 @@ export default function MaintenanceRoutinesManager({
           </div>
         </CardContent>
       </Card>
+      </>
+      )}
 
       {/* MODAL 1: Create or Edit Plan */}
       <CreatePlanModal

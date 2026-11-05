@@ -8,6 +8,8 @@ import {
   getIncidents,
   getNotifications,
   markNotificationRead as markNotifReadAction,
+  markAllNotificationsRead as markAllNotifsReadAction,
+  clearReadNotifications as clearReadNotifsAction,
   type LabIncidentRecord,
   type LabNotificationRecord,
 } from '@/app/actions/incidents'
@@ -15,6 +17,7 @@ import {
 export type { LabIncidentRecord, LabNotificationRecord }
 import { createClient } from '@/lib/supabase/client'
 import { isSupabaseConfigured } from '@/lib/supabase/config'
+import { fetchWithClientCache, invalidateCacheByPrefix } from '@/lib/cache/client-query-cache'
 
 const INCIDENTS_KEY = 'lab_incidents_v1'
 const NOTIFS_KEY = 'lab_notifications_v1'
@@ -61,6 +64,7 @@ export function useIncidentState() {
   const [incidents, setIncidents] = useState<LabIncidentRecord[]>([])
   const [notifications, setNotifications] = useState<LabNotificationRecord[]>([])
   const [isLoading, setIsLoading] = useState<boolean>(true)
+  const [hasFetchedOnce, setHasFetchedOnce] = useState<boolean>(false)
   const isFlushingRef = useRef(false)
 
   // Load from localStorage on mount (prevents SSR hydration mismatch)
@@ -139,6 +143,7 @@ export function useIncidentState() {
           }
         }
         try {
+          invalidateCacheByPrefix('incidents')
           if (typeof window !== 'undefined') {
             localStorage.setItem(INCIDENTS_KEY, JSON.stringify(updated))
             queueMicrotask(() => {
@@ -168,6 +173,7 @@ export function useIncidentState() {
           }
         }
         try {
+          invalidateCacheByPrefix('incidents')
           if (typeof window !== 'undefined') {
             localStorage.setItem(NOTIFS_KEY, JSON.stringify(updated))
             queueMicrotask(() => {
@@ -188,7 +194,10 @@ export function useIncidentState() {
 
     try {
       await flushOutbox()
-      const [remoteInc, remoteNotifs] = await Promise.all([getIncidents(), getNotifications()])
+      const [remoteInc, remoteNotifs] = await Promise.all([
+        fetchWithClientCache('incidents:list', () => getIncidents(), { staleTimeMs: 30_000 }),
+        fetchWithClientCache('notifications:list', () => getNotifications(), { staleTimeMs: 20_000 }),
+      ])
 
       if (Array.isArray(remoteInc)) {
         const pending = getPendingOutbox()
@@ -225,10 +234,13 @@ export function useIncidentState() {
         } catch {}
         setNotifications(dedupedNotifs)
       }
-    } catch (e) {
-      console.warn('Using local incidents cache:', e)
+    } catch (e: any) {
+      if (e?.name !== 'AbortError' && !e?.message?.includes('Failed to fetch')) {
+        console.warn('Using local incidents cache:', e)
+      }
     } finally {
       setIsLoading(false)
+      setHasFetchedOnce(true)
     }
   }, [flushOutbox])
 
@@ -240,6 +252,13 @@ export function useIncidentState() {
       loadRemoteData()
     }
     window.addEventListener('online', handleOnline)
+
+    // High-reliability background sync heartbeat (every 20 seconds)
+    const syncInterval = setInterval(() => {
+      if (typeof window !== 'undefined' && navigator.onLine) {
+        loadRemoteData()
+      }
+    }, 20000)
 
     if (isSupabaseConfigured()) {
       try {
@@ -253,16 +272,23 @@ export function useIncidentState() {
           .on('postgres_changes', { event: '*', schema: 'public', table: 'lab_notifications' }, () => {
             loadRemoteData()
           })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'workstation_issues' }, () => {
+            loadRemoteData()
+          })
           .subscribe()
 
         return () => {
+          clearInterval(syncInterval)
           window.removeEventListener('online', handleOnline)
           supabase.removeChannel(channel)
         }
       } catch {}
     }
 
-    return () => window.removeEventListener('online', handleOnline)
+    return () => {
+      clearInterval(syncInterval)
+      window.removeEventListener('online', handleOnline)
+    }
   }, [flushOutbox, loadRemoteData])
 
   // Cross-tab sync
@@ -365,6 +391,17 @@ export function useIncidentState() {
         title: `Damage Reported in ${labName}`,
         message: `${data.title} (${data.batch_name}). Assigned to Lab In-Charge for repair or replacement triage.`,
         severity: isCritical ? 'critical' : data.severity === 'moderate' ? 'warning' : 'info',
+        is_read: false,
+        created_at: new Date().toISOString(),
+      },
+      {
+        id: `notif-${recordId}-teacher`,
+        incident_id: recordId,
+        target_role: 'teacher',
+        target_lab_id: data.lab_id,
+        title: `Incident Report Submitted: ${data.title}`,
+        message: `Your report for ${data.equipment_name || data.title} has been logged in ${labName} and queued for Lab In-Charge triage.`,
+        severity: 'info',
         is_read: false,
         created_at: new Date().toISOString(),
       },
@@ -523,8 +560,24 @@ export function useIncidentState() {
     }
   }
 
-  const markAllAsRead = async () => {
-    persistNotifs((prev) => prev.map((n) => ({ ...n, is_read: true })))
+  const markAllAsRead = async (role?: string) => {
+    persistNotifs((prev) =>
+      prev.map((n) =>
+        !role || n.target_role === role || n.target_role === 'all'
+          ? { ...n, is_read: true }
+          : n
+      )
+    )
+    if (navigator.onLine) {
+      await markAllNotifsReadAction(role)
+    }
+  }
+
+  const clearReadNotifications = async (role?: string) => {
+    persistNotifs((prev) => prev.filter((n) => !n.is_read))
+    if (navigator.onLine) {
+      await clearReadNotifsAction(role)
+    }
   }
 
   const unreadCount = notifications.filter((n) => !n.is_read).length
@@ -534,11 +587,14 @@ export function useIncidentState() {
     notifications,
     unreadCount,
     isLoading,
+    hasFetchedOnce,
+    refreshIncidents: loadRemoteData,
     logIncident,
     escalateToHOD,
     resolveIncident,
     markAsRead,
     markAllAsRead,
+    clearReadNotifications,
     flushOutbox,
   }
 }

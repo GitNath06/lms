@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react'
 import { WifiOff, CheckCircle2, RefreshCw } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { isSupabaseConfigured } from '@/lib/supabase/config'
+import { subscribeToSyncStatus, flushMutationOutbox, type SyncStatus } from '@/lib/offline/sync-manager'
 
 const LOGS_OUTBOX_KEY = 'lab_pending_logs_outbox_v1'
 const ROUTINE_OUTBOX_KEY = 'lab_pending_schedules_outbox_v1'
@@ -18,6 +19,8 @@ export default function CloudSyncStatus() {
   const [pendingSchedules, setPendingSchedules] = useState<number>(0)
   const [pendingSubs, setPendingSubs] = useState<number>(0)
   const [pendingIncidents, setPendingIncidents] = useState<number>(0)
+  const [idbPendingCount, setIdbPendingCount] = useState<number>(0)
+  const [isManagerSyncing, setIsManagerSyncing] = useState<boolean>(false)
 
   useEffect(() => {
     // Check all 4 offline outbox queues
@@ -115,20 +118,29 @@ export default function CloudSyncStatus() {
         }
       })
 
-      return () => {
-        supabase.removeChannel(channel)
-        window.removeEventListener('online', handleOnline)
-        window.removeEventListener('offline', handleOffline)
-        window.removeEventListener('sync-status-changed', handleSyncChange)
-      }
-    } catch {
-      setIsConnected(false)
-    }
-  }, [])
+    const unsubscribeSyncManager = subscribeToSyncStatus((status: SyncStatus) => {
+      setIsOnline(status.isOnline)
+      setIdbPendingCount(status.pendingCount)
+      setIsManagerSyncing(status.isSyncing)
+    })
 
-  const totalPending = pendingLogs + pendingSchedules + pendingSubs + pendingIncidents
-  const isLive = isOnline && isConnected && totalPending === 0
-  const isSyncing = isOnline && totalPending > 0
+    return () => {
+      unsubscribeSyncManager()
+      try {
+        if (channel) supabase.removeChannel(channel)
+      } catch {}
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+      window.removeEventListener('sync-status-changed', handleSyncChange)
+    }
+  } catch {
+    setIsConnected(false)
+  }
+}, [])
+
+const totalPending = pendingLogs + pendingSchedules + pendingSubs + pendingIncidents + idbPendingCount
+const isLive = isOnline && isConnected && totalPending === 0
+const isSyncing = (isOnline && totalPending > 0) || isManagerSyncing
 
   return (
     <div
@@ -136,36 +148,48 @@ export default function CloudSyncStatus() {
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
-      <div
-        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-mono font-medium border transition-all cursor-default select-none ${
-          isLive
-            ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20 hover:border-emerald-500/40'
-            : isSyncing
-            ? 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/20 hover:border-indigo-500/40'
-            : 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/20 hover:border-amber-500/40'
-        }`}
-      >
-        <span className="relative flex h-2 w-2">
-          {isSyncing ? (
-            <RefreshCw className="h-2.5 w-2.5 animate-spin text-indigo-500" />
-          ) : (
-            <span
-              className={`relative inline-flex rounded-full h-2 w-2 ${
-                isLive ? 'bg-emerald-500' : 'bg-amber-500'
-              }`}
-            />
-          )}
-        </span>
-        <span className="hidden sm:inline">
-          {isLive
-            ? 'Supabase Live'
-            : isSyncing
-            ? `Syncing (${totalPending})`
-            : totalPending > 0
-            ? `${totalPending} Offline Queue`
-            : 'Local Cache'}
-        </span>
-      </div>
+      {isLive ? (
+        <button
+          type="button"
+          onClick={() => {
+            setIsHovered((v) => !v)
+            if (totalPending > 0) flushMutationOutbox()
+          }}
+          className="flex items-center justify-center h-9 w-9 rounded-xl hover:bg-zinc-100 dark:hover:bg-white/[0.06] transition-colors cursor-pointer select-none"
+          title="Database: Supabase Live (Synced) - Click for details"
+          aria-label="Cloud Sync Status: Supabase Live (Synced)"
+        >
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-[0_0_8px_#10B981]" />
+          </span>
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => {
+            setIsHovered((v) => !v)
+            if (totalPending > 0) flushMutationOutbox()
+          }}
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-mono font-medium border transition-all cursor-pointer select-none ${
+            isSyncing
+              ? 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/20 hover:border-indigo-500/40'
+              : 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/20 hover:border-amber-500/40'
+          }`}
+          title={isSyncing ? `Syncing ${totalPending} items` : `${totalPending} items offline queue`}
+        >
+          <span className="relative flex h-2 w-2">
+            {isSyncing ? (
+              <RefreshCw className="h-2.5 w-2.5 animate-spin text-indigo-500" />
+            ) : (
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
+            )}
+          </span>
+          <span className="text-[10px] font-mono">
+            {isSyncing ? `Syncing (${totalPending})` : `${totalPending} Offline`}
+          </span>
+        </button>
+      )}
 
       {/* Popover Tooltip */}
       {isHovered && (

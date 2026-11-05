@@ -50,9 +50,9 @@ describe('Workstation Floor Management & Issue Resolution Suite', () => {
       assert.ok(count >= 32, `Expected at least 32 workstations in comp, found ${count}`)
 
       const teacherRes = await client.query(`
-        SELECT id, label, pos_x, pos_y FROM public.workstations WHERE lab_id = 'comp' AND label = 'Teacher-01';
+        SELECT id, label, element_type FROM public.lab_floor_elements WHERE lab_id = 'comp' AND element_type = 'teacher_desk';
       `)
-      assert.equal(teacherRes.rows.length, 1, 'Teacher-01 station must exist')
+      assert.ok(teacherRes.rows.length >= 1, 'Teacher desk / master console floor element must exist')
     } finally {
       client.release()
       await pool.end()

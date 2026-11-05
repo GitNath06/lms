@@ -161,28 +161,28 @@ export function LayoutEditorBar({
   }
 
   return (
-    <div className="rounded-2xl border border-indigo-500/30 bg-[#0B0F19] p-3 sm:p-4 shadow-xl space-y-3 animate-in fade-in duration-200">
+    <div className="rounded-2xl border border-zinc-200 dark:border-indigo-500/30 bg-white dark:bg-[#0B0F19] p-3 sm:p-4 shadow-xl space-y-3 animate-in fade-in duration-200 text-zinc-900 dark:text-white">
       <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
         {/* Left: Mode Title & Info */}
         <div className="flex items-center gap-3 flex-wrap">
-          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 shadow-xs">
+          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-50 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-500/30 shadow-xs">
             <LayoutGrid className="h-4 w-4" />
           </span>
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="font-heading font-extrabold text-sm text-white">
+              <h3 className="font-heading font-extrabold text-sm text-zinc-900 dark:text-white">
                 Floor Plan Layout Editor
               </h3>
-              <Badge className="bg-indigo-500/10 text-indigo-400 border-indigo-500/20 text-[10px] font-bold">
+              <Badge className="bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-400 border-indigo-200 dark:border-indigo-500/20 text-[10px] font-bold">
                 {totalWorkstations} Terminals
               </Badge>
               {hasUnsavedChanges && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-500/30 animate-pulse">
                   Unsaved Changes
                 </span>
               )}
             </div>
-            <p className="text-[11px] text-slate-400 mt-0.5">
+            <p className="text-[11px] text-zinc-500 dark:text-slate-400 mt-0.5">
               Drag workstations on canvas, build custom room grids (e.g. Left/Right 48 PCs), or apply presets.
             </p>
           </div>
@@ -217,7 +217,7 @@ export function LayoutEditorBar({
                   }
                 }
               }}
-              className="h-8.5 text-xs bg-[#151E32] border-white/10 text-white rounded-xl min-w-[170px]"
+              className="h-8.5 text-xs bg-zinc-50 dark:bg-[#151E32] border-zinc-200 dark:border-white/10 text-zinc-900 dark:text-white rounded-xl min-w-[170px]"
             >
               <optgroup label="Standard Math Presets">
                 {LAYOUT_PRESETS.map((p) => (
@@ -253,19 +253,19 @@ export function LayoutEditorBar({
                 }
                 onApplyPreset(selectedPreset as LayoutPresetType)
               }}
-              className="h-8.5 px-2.5 text-xs font-semibold rounded-xl border-white/10 text-slate-200 hover:bg-white/5 gap-1.5 cursor-pointer"
+              className="h-8.5 px-2.5 text-xs font-semibold rounded-xl border-zinc-200 dark:border-white/10 text-zinc-700 dark:text-slate-200 hover:bg-zinc-100 dark:hover:bg-white/5 gap-1.5 cursor-pointer"
               title="Apply selected preset"
             >
-              <Sparkles className="h-3.5 w-3.5 text-indigo-400" />
+              <Sparkles className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
               <span>Apply Preset</span>
             </Button>
           </div>
 
           {/* Terminal Size Scale Control */}
           {onTerminalScaleChange && (
-            <div className="flex items-center gap-1 bg-[#151E32] p-0.5 rounded-xl border border-white/10 text-xs text-slate-300">
-              <span className="px-2 py-1 text-[10px] font-semibold text-slate-400 flex items-center gap-1">
-                <Monitor className="h-3 w-3 text-indigo-400" />
+            <div className="flex items-center gap-1 bg-zinc-100 dark:bg-[#151E32] p-0.5 rounded-xl border border-zinc-200 dark:border-white/10 text-xs text-zinc-700 dark:text-slate-300">
+              <span className="px-2 py-1 text-[10px] font-semibold text-zinc-500 dark:text-slate-400 flex items-center gap-1">
+                <Monitor className="h-3 w-3 text-indigo-500 dark:text-indigo-400" />
                 <span>Size:</span>
               </span>
               {[
@@ -280,7 +280,7 @@ export function LayoutEditorBar({
                   className={`px-2 py-1 rounded-lg text-[10px] font-mono font-bold cursor-pointer transition-colors ${
                     terminalScale === s.val
                       ? 'bg-indigo-600 text-white shadow-2xs'
-                      : 'text-slate-400 hover:text-white'
+                      : 'text-zinc-500 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white'
                   }`}
                   title={`Set terminal display size to ${s.label}`}
                 >
@@ -291,16 +291,16 @@ export function LayoutEditorBar({
           )}
 
           {/* Grid Snap Control with Explanatory Hint */}
-          <div className="flex items-center gap-1 bg-[#151E32] p-0.5 rounded-xl border border-white/10 text-xs text-slate-300 relative">
+          <div className="flex items-center gap-1 bg-zinc-100 dark:bg-[#151E32] p-0.5 rounded-xl border border-zinc-200 dark:border-white/10 text-xs text-zinc-700 dark:text-slate-300 relative">
             <button
               type="button"
               onClick={() => setShowSnapHelp(!showSnapHelp)}
-              className="px-1.5 py-1 text-[10px] font-semibold text-slate-400 hover:text-indigo-300 flex items-center gap-1 transition-colors"
+              className="px-1.5 py-1 text-[10px] font-semibold text-zinc-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-300 flex items-center gap-1 transition-colors"
               title="What is Snap to Grid?"
             >
               <Grid className="h-3 w-3" />
               <span>Snap:</span>
-              <HelpCircle className="h-2.5 w-2.5 text-slate-500" />
+              <HelpCircle className="h-2.5 w-2.5 text-zinc-400 dark:text-slate-500" />
             </button>
             {[0, 2, 4].map((g) => (
               <button
@@ -310,7 +310,7 @@ export function LayoutEditorBar({
                 className={`px-2 py-1 rounded-lg text-[10px] font-mono font-bold cursor-pointer transition-colors ${
                   snapGrid === g
                     ? 'bg-indigo-600 text-white shadow-2xs'
-                    : 'text-slate-400 hover:text-white'
+                    : 'text-zinc-500 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white'
                 }`}
                 title={g === 0 ? 'Disable snap (smooth free drag)' : `Snap positions to ${g}% grid lines while dragging`}
               >
@@ -319,10 +319,10 @@ export function LayoutEditorBar({
             ))}
 
             {showSnapHelp && (
-              <div className="absolute top-full mt-2 left-0 w-64 p-2.5 rounded-xl bg-[#101726] border border-indigo-500/30 shadow-2xl z-50 text-[11px] text-slate-300 leading-relaxed animate-in fade-in">
-                <div className="flex items-center justify-between font-bold text-white mb-1">
+              <div className="absolute top-full mt-2 left-0 w-64 p-2.5 rounded-xl bg-white dark:bg-[#101726] border border-indigo-200 dark:border-indigo-500/30 shadow-2xl z-50 text-[11px] text-zinc-700 dark:text-slate-300 leading-relaxed animate-in fade-in">
+                <div className="flex items-center justify-between font-bold text-zinc-900 dark:text-white mb-1">
                   <span>Snap to Grid</span>
-                  <button type="button" onClick={() => setShowSnapHelp(false)} className="text-slate-400 hover:text-white">
+                  <button type="button" onClick={() => setShowSnapHelp(false)} className="text-zinc-400 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white">
                     <X className="h-3 w-3" />
                   </button>
                 </div>
@@ -339,7 +339,7 @@ export function LayoutEditorBar({
               size="sm"
               disabled={isSaving}
               onClick={onCancel}
-              className="h-8.5 px-3 text-xs rounded-xl border-white/10 text-slate-300 hover:bg-white/5 gap-1.5"
+              className="h-8.5 px-3 text-xs rounded-xl border-zinc-200 dark:border-white/10 text-zinc-700 dark:text-slate-300 hover:bg-zinc-100 dark:hover:bg-white/5 gap-1.5"
             >
               <RotateCcw className="h-3 w-3" />
               <span>Cancel</span>
@@ -382,19 +382,19 @@ export function LayoutEditorBar({
       {/* CUSTOM ROOM GRID BUILDER MODAL                                */}
       {/* ============================================================= */}
       {isCustomModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="relative w-full max-w-lg rounded-2xl border border-indigo-500/30 bg-[#101726] p-5 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs animate-in fade-in duration-150 select-none">
+          <div className="relative w-full max-w-lg rounded-2xl border border-zinc-200 dark:border-indigo-500/30 bg-white dark:bg-[#101726] p-5 shadow-2xl space-y-4 max-h-[calc(100dvh-2rem)] overflow-y-auto font-sans text-zinc-900 dark:text-white">
             {/* Header */}
-            <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-200 dark:border-white/[0.08]">
               <div className="flex items-center gap-2.5">
-                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-50 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-500/30">
                   <SlidersHorizontal className="h-4 w-4" />
                 </span>
                 <div>
-                  <h3 className="font-heading font-extrabold text-sm text-white">
+                  <h3 className="font-heading font-extrabold text-sm text-zinc-900 dark:text-white">
                     Custom Room Grid Builder
                   </h3>
-                  <p className="text-[11px] text-slate-400">
+                  <p className="text-[11px] text-zinc-600 dark:text-slate-400">
                     Define custom sides, rows, columns, and systematic terminal naming (e.g. A1..A4, C4, G3).
                   </p>
                 </div>
@@ -402,7 +402,7 @@ export function LayoutEditorBar({
               <button
                 type="button"
                 onClick={() => setIsCustomModalOpen(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/5"
+                className="p-1 rounded-lg text-zinc-500 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/5 cursor-pointer"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -412,10 +412,10 @@ export function LayoutEditorBar({
             <div className="space-y-4 text-xs">
               {/* Saved Custom Layout Templates (Load / Delete) */}
               {savedTemplates.length > 0 && (
-                <div className="p-2.5 rounded-xl border border-indigo-500/20 bg-indigo-500/5 space-y-1.5">
+                <div className="p-2.5 rounded-xl border border-indigo-200 dark:border-indigo-500/20 bg-indigo-50/50 dark:bg-indigo-500/5 space-y-1.5">
                   <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5">
-                      <Bookmark className="h-3.5 w-3.5 text-indigo-400" />
+                    <span className="text-[11px] font-bold text-zinc-700 dark:text-slate-300 flex items-center gap-1.5">
+                      <Bookmark className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
                       <span>Saved Custom Layouts ({savedTemplates.length})</span>
                     </span>
                     {selectedTemplateId && (
@@ -425,7 +425,7 @@ export function LayoutEditorBar({
                           setSelectedTemplateId('')
                           setTemplateName('')
                         }}
-                        className="text-[10px] text-indigo-400 hover:text-indigo-300 cursor-pointer"
+                        className="text-[10px] text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 cursor-pointer"
                       >
                         Clear Loaded
                       </button>
@@ -438,7 +438,7 @@ export function LayoutEditorBar({
                         className={`group flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-all ${
                           selectedTemplateId === tpl.id
                             ? 'bg-indigo-600 text-white border-indigo-500 shadow-xs'
-                            : 'bg-[#151E32] text-slate-300 border-white/10 hover:border-indigo-500/50 hover:text-white'
+                            : 'bg-zinc-100 dark:bg-[#151E32] text-zinc-700 dark:text-slate-300 border-zinc-200 dark:border-white/10 hover:border-indigo-400 dark:hover:border-indigo-500/50 hover:text-zinc-900 dark:hover:text-white'
                         }`}
                       >
                         <button
@@ -458,7 +458,7 @@ export function LayoutEditorBar({
                                 onDeleteTemplate(tpl.id)
                               }
                             }}
-                            className="text-slate-400 hover:text-rose-400 p-0.5 rounded transition-colors opacity-60 group-hover:opacity-100 cursor-pointer"
+                            className="text-zinc-400 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 p-0.5 rounded transition-colors opacity-60 group-hover:opacity-100 cursor-pointer"
                             title={`Delete template "${tpl.name}"`}
                           >
                             <Trash2 className="h-2.5 w-2.5" />
@@ -472,7 +472,7 @@ export function LayoutEditorBar({
 
               {/* Room Structure: Sides / Corridor Layout */}
               <div>
-                <label className="block font-semibold text-slate-300 mb-1.5">
+                <label className="block font-semibold text-zinc-700 dark:text-slate-300 mb-1.5">
                   Room Corridor Layout (Sides &amp; Aisles)
                 </label>
                 <div className="grid grid-cols-2 gap-2">
@@ -504,17 +504,17 @@ export function LayoutEditorBar({
                       onClick={() => setCustomSides(opt.s)}
                       className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
                         customSides === opt.s
-                          ? 'border-indigo-500 bg-indigo-500/10 text-white ring-1 ring-indigo-500'
-                          : 'border-white/10 bg-[#151E32] text-slate-300 hover:border-white/20'
+                          ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-950 dark:text-white ring-1 ring-indigo-500'
+                          : 'border-zinc-200 dark:border-white/10 bg-zinc-50 dark:bg-[#151E32] text-zinc-700 dark:text-slate-300 hover:border-zinc-300 dark:hover:border-white/20'
                       }`}
                     >
                       <div className="font-bold flex items-center justify-between">
                         <span>{opt.title}</span>
                         {customSides === opt.s && (
-                          <span className="h-2 w-2 rounded-full bg-indigo-400" />
+                          <span className="h-2 w-2 rounded-full bg-indigo-600 dark:bg-indigo-400" />
                         )}
                       </div>
-                      <span className="text-[10px] text-slate-400 block mt-0.5 leading-tight">
+                      <span className="text-[10px] text-zinc-500 dark:text-slate-400 block mt-0.5 leading-tight">
                         {opt.desc}
                       </span>
                     </button>
@@ -525,10 +525,10 @@ export function LayoutEditorBar({
               {/* Rows (Front to Back) */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <label className="block font-semibold text-slate-300">
+                  <label className="block font-semibold text-zinc-700 dark:text-slate-300">
                     Number of Rows (Front to Back)
                   </label>
-                  <span className="text-[11px] font-mono font-bold text-indigo-400">
+                  <span className="text-[11px] font-mono font-bold text-indigo-600 dark:text-indigo-400">
                     {customRows} Rows
                   </span>
                 </div>
@@ -543,7 +543,7 @@ export function LayoutEditorBar({
                       className={`px-2.5 py-1 rounded-lg text-[11px] font-mono font-semibold transition-all cursor-pointer ${
                         customRows === r
                           ? 'bg-indigo-600 text-white shadow-xs'
-                          : 'bg-[#151E32] text-slate-400 border border-white/5 hover:text-white hover:border-white/20'
+                          : 'bg-zinc-100 dark:bg-[#151E32] text-zinc-600 dark:text-slate-400 border border-zinc-200 dark:border-white/5 hover:text-zinc-900 dark:hover:text-white hover:border-zinc-300 dark:hover:border-white/20'
                       }`}
                     >
                       {r} {r === 1 ? 'Row' : 'Rows'}
@@ -555,7 +555,7 @@ export function LayoutEditorBar({
                       type="button"
                       disabled={customRows <= 1}
                       onClick={handleRemoveRow}
-                      className="h-7 w-7 rounded-lg bg-[#151E32] border border-white/10 text-slate-300 hover:text-white flex items-center justify-center disabled:opacity-40 cursor-pointer"
+                      className="h-7 w-7 rounded-lg bg-zinc-100 dark:bg-[#151E32] border border-zinc-200 dark:border-white/10 text-zinc-700 dark:text-slate-300 hover:text-zinc-900 dark:hover:text-white flex items-center justify-center disabled:opacity-40 cursor-pointer"
                       title="Decrease rows"
                     >
                       <Minus className="h-3 w-3" />
@@ -568,13 +568,13 @@ export function LayoutEditorBar({
                       onChange={(e) =>
                         setCustomRows(Math.max(1, Math.min(16, parseInt(e.target.value) || 1)))
                       }
-                      className="w-12 h-7 rounded-lg border border-white/10 bg-[#0B0F19] text-center font-mono font-bold text-white focus:border-indigo-500 focus:outline-none text-xs"
+                      className="w-12 h-7 rounded-lg border border-zinc-300 dark:border-white/10 bg-white dark:bg-[#0B0F19] text-center font-mono font-bold text-zinc-900 dark:text-white focus:border-indigo-500 focus:outline-none text-xs"
                     />
                     <button
                       type="button"
                       disabled={customRows >= 16}
                       onClick={handleAddRow}
-                      className="h-7 w-7 rounded-lg bg-[#151E32] border border-white/10 text-slate-300 hover:text-white flex items-center justify-center disabled:opacity-40 cursor-pointer"
+                      className="h-7 w-7 rounded-lg bg-zinc-100 dark:bg-[#151E32] border border-zinc-200 dark:border-white/10 text-zinc-700 dark:text-slate-300 hover:text-zinc-900 dark:hover:text-white flex items-center justify-center disabled:opacity-40 cursor-pointer"
                       title="Increase rows"
                     >
                       <Plus className="h-3 w-3" />
@@ -586,10 +586,10 @@ export function LayoutEditorBar({
               {/* Columns per Side / Section */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <label className="block font-semibold text-slate-300">
+                  <label className="block font-semibold text-zinc-700 dark:text-slate-300">
                     Columns per Side / Section
                   </label>
-                  <span className="text-[11px] font-mono font-bold text-indigo-400">
+                  <span className="text-[11px] font-mono font-bold text-indigo-600 dark:text-indigo-400">
                     {customCols} PCs per row
                   </span>
                 </div>
@@ -604,7 +604,7 @@ export function LayoutEditorBar({
                       className={`px-2.5 py-1 rounded-lg text-[11px] font-mono font-semibold transition-all cursor-pointer ${
                         customCols === c
                           ? 'bg-indigo-600 text-white shadow-xs'
-                          : 'bg-[#151E32] text-slate-400 border border-white/5 hover:text-white hover:border-white/20'
+                          : 'bg-zinc-100 dark:bg-[#151E32] text-zinc-600 dark:text-slate-400 border border-zinc-200 dark:border-white/5 hover:text-zinc-900 dark:hover:text-white hover:border-zinc-300 dark:hover:border-white/20'
                       }`}
                     >
                       {c} {c === 1 ? 'Col' : 'Cols'}
@@ -616,7 +616,7 @@ export function LayoutEditorBar({
                       type="button"
                       disabled={customCols <= 1}
                       onClick={() => setCustomCols((prev) => Math.max(1, prev - 1))}
-                      className="h-7 w-7 rounded-lg bg-[#151E32] border border-white/10 text-slate-300 hover:text-white flex items-center justify-center disabled:opacity-40 cursor-pointer"
+                      className="h-7 w-7 rounded-lg bg-zinc-100 dark:bg-[#151E32] border border-zinc-200 dark:border-white/10 text-zinc-700 dark:text-slate-300 hover:text-zinc-900 dark:hover:text-white flex items-center justify-center disabled:opacity-40 cursor-pointer"
                       title="Decrease columns"
                     >
                       <Minus className="h-3 w-3" />
@@ -629,13 +629,13 @@ export function LayoutEditorBar({
                       onChange={(e) =>
                         setCustomCols(Math.max(1, Math.min(12, parseInt(e.target.value) || 1)))
                       }
-                      className="w-12 h-7 rounded-lg border border-white/10 bg-[#0B0F19] text-center font-mono font-bold text-white focus:border-indigo-500 focus:outline-none text-xs"
+                      className="w-12 h-7 rounded-lg border border-zinc-300 dark:border-white/10 bg-white dark:bg-[#0B0F19] text-center font-mono font-bold text-zinc-900 dark:text-white focus:border-indigo-500 focus:outline-none text-xs"
                     />
                     <button
                       type="button"
                       disabled={customCols >= 12}
                       onClick={() => setCustomCols((prev) => Math.min(12, prev + 1))}
-                      className="h-7 w-7 rounded-lg bg-[#151E32] border border-white/10 text-slate-300 hover:text-white flex items-center justify-center disabled:opacity-40 cursor-pointer"
+                      className="h-7 w-7 rounded-lg bg-zinc-100 dark:bg-[#151E32] border border-zinc-200 dark:border-white/10 text-zinc-700 dark:text-slate-300 hover:text-zinc-900 dark:hover:text-white flex items-center justify-center disabled:opacity-40 cursor-pointer"
                       title="Increase columns"
                     >
                       <Plus className="h-3 w-3" />
@@ -645,27 +645,27 @@ export function LayoutEditorBar({
               </div>
 
               {/* Grid Calculation Pill */}
-              <div className="p-3 rounded-xl border border-indigo-500/25 bg-indigo-500/10 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-indigo-300">
+              <div className="p-3 rounded-xl border border-indigo-200 dark:border-indigo-500/25 bg-indigo-50 dark:bg-indigo-500/10 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-indigo-900 dark:text-indigo-300">
                 <div className="flex items-center gap-2">
-                  <Sparkles className="h-4 w-4 text-indigo-400 shrink-0" />
+                  <Sparkles className="h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
                   <span>
-                    Total Capacity: <strong className="text-white font-mono text-sm">{computedTotalSlots} Terminals</strong> ({customSides} sections &times; {customRows} rows &times; {customCols} cols)
+                    Total Capacity: <strong className="text-zinc-900 dark:text-white font-mono text-sm">{computedTotalSlots} Terminals</strong> ({customSides} sections &times; {customRows} rows &times; {customCols} cols)
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
-                  <Badge className="bg-indigo-500/20 text-indigo-300 text-[10px] font-mono">
+                  <Badge className="bg-indigo-100 dark:bg-indigo-500/20 text-indigo-800 dark:text-indigo-300 text-[10px] font-mono border border-indigo-200 dark:border-indigo-500/30">
                     {totalWorkstations} in lab
                   </Badge>
                   {computedTotalSlots > totalWorkstations ? (
-                    <Badge className="bg-emerald-500/20 text-emerald-300 text-[10px] font-mono font-bold border-emerald-500/30">
+                    <Badge className="bg-emerald-50 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 text-[10px] font-mono font-bold border border-emerald-200 dark:border-emerald-500/30">
                       {computedTotalSlots - totalWorkstations} will be provisioned
                     </Badge>
                   ) : computedTotalSlots < totalWorkstations ? (
-                    <Badge className="bg-amber-500/20 text-amber-300 text-[10px] font-mono font-bold border-amber-500/30">
+                    <Badge className="bg-amber-50 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 text-[10px] font-mono font-bold border border-amber-200 dark:border-amber-500/30">
                       {totalWorkstations - computedTotalSlots} surplus will be archived
                     </Badge>
                   ) : (
-                    <Badge className="bg-emerald-500/20 text-emerald-300 text-[10px] font-mono font-bold border-emerald-500/30">
+                    <Badge className="bg-emerald-50 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 text-[10px] font-mono font-bold border border-emerald-200 dark:border-emerald-500/30">
                       Matches Lab Inventory
                     </Badge>
                   )}
@@ -675,13 +675,13 @@ export function LayoutEditorBar({
               {/* Row Naming Pattern & Editor */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <label className="block font-semibold text-slate-300">
+                  <label className="block font-semibold text-zinc-700 dark:text-slate-300">
                     Row Naming Scheme
                   </label>
                   <button
                     type="button"
                     onClick={() => setIsEditingRowNames(!isEditingRowNames)}
-                    className="text-[11px] text-indigo-400 hover:text-indigo-300 font-semibold cursor-pointer"
+                    className="text-[11px] text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 font-semibold cursor-pointer"
                   >
                     {isEditingRowNames ? 'Hide Row Name Inputs' : 'Customize Row Names'}
                   </button>
@@ -690,7 +690,7 @@ export function LayoutEditorBar({
                 <Select
                   value={customRowNaming}
                   onChange={(e) => setCustomRowNaming(e.target.value as any)}
-                  className="w-full h-9 text-xs bg-[#151E32] border-white/10 text-white rounded-xl"
+                  className="w-full h-9 text-xs bg-white dark:bg-[#151E32] border-zinc-300 dark:border-white/10 text-zinc-900 dark:text-white rounded-xl"
                 >
                   <option value="letters">Alphabetical (Row A, Row B, Row C, Row D...)</option>
                   <option value="numbers">Numeric (Row 1, Row 2, Row 3, Row 4...)</option>
@@ -698,9 +698,9 @@ export function LayoutEditorBar({
 
                 {/* Optional Custom Row Labels Editor */}
                 {isEditingRowNames && (
-                  <div className="p-2.5 rounded-xl border border-white/10 bg-[#151E32]/70 space-y-2 mt-2">
+                  <div className="p-2.5 rounded-xl border border-zinc-200 dark:border-white/10 bg-zinc-50 dark:bg-[#151E32]/70 space-y-2 mt-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-semibold text-slate-300">
+                      <span className="text-[11px] font-semibold text-zinc-700 dark:text-slate-300">
                         Edit Labels for All {customRows} Rows:
                       </span>
                       <div className="flex items-center gap-1.5">
@@ -708,7 +708,7 @@ export function LayoutEditorBar({
                           type="button"
                           onClick={handleAddRow}
                           disabled={customRows >= 16}
-                          className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-600/30 text-indigo-300 hover:bg-indigo-600/50 cursor-pointer disabled:opacity-40 flex items-center gap-1"
+                          className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-50 dark:bg-indigo-600/30 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-600/50 cursor-pointer disabled:opacity-40 flex items-center gap-1 border border-indigo-200 dark:border-indigo-500/30"
                         >
                           <Plus className="h-3 w-3" />
                           <span>Add Row</span>
@@ -717,7 +717,7 @@ export function LayoutEditorBar({
                           type="button"
                           onClick={handleRemoveRow}
                           disabled={customRows <= 1}
-                          className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-300 hover:bg-rose-500/40 cursor-pointer disabled:opacity-40 flex items-center gap-1"
+                          className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-50 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-500/40 cursor-pointer disabled:opacity-40 flex items-center gap-1 border border-rose-200 dark:border-rose-500/30"
                         >
                           <Minus className="h-3 w-3" />
                           <span>Remove Row</span>
@@ -740,14 +740,14 @@ export function LayoutEditorBar({
                             : `Sec ${sideIdx + 1}`
                         return (
                           <div key={globalIdx} className="flex items-center gap-1.5">
-                            <span className="text-[10px] font-mono text-slate-400 w-11 shrink-0 truncate" title={`${sidePrefix} Row ${rowInSide + 1}`}>
+                            <span className="text-[10px] font-mono text-zinc-500 dark:text-slate-400 w-11 shrink-0 truncate" title={`${sidePrefix} Row ${rowInSide + 1}`}>
                               {sidePrefix[0]}-R{rowInSide + 1}
                             </span>
                             <input
                               type="text"
                               value={customRowNames[globalIdx] ?? defaultName}
                               onChange={(e) => handleCustomRowChange(globalIdx, e.target.value)}
-                              className="w-full h-7 rounded-lg border border-white/10 bg-[#0B0F19] px-2 text-[11px] text-white focus:border-indigo-500 focus:outline-none"
+                              className="w-full h-7 rounded-lg border border-zinc-300 dark:border-white/10 bg-white dark:bg-[#0B0F19] px-2 text-[11px] text-zinc-900 dark:text-white focus:border-indigo-500 focus:outline-none"
                             />
                           </div>
                         )
@@ -759,13 +759,13 @@ export function LayoutEditorBar({
 
               {/* Terminal ID / Place Name Scheme */}
               <div className="space-y-1">
-                <label className="block font-semibold text-slate-300">
+                <label className="block font-semibold text-zinc-700 dark:text-slate-300">
                   Terminal ID Scheme (Place Naming)
                 </label>
                 <Select
                   value={customTerminalNaming}
                   onChange={(e) => setCustomTerminalNaming(e.target.value as any)}
-                  className="w-full h-9 text-xs bg-[#151E32] border-white/10 text-white rounded-xl"
+                  className="w-full h-9 text-xs bg-white dark:bg-[#151E32] border-zinc-300 dark:border-white/10 text-zinc-900 dark:text-white rounded-xl"
                 >
                   <option value="alphanumeric">
                     Alphanumeric Coordinates (Left: A1..A4, Right: G1..G4; Hardware: PC-01..PC-48)
@@ -780,20 +780,20 @@ export function LayoutEditorBar({
                     Preserve Existing Hardware Labels
                   </option>
                 </Select>
-                <p className="text-[10px] text-slate-400">
+                <p className="text-[10px] text-zinc-500 dark:text-slate-400">
                   Separates physical hardware (PC-01..PC-48) from desk position IDs (Left: A1..A4, Right: G1..G4), enabling instant PC relocation across lab desks without breaking maintenance history.
                 </p>
               </div>
 
               {/* Save Custom Layout with User-Defined Name */}
-              <div className="p-3 rounded-xl border border-indigo-500/25 bg-indigo-500/10 space-y-2">
+              <div className="p-3 rounded-xl border border-indigo-200 dark:border-indigo-500/25 bg-indigo-50/50 dark:bg-indigo-500/10 space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-white flex items-center gap-1.5">
-                    <Bookmark className="h-3.5 w-3.5 text-indigo-400" />
+                  <label className="text-xs font-bold text-zinc-900 dark:text-white flex items-center gap-1.5">
+                    <Bookmark className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
                     <span>Save Layout with Custom Name</span>
                   </label>
                   {selectedTemplateId && (
-                    <span className="text-[10px] text-indigo-300 font-mono font-semibold">
+                    <span className="text-[10px] text-indigo-700 dark:text-indigo-300 font-mono font-semibold">
                       Loaded: {templateName}
                     </span>
                   )}
@@ -804,7 +804,7 @@ export function LayoutEditorBar({
                     placeholder="e.g. Main Lab 48-PC (2-Side), Class 12 Exam Layout, Workshop 3-Pod"
                     value={templateName}
                     onChange={(e) => setTemplateName(e.target.value)}
-                    className="flex-1 h-8 rounded-lg border border-white/10 bg-[#0B0F19] px-2.5 text-xs text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none"
+                    className="flex-1 h-8 rounded-lg border border-zinc-300 dark:border-white/10 bg-white dark:bg-[#0B0F19] px-2.5 text-xs text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder-slate-500 focus:border-indigo-500 focus:outline-none"
                   />
                   <Button
                     type="button"
@@ -826,13 +826,13 @@ export function LayoutEditorBar({
             </div>
 
             {/* Modal Actions */}
-            <div className="flex items-center justify-between gap-2 pt-3 border-t border-white/[0.08]">
+            <div className="flex items-center justify-between gap-2 pt-3 border-t border-zinc-200 dark:border-white/[0.08]">
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 onClick={() => setIsCustomModalOpen(false)}
-                className="h-8.5 text-xs rounded-xl border-white/10 text-slate-300 hover:bg-white/5"
+                className="h-8.5 text-xs rounded-xl border-zinc-200 dark:border-white/10 text-zinc-700 dark:text-slate-300 hover:bg-zinc-100 dark:hover:bg-white/5 cursor-pointer"
               >
                 Cancel
               </Button>
@@ -843,7 +843,7 @@ export function LayoutEditorBar({
                   variant="outline"
                   size="sm"
                   onClick={() => handleApplyCustom(false)}
-                  className="h-8.5 px-3 text-xs font-semibold rounded-xl border-indigo-500/30 text-indigo-300 hover:bg-indigo-500/10 gap-1.5 cursor-pointer"
+                  className="h-8.5 px-3 text-xs font-semibold rounded-xl border-indigo-200 dark:border-indigo-500/30 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 gap-1.5 cursor-pointer"
                   title="Arrange current lab terminals to this custom grid without adding new machines"
                 >
                   <Sparkles className="h-3.5 w-3.5" />

@@ -7,6 +7,7 @@ import {
   Calendar,
   X,
   ShieldAlert,
+  Loader2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -72,8 +73,8 @@ export default function SnoozeModal({
       if (!res.success) {
         setErrorMsg(res.error || 'Failed to snooze reminder.')
       } else {
-        onSuccess()
         onClose()
+        onSuccess()
       }
     } catch (err: any) {
       setErrorMsg(err.message || 'An unexpected error occurred.')
@@ -140,9 +141,9 @@ export default function SnoozeModal({
             </label>
             <div className="grid grid-cols-4 gap-2">
               {[
-                { id: '3', label: '+3 Days' },
-                { id: '7', label: '+7 Days' },
-                { id: '14', label: '+14 Days' },
+                { id: '3', label: '3 Days' },
+                { id: '7', label: '7 Days' },
+                { id: '14', label: '14 Days' },
                 { id: 'custom', label: 'Custom' },
               ].map((opt) => (
                 <button
@@ -207,9 +208,16 @@ export default function SnoozeModal({
               type="submit"
               size="sm"
               disabled={isSubmitting}
-              className="h-9 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold px-4 cursor-pointer shadow-xs"
+              className="h-9 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold px-4 cursor-pointer shadow-xs gap-1.5"
             >
-              {isSubmitting ? 'Deferring...' : 'Confirm Snooze'}
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span>Deferring...</span>
+                </>
+              ) : (
+                <span>Confirm Snooze</span>
+              )}
             </Button>
           </div>
         </form>

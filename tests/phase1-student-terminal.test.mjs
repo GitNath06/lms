@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test'
+import { describe, it, after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -73,7 +73,7 @@ describe('Phase 1: Zero-Login Student Terminal Self-Reporting & Live Help Beacon
     assert.ok(ids.includes('no_internet'))
     assert.ok(ids.includes('missing_software'))
     assert.ok(ids.includes('app_freeze'))
-    assert.ok(ids.includes('audio_issue'))
+    assert.ok(ids.includes('display_issue'))
     assert.ok(ids.includes('other'))
   })
 
@@ -139,11 +139,15 @@ describe('Phase 1: Zero-Login Student Terminal Self-Reporting & Live Help Beacon
     const testWs = wsRes.rows[0]
     const labId = testWs.lab_id || 'comp'
 
+    // Clear prior test artifacts on this station to avoid rate-limiting
+    await pool.query(`DELETE FROM public.workstation_issues WHERE workstation_id = $1 AND source = 'student_terminal'`, [testWs.id])
+
     // Submit report as student
+    const testTitle = `VS Code Missing Python Extension ${Date.now()}`
     const submitRes = await submitStudentIssueReport({
       stationCode: testWs.label,
       issueTag: 'missing_software',
-      title: 'VS Code Missing Python Extension',
+      title: testTitle,
       description: 'Cannot run practical script in laboratory session',
       studentName: 'Test Student',
       studentRoll: '99',

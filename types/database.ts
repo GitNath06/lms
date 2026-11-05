@@ -19,8 +19,11 @@ export interface Database {
           department: string | null
           photo_url?: string | null
           avatar_url?: string | null
+          honorific?: string | null
+          bio?: string | null
+          teaching_preferences?: Record<string, any> | null
           is_active: boolean
-          approval_status?: 'pending' | 'approved' | 'rejected' | null
+          approval_status?: 'pending' | 'approved' | 'rejected' | 'suspended' | null
           permissions: Record<string, boolean> | null
           created_at: string
         }
@@ -33,8 +36,11 @@ export interface Database {
           department?: string | null
           photo_url?: string | null
           avatar_url?: string | null
+          honorific?: string | null
+          bio?: string | null
+          teaching_preferences?: Record<string, any> | null
           is_active?: boolean
-          approval_status?: 'pending' | 'approved' | 'rejected' | null
+          approval_status?: 'pending' | 'approved' | 'rejected' | 'suspended' | null
           permissions?: Record<string, boolean> | null
           created_at?: string
         }
@@ -47,8 +53,11 @@ export interface Database {
           department?: string | null
           photo_url?: string | null
           avatar_url?: string | null
+          honorific?: string | null
+          bio?: string | null
+          teaching_preferences?: Record<string, any> | null
           is_active?: boolean
-          approval_status?: 'pending' | 'approved' | 'rejected' | null
+          approval_status?: 'pending' | 'approved' | 'rejected' | 'suspended' | null
           permissions?: Record<string, boolean> | null
           created_at?: string
         }
@@ -100,6 +109,7 @@ export interface Database {
           span?: number | null
           class_subject_id?: string | null
           academic_year_id?: string | null
+          specific_date?: string | null
           metadata?: Json | null
           created_at: string
         }
@@ -118,6 +128,7 @@ export interface Database {
           span?: number | null
           class_subject_id?: string | null
           academic_year_id?: string | null
+          specific_date?: string | null
           metadata?: Json | null
           created_at?: string
         }
@@ -136,6 +147,7 @@ export interface Database {
           span?: number | null
           class_subject_id?: string | null
           academic_year_id?: string | null
+          specific_date?: string | null
           metadata?: Json | null
           created_at?: string
         }
@@ -166,6 +178,7 @@ export interface Database {
           class_subject_id?: string | null
           academic_year_id?: string | null
           seating_snapshot?: Json | null
+          idempotency_key?: string | null
           created_at: string
         }
         Insert: {
@@ -192,6 +205,7 @@ export interface Database {
           class_subject_id?: string | null
           academic_year_id?: string | null
           seating_snapshot?: Json | null
+          idempotency_key?: string | null
           created_at?: string
         }
         Update: {
@@ -218,6 +232,7 @@ export interface Database {
           class_subject_id?: string | null
           academic_year_id?: string | null
           seating_snapshot?: Json | null
+          idempotency_key?: string | null
           created_at?: string
         }
         Relationships: []
@@ -792,6 +807,51 @@ export interface Database {
         }
         Relationships: []
       }
+      maintenance_routine_templates: {
+        Row: {
+          id: string
+          title: string
+          lab_id: string
+          cadence: string
+          interval_days: number
+          severity: 'low' | 'routine' | 'high' | 'critical'
+          category: string
+          checklist: string[] | Json
+          is_active: boolean
+          sort_order: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          title: string
+          lab_id?: string
+          cadence?: string
+          interval_days?: number
+          severity?: 'low' | 'routine' | 'high' | 'critical'
+          category?: string
+          checklist?: string[] | Json
+          is_active?: boolean
+          sort_order?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          title?: string
+          lab_id?: string
+          cadence?: string
+          interval_days?: number
+          severity?: 'low' | 'routine' | 'high' | 'critical'
+          category?: string
+          checklist?: string[] | Json
+          is_active?: boolean
+          sort_order?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       rate_limit_events: {
         Row: {
           id: string
@@ -1277,6 +1337,10 @@ export type MaintenanceReminderUpdate = Database['public']['Tables']['maintenanc
 export type MaintenanceLogRow = Database['public']['Tables']['maintenance_logs']['Row']
 export type MaintenanceLogInsert = Database['public']['Tables']['maintenance_logs']['Insert']
 export type MaintenanceLogUpdate = Database['public']['Tables']['maintenance_logs']['Update']
+
+export type MaintenanceRoutineTemplateRow = Database['public']['Tables']['maintenance_routine_templates']['Row']
+export type MaintenanceRoutineTemplateInsert = Database['public']['Tables']['maintenance_routine_templates']['Insert']
+export type MaintenanceRoutineTemplateUpdate = Database['public']['Tables']['maintenance_routine_templates']['Update']
 
 export type WorkstationRow = Database['public']['Tables']['workstations']['Row']
 export type WorkstationInsert = Database['public']['Tables']['workstations']['Insert']

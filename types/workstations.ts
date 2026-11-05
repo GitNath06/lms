@@ -151,11 +151,11 @@ export interface UpdateWorkstationInput {
 
 export interface IssueCategoryInput {
   id?: string
-  name: string
-  type: 'hardware' | 'software' | 'network' | 'peripheral' | 'other'
-  color: string
-  icon: string
-  default_severity: 'low' | 'medium' | 'high' | 'critical'
+  name?: string
+  type?: 'hardware' | 'software' | 'network' | 'peripheral' | 'other'
+  color?: string
+  icon?: string
+  default_severity?: 'low' | 'medium' | 'high' | 'critical'
   is_active?: boolean
   sort_order?: number
 }

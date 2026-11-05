@@ -12,6 +12,8 @@ export type SyncDomain =
   | 'infrastructure'
   | 'logs'
   | 'settings'
+  | 'workstations'
+  | 'assistance'
 
 const BROADCAST_CHANNEL_NAME = 'labsync-realtime-bus'
 
@@ -22,7 +24,16 @@ export function broadcastSync(domain: SyncDomain, payload?: any) {
   const timestamp = Date.now()
   const eventKey = `labsync_event_${domain}`
 
-  // 1. Local storage event (triggers 'storage' in all other browser tabs of this domain)
+  // 1. BroadcastChannel API for instantaneous modern cross-tab messaging
+  try {
+    if (typeof BroadcastChannel !== 'undefined') {
+      const bc = new BroadcastChannel(BROADCAST_CHANNEL_NAME)
+      bc.postMessage({ domain, payload, timestamp })
+      bc.close()
+    }
+  } catch (e) {}
+
+  // 2. Local storage event (triggers 'storage' in all other browser tabs as fallback)
   try {
     localStorage.setItem(
       eventKey,
@@ -30,7 +41,7 @@ export function broadcastSync(domain: SyncDomain, payload?: any) {
     )
   } catch (e) {}
 
-  // 2. Local window event (triggers listeners in the current tab immediately)
+  // 3. Local window event (triggers listeners in the current tab immediately)
   window.dispatchEvent(
     new CustomEvent(`labsync:${domain}`, {
       detail: { domain, payload, timestamp },
@@ -90,6 +101,19 @@ export function subscribeToSync(
   window.addEventListener(eventName, handleLocal)
   window.addEventListener('storage', handleStorage)
 
+  // Handle BroadcastChannel cross-tab events
+  let bc: BroadcastChannel | null = null
+  try {
+    if (typeof BroadcastChannel !== 'undefined') {
+      bc = new BroadcastChannel(BROADCAST_CHANNEL_NAME)
+      bc.onmessage = (ev) => {
+        if (ev.data && (domain === 'all' || ev.data.domain === domain)) {
+          callback(ev.data)
+        }
+      }
+    }
+  } catch (e) {}
+
   // Supabase Realtime subscription
   let supabaseChannel: any = null
   if (isSupabaseConfigured()) {
@@ -111,6 +135,11 @@ export function subscribeToSync(
   return () => {
     window.removeEventListener(eventName, handleLocal)
     window.removeEventListener('storage', handleStorage)
+    if (bc) {
+      try {
+        bc.close()
+      } catch (e) {}
+    }
     if (supabaseChannel) {
       try {
         const supabase = createClient()

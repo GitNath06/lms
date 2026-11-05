@@ -284,4 +284,135 @@ export function getBsMonthCalendar(bsYear: number = 2083, bsMonth: number = 5): 
   }
 }
 
+/**
+ * Safely converts a date input string (BS 'YYYY-MM-DD' with year >= 2070 or AD 'YYYY-MM-DD')
+ * to an AD date string 'YYYY-MM-DD' suitable for PostgreSQL/PostgREST database queries.
+ * Refinement #2: Clamps BS days to valid days in that BS month to prevent month overflow.
+ */
+export function resolveDateInputToAdStr(input: string | null | undefined): string | null {
+  if (!input || typeof input !== 'string') return null
+  const trimmed = input.trim()
+  if (!trimmed) return null
+
+  // Check for YYYY-MM-DD or YYYY/MM/DD
+  const match = trimmed.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/)
+  if (!match) return trimmed
+
+  const y = parseInt(match[1], 10)
+  const m = parseInt(match[2], 10)
+  const d = parseInt(match[3], 10)
+
+  if (y >= 2070 && y <= 2100) {
+    // Bikram Sambat date detected: clamp month and day
+    const validMonth = Math.max(1, Math.min(12, m))
+    const maxDays = getDaysInBsMonth(y, validMonth)
+    const clampedDay = Math.max(1, Math.min(maxDays, d))
+    const adDate = bsToAdDate(y, validMonth, clampedDay)
+    return adDate.toISOString().split('T')[0]
+  }
+
+  return trimmed
+}
+
+export interface NepaliMitiResult {
+  bsDateStr: string // e.g. '2083-06-26'
+  bsYear: number
+  bsMonth: number
+  bsDay: number
+  bsFormattedNp: string // e.g. '२०८३ असोज २६'
+  bsFormattedEn: string // e.g. '2083 Ashwin 26'
+  adDateStr: string // e.g. '2026-10-12'
+  labelNp: string // e.g. '२०८३ असोज २६'
+  labelBilingual: string // e.g. '२०८३-०६-२६ (12 Oct)'
+}
+
+/**
+ * Formats any Gregorian date (Date instance or YYYY-MM-DD string) into Bikram Sambat (B.S.) Miti.
+ */
+export function formatToNepaliMiti(dateInput: Date | string | null | undefined): NepaliMitiResult | null {
+  if (!dateInput) return null
+  let d: Date
+  if (dateInput instanceof Date) {
+    d = dateInput
+  } else if (typeof dateInput === 'string') {
+    const cleanStr = dateInput.includes('T') ? dateInput.split('T')[0] : dateInput.trim()
+    const parts = cleanStr.split(/[-/.]/)
+    if (parts.length === 3) {
+      const year = parseInt(parts[0], 10)
+      const month = parseInt(parts[1], 10)
+      const day = parseInt(parts[2], 10)
+      if (year >= 2070 && year <= 2100) {
+        // Input is already in BS format
+        const validMonth = Math.max(1, Math.min(12, month))
+        const maxDays = getDaysInBsMonth(year, validMonth)
+        const clampedDay = Math.max(1, Math.min(maxDays, day))
+        const ad = bsToAdDate(year, validMonth, clampedDay)
+        return formatToNepaliMiti(ad)
+      }
+      d = new Date(Date.UTC(year, month - 1, day))
+    } else {
+      d = new Date(cleanStr)
+    }
+  } else {
+    d = new Date(dateInput)
+  }
+
+  if (isNaN(d.getTime())) return null
+
+  const info = getNepaliDate(d)
+  const bsMm = String(info.bsMonth).padStart(2, '0')
+  const bsDd = String(info.bsDay).padStart(2, '0')
+  const bsDateStr = `${info.bsYear}-${bsMm}-${bsDd}`
+  const adDateStr = d.toISOString().split('T')[0]
+  const shortAd = info.englishDate.split(' ').slice(0, 2).join(' ') // e.g. "12 Oct"
+
+  return {
+    bsDateStr,
+    bsYear: info.bsYear,
+    bsMonth: info.bsMonth,
+    bsDay: info.bsDay,
+    bsFormattedNp: `${toNepaliDigits(info.bsYear)} ${info.bsMonthNameNp} ${toNepaliDigits(info.bsDay)}`,
+    bsFormattedEn: `${info.bsYear} ${info.bsMonthName} ${info.bsDay}`,
+    adDateStr,
+    labelNp: `${toNepaliDigits(info.bsYear)} ${info.bsMonthNameNp} ${toNepaliDigits(info.bsDay)}`,
+    labelBilingual: `${toNepaliDigits(info.bsYear)}-${toNepaliDigits(bsMm)}-${toNepaliDigits(bsDd)} (${shortAd})`,
+  }
+}
+
+/**
+ * Generates ISO AD date strings for common Bikram Sambat filtering presets.
+ */
+export function getBsDatePreset(preset: 'current_month' | 'last_month' | 'current_year'): { date_from: string; date_to: string } {
+  const today = getNepaliDate(new Date())
+  if (preset === 'current_month') {
+    const maxDays = getDaysInBsMonth(today.bsYear, today.bsMonth)
+    return {
+      date_from: bsToAdDate(today.bsYear, today.bsMonth, 1).toISOString().split('T')[0],
+      date_to: bsToAdDate(today.bsYear, today.bsMonth, maxDays).toISOString().split('T')[0],
+    }
+  }
+  if (preset === 'last_month') {
+    let y = today.bsYear
+    let m = today.bsMonth - 1
+    if (m < 1) {
+      m = 12
+      y--
+    }
+    const maxDays = getDaysInBsMonth(y, m)
+    return {
+      date_from: bsToAdDate(y, m, 1).toISOString().split('T')[0],
+      date_to: bsToAdDate(y, m, maxDays).toISOString().split('T')[0],
+    }
+  }
+  if (preset === 'current_year') {
+    const maxDays12 = getDaysInBsMonth(today.bsYear, 12)
+    return {
+      date_from: bsToAdDate(today.bsYear, 1, 1).toISOString().split('T')[0],
+      date_to: bsToAdDate(today.bsYear, 12, maxDays12).toISOString().split('T')[0],
+    }
+  }
+  return { date_from: '', date_to: '' }
+}
+
 export { NEPALI_MONTHS_EN, NEPALI_MONTHS_NP, DAYS_EN, DAYS_NP }
+

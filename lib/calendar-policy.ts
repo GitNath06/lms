@@ -105,6 +105,7 @@ export async function checkServerDateSuspension(
   } catch (err) {
     console.warn('[LMR] Fallback evaluating date suspension without DB settings:', err)
     return evaluateDateSuspension(dateStrInput, DEFAULT_HOLIDAYS, {
+      startDay: 'sun',
       sundayWeekend: false,
       saturdayWeekend: true,
     })

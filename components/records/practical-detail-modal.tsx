@@ -22,6 +22,7 @@ import {
   Monitor,
   ChevronDown,
   ChevronUp,
+  Loader2,
 } from 'lucide-react'
 import { PracticalRecordItem } from '@/types/records'
 import { updatePracticalLog, deletePracticalLog } from '@/app/actions/logs'
@@ -119,8 +120,8 @@ export default function PracticalDetailModal({
       const res = await updatePracticalLog(record.id, updatePayload)
       if (res.success) {
         setIsEditing(false)
-        onSuccess()
         onClose()
+        onSuccess()
       } else {
         setErrorMsg(res.error || 'Failed to update practical log')
       }
@@ -137,8 +138,8 @@ export default function PracticalDetailModal({
     try {
       const res = await deletePracticalLog(record.id)
       if (res.success) {
-        onSuccess()
         onClose()
+        onSuccess()
       } else {
         setErrorMsg(res.error || 'Failed to delete practical log')
       }
@@ -156,7 +157,7 @@ export default function PracticalDetailModal({
       onClick={onClose}
     >
       <div
-        className="relative w-full max-w-2xl bg-white dark:bg-zinc-950 rounded-2xl border border-zinc-200/90 dark:border-zinc-800 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+        className="relative w-full max-w-2xl bg-white dark:bg-zinc-950 rounded-2xl border border-zinc-200/90 dark:border-zinc-800 shadow-2xl overflow-hidden flex flex-col max-h-[calc(100dvh-2rem)]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}
@@ -473,7 +474,14 @@ export default function PracticalDetailModal({
                         onClick={handleDelete}
                         className="h-7 text-xs bg-rose-600 hover:bg-rose-700 text-white font-bold"
                       >
-                        {isDeleting ? 'Deleting...' : 'Yes, Delete'}
+                        {isDeleting ? (
+                          <>
+                            <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                            <span>Deleting...</span>
+                          </>
+                        ) : (
+                          <span>Yes, Delete</span>
+                        )}
                       </Button>
                       <Button
                         variant="outline"
@@ -660,8 +668,17 @@ export default function PracticalDetailModal({
                   disabled={isSubmitting}
                   className="text-xs font-mono font-bold bg-indigo-600 hover:bg-indigo-700 text-white gap-1.5 shadow-xs"
                 >
-                  <Save className="h-3.5 w-3.5" />
-                  <span>{isSubmitting ? 'Saving...' : 'Save Modifications'}</span>
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="h-3.5 w-3.5" />
+                      <span>Save Modifications</span>
+                    </>
+                  )}
                 </Button>
               </div>
             </form>

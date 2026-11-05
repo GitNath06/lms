@@ -160,7 +160,13 @@ export default function SyllabusProgress() {
                     </div>
                     <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-slate-400 font-sans">
                       <span>{log.lab} • {log.teacher}</span>
-                      <span className="font-mono text-[11px]">{log.date}</span>
+                      <span className="font-mono text-[11px]">
+                        {typeof (log.date as any) === 'string'
+                          ? log.date
+                          : (log.date as any) instanceof Date
+                          ? `${(log.date as any).getFullYear()}-${String((log.date as any).getMonth() + 1).padStart(2, '0')}-${String((log.date as any).getDate()).padStart(2, '0')}`
+                          : String(log.date || '')}
+                      </span>
                     </div>
                   </div>
                 )

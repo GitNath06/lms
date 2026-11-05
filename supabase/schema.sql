@@ -354,7 +354,7 @@ CREATE TABLE IF NOT EXISTS public.rate_limit_events (
 
 -- Table: public.schedules
 CREATE TABLE IF NOT EXISTS public.schedules (
-  id text NOT NULL,
+  id text DEFAULT ('sess-' || gen_random_uuid()::text) NOT NULL,
   lab_id text NOT NULL,
   teacher_id uuid,
   subject_name text NOT NULL,
@@ -854,7 +854,7 @@ END $$;
 
 -- student_enrollments_roll_number_check ON student_enrollments
 DO $$ BEGIN
-  ALTER TABLE student_enrollments ADD CONSTRAINT student_enrollments_roll_number_check CHECK (roll_number > 0 AND roll_number <= 200);
+  ALTER TABLE student_enrollments ADD CONSTRAINT student_enrollments_roll_number_check CHECK (roll_number > 0 AND roll_number <= 250);
 EXCEPTION WHEN duplicate_object OR duplicate_table THEN NULL;
 END $$;
 
@@ -938,7 +938,7 @@ END $$;
 
 -- lab_incidents_lab_id_fkey ON lab_incidents
 DO $$ BEGIN
-  ALTER TABLE lab_incidents ADD CONSTRAINT lab_incidents_lab_id_fkey FOREIGN KEY (lab_id) REFERENCES labs(id) ON DELETE CASCADE;
+  ALTER TABLE lab_incidents ADD CONSTRAINT lab_incidents_lab_id_fkey FOREIGN KEY (lab_id) REFERENCES labs(id) ON DELETE RESTRICT;
 EXCEPTION WHEN duplicate_object OR duplicate_table THEN NULL;
 END $$;
 
@@ -1040,7 +1040,7 @@ END $$;
 
 -- practical_logs_lab_id_fkey ON practical_logs
 DO $$ BEGIN
-  ALTER TABLE practical_logs ADD CONSTRAINT practical_logs_lab_id_fkey FOREIGN KEY (lab_id) REFERENCES labs(id) ON DELETE CASCADE;
+  ALTER TABLE practical_logs ADD CONSTRAINT practical_logs_lab_id_fkey FOREIGN KEY (lab_id) REFERENCES labs(id) ON DELETE RESTRICT;
 EXCEPTION WHEN duplicate_object OR duplicate_table THEN NULL;
 END $$;
 
@@ -1232,7 +1232,7 @@ END $$;
 
 -- workstations_lab_id_fkey ON workstations
 DO $$ BEGIN
-  ALTER TABLE workstations ADD CONSTRAINT workstations_lab_id_fkey FOREIGN KEY (lab_id) REFERENCES labs(id) ON DELETE CASCADE;
+  ALTER TABLE workstations ADD CONSTRAINT workstations_lab_id_fkey FOREIGN KEY (lab_id) REFERENCES labs(id) ON DELETE RESTRICT;
 EXCEPTION WHEN duplicate_object OR duplicate_table THEN NULL;
 END $$;
 
@@ -1611,24 +1611,21 @@ CREATE OR REPLACE FUNCTION public.handle_new_user()
  SECURITY DEFINER
 AS $function$
 begin
-  insert into public.profiles (id, email, phone, full_name, role, department, approval_status, is_active, permissions)
+  insert into public.profiles (id, email, phone, full_name, role, approval_status, is_active, permissions)
   values (
     new.id,
     new.email,
     new.raw_user_meta_data->>'phone',
     coalesce(new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)),
-    coalesce(new.raw_user_meta_data->>'role', 'teacher'),
-    coalesce(new.raw_user_meta_data->>'department', 'Science Department'),
-    coalesce(new.raw_user_meta_data->>'approval_status', 'approved'),
+    'teacher',
+    'pending',
     true,
     '{}'::jsonb
   )
   on conflict (id) do update set
     email = excluded.email,
     phone = coalesce(excluded.phone, public.profiles.phone),
-    full_name = excluded.full_name,
-    role = excluded.role,
-    department = excluded.department;
+    full_name = excluded.full_name;
   return new;
 end;
 $function$
@@ -1720,33 +1717,63 @@ CREATE OR REPLACE FUNCTION public.sync_practical_log_attendance()
  SECURITY DEFINER
 AS $function$
 declare
-  effective_headcount int;
-  r int;
-  is_absent boolean;
+  v_effective_headcount integer;
+  v_academic_year_id text;
+  v_class_id text;
 begin
-  effective_headcount := coalesce(
-    nullif(new.total_students, 0),
-    nullif(new.present_students + new.absent_students, 0),
-    (select coalesce(max(val), 0) from unnest(new.absent_rolls) as val),
-    40
-  );
+  -- Optimization: On UPDATE, exit immediately if attendance inputs haven't changed
+  if tg_op = 'UPDATE' then
+    if old.absent_rolls is not distinct from new.absent_rolls 
+       and old.total_students is not distinct from new.total_students then
+      return new;
+    end if;
+  end if;
 
-  delete from public.log_attendance where log_id = new.id;
+  v_effective_headcount := coalesce(new.total_students, 0);
 
-  if effective_headcount > 0 then
-    for r in 1..effective_headcount loop
-      is_absent := (new.absent_rolls is not null and r = any(new.absent_rolls));
-      insert into public.log_attendance (id, log_id, roll_number, is_present, created_at)
-      values (
-        gen_random_uuid()::text,
-        new.id,
-        r,
-        not is_absent,
-        now()
-      )
-      on conflict (log_id, roll_number) do update set
-        is_present = excluded.is_present;
-    end loop;
+  if v_effective_headcount > 0 then
+    -- Look up academic_year_id and class_id if class_subject_id is provided
+    if new.class_subject_id is not null then
+      select academic_year_id, class_id 
+      into v_academic_year_id, v_class_id
+      from public.class_subjects
+      where id = new.class_subject_id;
+    end if;
+
+    -- Set-based insert using generate_series(1, effective_headcount)
+    insert into public.log_attendance (
+      id,
+      log_id,
+      roll_number,
+      is_present,
+      student_id,
+      enrollment_id,
+      created_at
+    )
+    select
+      gen_random_uuid()::text,
+      new.id,
+      s.roll,
+      not (new.absent_rolls is not null and s.roll = any(new.absent_rolls)),
+      se.student_id,
+      se.id as enrollment_id,
+      now()
+    from generate_series(1, v_effective_headcount) as s(roll)
+    left join public.student_enrollments se
+      on se.academic_year_id = v_academic_year_id
+     and se.class_id = v_class_id
+     and se.roll_number = s.roll
+     and se.status = 'active'
+    on conflict (log_id, roll_number) do update set
+      is_present = excluded.is_present,
+      student_id = coalesce(public.log_attendance.student_id, excluded.student_id),
+      enrollment_id = coalesce(public.log_attendance.enrollment_id, excluded.enrollment_id);
+
+    -- Prune any roll numbers beyond effective_headcount
+    delete from public.log_attendance 
+    where log_id = new.id and roll_number > v_effective_headcount;
+  else
+    delete from public.log_attendance where log_id = new.id;
   end if;
 
   return new;
@@ -1983,7 +2010,23 @@ END $$;
 
 -- Policy: "Allow manage log_attendance" on log_attendance
 DO $$ BEGIN
-  CREATE POLICY "Allow manage log_attendance" ON public.log_attendance AS PERMISSIVE FOR ALL TO public USING (true);
+  CREATE POLICY "Allow manage log_attendance" ON public.log_attendance AS PERMISSIVE FOR ALL TO authenticated 
+  USING (
+    public.is_privileged() 
+    OR EXISTS (
+      SELECT 1 FROM public.practical_logs pl 
+      WHERE pl.id = log_attendance.log_id 
+        AND (pl.teacher_id = auth.uid() OR pl.logged_by = auth.uid())
+    )
+  )
+  WITH CHECK (
+    public.is_privileged() 
+    OR EXISTS (
+      SELECT 1 FROM public.practical_logs pl 
+      WHERE pl.id = log_attendance.log_id 
+        AND (pl.teacher_id = auth.uid() OR pl.logged_by = auth.uid())
+    )
+  );
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
@@ -2077,9 +2120,65 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
--- Policy: "Allow manage schedules" on schedules
+-- Policy: "Privileged manage schedules" on schedules
 DO $$ BEGIN
-  CREATE POLICY "Allow manage schedules" ON public.schedules AS PERMISSIVE FOR ALL TO public USING (true);
+  CREATE POLICY "Privileged manage schedules" ON public.schedules AS PERMISSIVE FOR ALL TO authenticated USING (public.is_privileged()) WITH CHECK (public.is_privileged());
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Policy: "Teacher request slot booking" on schedules
+DO $$ BEGIN
+  CREATE POLICY "Teacher request slot booking" ON public.schedules
+  AS PERMISSIVE FOR INSERT TO authenticated
+  WITH CHECK (
+    public.is_privileged()
+    OR (
+      public.is_approved_staff()
+      AND teacher_id = auth.uid()
+      AND (
+        metadata->>'status' = 'requested'
+        OR (metadata IS NOT NULL AND metadata->>'status' = 'requested')
+      )
+    )
+  );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Policy: "Teacher cancel pending slot request" on schedules
+DO $$ BEGIN
+  CREATE POLICY "Teacher cancel pending slot request" ON public.schedules
+  AS PERMISSIVE FOR DELETE TO authenticated
+  USING (
+    public.is_privileged()
+    OR (
+      public.is_approved_staff()
+      AND teacher_id = auth.uid()
+      AND metadata->>'status' = 'requested'
+    )
+  );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Policy: "Teacher update own pending slot request" on schedules
+DO $$ BEGIN
+  CREATE POLICY "Teacher update own pending slot request" ON public.schedules
+  AS PERMISSIVE FOR UPDATE TO authenticated
+  USING (
+    public.is_privileged()
+    OR (
+      public.is_approved_staff()
+      AND teacher_id = auth.uid()
+      AND metadata->>'status' = 'requested'
+    )
+  )
+  WITH CHECK (
+    public.is_privileged()
+    OR (
+      public.is_approved_staff()
+      AND teacher_id = auth.uid()
+      AND metadata->>'status' = 'requested'
+    )
+  );
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
@@ -2121,7 +2220,15 @@ END $$;
 
 -- Policy: "read_student_enrollments_scoped" on student_enrollments
 DO $$ BEGIN
-  CREATE POLICY "read_student_enrollments_scoped" ON public.student_enrollments AS PERMISSIVE FOR SELECT TO public USING (true);
+  CREATE POLICY "read_student_enrollments_scoped" ON public.student_enrollments AS PERMISSIVE FOR SELECT TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.profiles
+      WHERE id = auth.uid()
+        AND approval_status = 'approved'
+        AND is_active = true
+    )
+  );
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
@@ -2133,7 +2240,15 @@ END $$;
 
 -- Policy: "read_students_scoped" on students
 DO $$ BEGIN
-  CREATE POLICY "read_students_scoped" ON public.students AS PERMISSIVE FOR SELECT TO public USING (true);
+  CREATE POLICY "read_students_scoped" ON public.students AS PERMISSIVE FOR SELECT TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.profiles
+      WHERE id = auth.uid()
+        AND approval_status = 'approved'
+        AND is_active = true
+    )
+  );
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
@@ -2208,3 +2323,39 @@ DO $$ BEGIN
   CREATE POLICY "Allow read workstations" ON public.workstations AS PERMISSIVE FOR SELECT TO public USING (true);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
+
+-- Profile Escalation Guard Function
+CREATE OR REPLACE FUNCTION public.protect_profile_escalation()
+RETURNS TRIGGER AS $$
+BEGIN
+  -- Bypass check for direct database pool / superuser / service_role connections (server actions)
+  IF current_user IN ('postgres', 'supabase_admin') 
+     OR (current_setting('request.jwt.claim.role', true) = 'service_role') 
+     OR auth.uid() IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  -- For authenticated client sessions (e.g. Supabase REST API), verify Super Admin role
+  IF (OLD.role IS DISTINCT FROM NEW.role 
+      OR OLD.approval_status IS DISTINCT FROM NEW.approval_status 
+      OR OLD.permissions IS DISTINCT FROM NEW.permissions 
+      OR OLD.is_active IS DISTINCT FROM NEW.is_active) THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM public.profiles 
+      WHERE id = auth.uid() AND role = 'super_admin' AND is_active = true
+    ) THEN
+      RAISE EXCEPTION 'Access Denied: Only Super Administrators can alter user roles, approval statuses, permissions, or active status.';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_protect_profile_escalation ON public.profiles;
+CREATE TRIGGER trg_protect_profile_escalation
+  BEFORE UPDATE ON public.profiles
+  FOR EACH ROW
+  EXECUTE FUNCTION public.protect_profile_escalation();
+
+-- Revoke sensitive workstation telemetry/tokens from anon
+REVOKE SELECT (pairing_token, machine_guid) ON public.workstations FROM anon;

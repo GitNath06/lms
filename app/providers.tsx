@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { ThemeProvider as NextThemesProvider } from 'next-themes'
+import { PwaRegister } from '@/components/pwa/pwa-register'
 
 // Suppress known false-positive React 19 script tag warning from next-themes in development
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
@@ -31,6 +32,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
       enableSystem
       disableTransitionOnChange
     >
+      <PwaRegister />
       {children}
     </NextThemesProvider>
   )

@@ -63,40 +63,28 @@ export async function saveLabFloorElements(
 
     const supabase = await createClient()
 
-    // Upsert elements
-    for (const el of elements) {
+    // Batch upsert elements in a single round-trip
+    const toUpsert = elements.map((el) => {
       const { x, y } = clampFloorCoordinates(el.pos_x, el.pos_y)
+      return {
+        ...(el.id ? { id: el.id } : {}),
+        lab_id: labId,
+        element_type: el.element_type,
+        label: el.label.trim(),
+        pos_x: x,
+        pos_y: y,
+        width: el.width || 12.0,
+        height: el.height || 4.0,
+        rotation: el.rotation || 0,
+        metadata: el.metadata || {},
+        is_active: el.is_active !== undefined ? el.is_active : true,
+      }
+    })
 
-      if (el.id) {
-        await supabase
-          .from('lab_floor_elements')
-          .update({
-            element_type: el.element_type,
-            label: el.label.trim(),
-            pos_x: x,
-            pos_y: y,
-            width: el.width || 12.0,
-            height: el.height || 4.0,
-            rotation: el.rotation || 0,
-            metadata: el.metadata || {},
-            is_active: el.is_active !== undefined ? el.is_active : true,
-          })
-          .eq('id', el.id)
-      } else {
-        await supabase
-          .from('lab_floor_elements')
-          .insert({
-            lab_id: labId,
-            element_type: el.element_type,
-            label: el.label.trim(),
-            pos_x: x,
-            pos_y: y,
-            width: el.width || 12.0,
-            height: el.height || 4.0,
-            rotation: el.rotation || 0,
-            metadata: el.metadata || {},
-            is_active: true,
-          })
+    if (toUpsert.length > 0) {
+      const { error } = await (supabase.from('lab_floor_elements') as any).upsert(toUpsert)
+      if (error) {
+        return { success: false, error: error.message }
       }
     }
 

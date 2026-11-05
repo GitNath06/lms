@@ -19,6 +19,7 @@ import {
 } from '@/types/records'
 import { getPracticalRecords } from '@/app/actions/records'
 import { getActiveLabs, getTeachers } from '@/app/actions/logs'
+import { getCachedData, setCachedData, fetchWithClientCache } from '@/lib/cache/client-query-cache'
 import { filtersToSearchParams, searchParamsToFilters } from '@/lib/report-spec/filter-codec'
 import PracticalSummaryStrip from '@/components/records/practical-summary-strip'
 import PracticalFilterBar from '@/components/records/practical-filter-bar'
@@ -44,8 +45,12 @@ export default function PracticalRecordsPage() {
   const [userRole, setUserRole] = useState<string>('teacher')
   const [userName, setUserName] = useState<string>('')
   const [userScope, setUserScope] = useState<any>(null)
-  const [labs, setLabs] = useState<Array<{ id: string; name: string }>>([])
-  const [teachers, setTeachers] = useState<Array<{ id: string; full_name: string }>>([])
+  const [labs, setLabs] = useState<Array<{ id: string; name: string }>>(() => {
+    return getCachedData<Array<{ id: string; name: string }>>('master:active-labs') || []
+  })
+  const [teachers, setTeachers] = useState<Array<{ id: string; full_name: string }>>(() => {
+    return getCachedData<Array<{ id: string; full_name: string }>>('master:active-teachers') || []
+  })
   const [academicYears, setAcademicYears] = useState<Array<{ id: string; name: string; isCurrent: boolean }>>([])
   const [activeAcademicYearId, setActiveAcademicYearId] = useState<string | null>(null)
 
@@ -92,11 +97,11 @@ export default function PracticalRecordsPage() {
     async function loadMasterData() {
       try {
         const [activeLabs, activeTeachers] = await Promise.all([
-          getActiveLabs(),
-          getTeachers(),
+          fetchWithClientCache('master:active-labs', () => getActiveLabs(), { staleTimeMs: 300_000 }),
+          fetchWithClientCache('master:active-teachers', () => getTeachers(), { staleTimeMs: 300_000 }),
         ])
-        setLabs(activeLabs)
-        setTeachers(activeTeachers)
+        if (Array.isArray(activeLabs)) setLabs(activeLabs)
+        if (Array.isArray(activeTeachers)) setTeachers(activeTeachers)
       } catch (err) {
         console.warn('Failed to load labs/teachers:', err)
       }
@@ -109,7 +114,12 @@ export default function PracticalRecordsPage() {
     setIsLoading(true)
     startTransition(async () => {
       try {
-        const res = await getPracticalRecords(filters, groupBy)
+        const cacheKey = `records:list:${JSON.stringify(filters)}:${groupBy}`
+        const res = await fetchWithClientCache(
+          cacheKey,
+          () => getPracticalRecords(filters, groupBy),
+          { staleTimeMs: 60_000 }
+        )
         if (res.success) {
           setSections(res.sections)
           setMetrics(res.metrics)
@@ -130,17 +140,21 @@ export default function PracticalRecordsPage() {
   }
 
   useEffect(() => {
-    fetchRecords()
+    const handler = setTimeout(() => {
+      fetchRecords()
 
-    // Sync URL search params with current filters without reloading
-    if (typeof window !== 'undefined') {
-      const params = filtersToSearchParams({
-        ...filters,
-        groupBy: groupBy !== 'none' ? groupBy : undefined,
-      })
-      const newUrl = `${window.location.pathname}?${params.toString()}`
-      window.history.replaceState(null, '', newUrl)
-    }
+      // Sync URL search params with current filters without reloading
+      if (typeof window !== 'undefined') {
+        const params = filtersToSearchParams({
+          ...filters,
+          groupBy: groupBy !== 'none' ? groupBy : undefined,
+        })
+        const newUrl = `${window.location.pathname}?${params.toString()}`
+        window.history.replaceState(null, '', newUrl)
+      }
+    }, 300)
+
+    return () => clearTimeout(handler)
   }, [filters, groupBy])
 
   const handleFiltersChange = (newFilters: Partial<PracticalRecordFilters>) => {

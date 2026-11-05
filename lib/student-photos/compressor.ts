@@ -52,8 +52,11 @@ export async function compressStudentAvatar(
           // Draw center-cropped square resized to targetSize
           ctx.drawImage(img, srcX, srcY, minDim, minDim, 0, 0, targetSize, targetSize)
 
-          // Encode to JPEG data URL
-          const dataUrl = canvas.toDataURL('image/jpeg', quality)
+          // Encode to WebP data URL with fallback to JPEG if WebP is unsupported
+          let dataUrl = canvas.toDataURL('image/webp', quality)
+          if (!dataUrl.startsWith('data:image/webp')) {
+            dataUrl = canvas.toDataURL('image/jpeg', quality)
+          }
           // Estimate byte size from base64 string
           const base64Length = dataUrl.length - (dataUrl.indexOf(',') + 1)
           const sizeBytes = Math.round((base64Length * 3) / 4)

@@ -241,7 +241,6 @@ export default function UserAccessManager({
       })
 
       if (res.success) {
-        triggerToast(`Account created for ${newFullName} (${newRole.replace('_', ' ').toUpperCase()})!`)
         setIsAddUserOpen(false)
         setNewFullName('')
         setNewEmail('')
@@ -249,7 +248,8 @@ export default function UserAccessManager({
         setNewPassword('')
         setNewPhotoUrl(null)
         broadcastSync('users', { action: 'created' })
-        loadUsers()
+        await loadUsers()
+        triggerToast(`Account created for ${newFullName} (${newRole.replace('_', ' ').toUpperCase()})!`)
       } else {
         triggerToast(`❌ ${res.error || 'Failed to create user'}`)
       }
@@ -274,7 +274,6 @@ export default function UserAccessManager({
       })
 
       if (res.success) {
-        triggerToast(`Credentials updated for ${editFullName}!`)
         setEditingUser(null)
         if (selectedDrawerUser?.id === editingUser.id) {
           setSelectedDrawerUser((prev) =>
@@ -292,7 +291,8 @@ export default function UserAccessManager({
           )
         }
         broadcastSync('users', { action: 'updated' })
-        loadUsers()
+        await loadUsers()
+        triggerToast(`Credentials updated for ${editFullName}!`)
       } else {
         triggerToast(`❌ ${res.error || 'Failed to update credentials'}`)
       }
@@ -1037,7 +1037,7 @@ export default function UserAccessManager({
                 </label>
                 <Input
                   required
-                  placeholder="e.g. Dr. Prakash Adhikari"
+                  placeholder="e.g. Ram Bahadur Thapa"
                   value={newFullName}
                   onChange={(e) => setNewFullName(e.target.value)}
                   className="h-8.5 text-xs font-sans"
@@ -1119,7 +1119,14 @@ export default function UserAccessManager({
                   disabled={isSubmitting}
                   className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs"
                 >
-                  {isSubmitting ? 'Creating...' : 'Create Account'}
+                  {isSubmitting ? (
+                    <span className="flex items-center gap-1.5">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      <span>Saving...</span>
+                    </span>
+                  ) : (
+                    <span>Create Account</span>
+                  )}
                 </Button>
               </div>
             </form>
@@ -1274,7 +1281,14 @@ export default function UserAccessManager({
                   disabled={isSubmitting}
                   className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs"
                 >
-                  {isSubmitting ? 'Saving...' : 'Update Credentials'}
+                  {isSubmitting ? (
+                    <span className="flex items-center gap-1.5">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      <span>Saving...</span>
+                    </span>
+                  ) : (
+                    <span>Update Credentials</span>
+                  )}
                 </Button>
               </div>
             </form>

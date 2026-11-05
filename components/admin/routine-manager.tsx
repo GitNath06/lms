@@ -36,25 +36,20 @@ import {
 } from 'lucide-react'
 import {
   DAYS,
-  MASTER_TIME_SLOTS,
-  LAB_ROOMS,
-  DEFAULT_CLASSES,
-  DEFAULT_SUBJECTS,
   MasterRoutineItem,
   DayKey,
   DayName,
   computeCombinedTimeRange,
   formatGradeBadge,
+  matchesGrade,
 } from '@/lib/master-data'
-import { matchesGrade } from '@/lib/context/institutional-relationships'
 import { useRoutineState } from '@/hooks/use-routine-state'
-import {
-  useInfrastructureState,
-  LabFacilityItem,
-  ClassEnrollmentItem,
-  FacultyMemberItem,
-  SubjectCurriculumItem,
-} from '@/hooks/use-infrastructure-state'
+import { getClassesAction } from '@/app/actions/classes'
+import { getSubjectsAction, getClassSubjectsAction } from '@/app/actions/subjects'
+import { getLabFacilitiesAction } from '@/app/actions/labs'
+import { getTeachers } from '@/app/actions/logs'
+import { getPeriodSlotsAction } from '@/app/actions/settings'
+import { fetchWithClientCache } from '@/lib/cache/client-query-cache'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -124,8 +119,61 @@ export default function RoutineManager({ isEditModeUnlocked }: RoutineManagerPro
     resetToMaster,
   } = useRoutineState()
 
-  const { labs, classes, faculty, subjects, periods } = useInfrastructureState()
-  const activeSlots = periods && periods.length > 0 ? periods : MASTER_TIME_SLOTS
+  const [dbClasses, setDbClasses] = useState<Array<{ id: string; name: string; capacity?: number | null; grade?: number | null; section?: string | null }>>([])
+  const [dbSubjects, setDbSubjects] = useState<Array<{ id: string; code: string; name: string; default_lab_id: string | null }>>([])
+  const [dbClassSubjects, setDbClassSubjects] = useState<Array<{ id: string; class_id: string; subject_id: string; subject_code?: string; subject_name?: string; default_lab_id?: string | null }>>([])
+  const [dbLabs, setDbLabs] = useState<Array<{ id: string; name: string; code?: string; capacity?: number; type?: string }>>([])
+  const [dbTeachers, setDbTeachers] = useState<Array<{ id: string; full_name: string; role?: string }>>([])
+  const [activeSlots, setActiveSlots] = useState<Array<{ id: string; name: string; label: string }>>([])
+
+  React.useEffect(() => {
+    let isMounted = true
+    async function loadData() {
+      try {
+        const [clsRes, subjRes, classSubjRes, labRes, teachRes, periodsRes] = await Promise.all([
+          fetchWithClientCache('classes:admin:active', () => getClassesAction({ activeOnly: true }), { staleTimeMs: 60_000 }),
+          fetchWithClientCache('subjects:admin:active', () => getSubjectsAction({ activeOnly: true }), { staleTimeMs: 60_000 }),
+          fetchWithClientCache('class-subjects:admin:all', () => getClassSubjectsAction(), { staleTimeMs: 60_000 }),
+          fetchWithClientCache('labs:admin:all', () => getLabFacilitiesAction(), { staleTimeMs: 60_000 }),
+          fetchWithClientCache('teachers:admin:all', () => getTeachers(), { staleTimeMs: 60_000 }),
+          fetchWithClientCache('settings:period-slots', () => getPeriodSlotsAction(), { staleTimeMs: 120_000 }),
+        ])
+
+        if (!isMounted) return
+
+        if (clsRes.success && clsRes.data) {
+          setDbClasses(clsRes.data)
+        }
+        if (subjRes.success && subjRes.data) {
+          setDbSubjects(subjRes.data)
+        }
+        if (classSubjRes.success && classSubjRes.data) {
+          setDbClassSubjects(classSubjRes.data)
+        }
+        if (labRes.success && labRes.data) {
+          setDbLabs(labRes.data)
+        }
+        if (Array.isArray(teachRes)) {
+          setDbTeachers(teachRes)
+        }
+        if (periodsRes.success && periodsRes.data && periodsRes.data.length > 0) {
+          setActiveSlots(
+            periodsRes.data.map((p) => ({
+              id: p.id,
+              name: p.name || p.id.toUpperCase(),
+              label: p.label || (p as any).time || p.id,
+            }))
+          )
+        }
+      } catch (err) {
+        console.error('Failed to load canonical infrastructure in RoutineManager:', err)
+      }
+    }
+    loadData()
+    return () => {
+      isMounted = false
+    }
+  }, [])
 
   // View Mode: 'by_day' (Default - Groups by day to eliminate repetition), 'by_lab', 'matrix', 'flat'
   const [viewMode, setViewMode] = useState<ViewMode>('by_day')
@@ -150,23 +198,40 @@ export default function RoutineManager({ isEditModeUnlocked }: RoutineManagerPro
   const [formDayKey, setFormDayKey] = useState<DayKey>('sun')
   const [formSlotId, setFormSlotId] = useState<string>('t1')
   const [formSpan, setFormSpan] = useState<number>(1)
-  const [formLabKey, setFormLabKey] = useState<'comp' | 'phys' | 'chem' | 'bio' | 'elec'>('comp')
+  const [formLabKey, setFormLabKey] = useState<MasterRoutineItem['labKey']>('comp')
   const [formGrade, setFormGrade] = useState<string>('12C')
   const [formSubjectCode, setFormSubjectCode] = useState<string>('')
   const [formSubjectTitle, setFormSubjectTitle] = useState<string>('')
   const [formTeacher, setFormTeacher] = useState<string>('')
+  const [formClassSubjectId, setFormClassSubjectId] = useState<string | null>(null)
   const [formStudents, setFormStudents] = useState<number>(36)
   const [formError, setFormError] = useState<string | null>(null)
 
   // Curriculum subjects dynamically filtered for currently selected formGrade
   const curriculumSubjectsForGrade = useMemo(() => {
-    const raw = subjects && subjects.length > 0 ? subjects : DEFAULT_SUBJECTS
-    const direct = raw.filter((s) => s.grade === formGrade)
-    if (direct.length > 0) return direct
-    const fuzzy = raw.filter((s) => matchesGrade(s.grade, formGrade))
-    if (fuzzy.length > 0) return fuzzy
-    return raw
-  }, [subjects, formGrade])
+    const matchedClass = dbClasses.find(
+      (c) => c.name.toLowerCase() === formGrade.toLowerCase() || c.id.toLowerCase() === formGrade.toLowerCase()
+    )
+    if (matchedClass) {
+      const assigned = dbClassSubjects.filter((cs) => cs.class_id === matchedClass.id)
+      if (assigned.length > 0) {
+        return assigned.map((cs) => ({
+          classSubjectId: cs.id,
+          code: cs.subject_code || cs.subject_id,
+          title: cs.subject_name || cs.subject_code || 'Practical Subject',
+          labId: cs.default_lab_id || 'comp',
+          grade: matchedClass.name,
+        }))
+      }
+    }
+    return dbSubjects.map((s) => ({
+      classSubjectId: null,
+      code: s.code,
+      title: s.name,
+      labId: s.default_lab_id || 'comp',
+      grade: formGrade,
+    }))
+  }, [dbClasses, dbClassSubjects, dbSubjects, formGrade])
 
   const showNotification = (msg: string) => {
     setActionSuccessMsg(msg)
@@ -188,7 +253,7 @@ export default function RoutineManager({ isEditModeUnlocked }: RoutineManagerPro
       DAYS.forEach((d) => {
         all[d.id] = true
       })
-      LAB_ROOMS.forEach((l) => {
+      dbLabs.forEach((l) => {
         all[l.id] = true
       })
       setCollapsedSections(all)
@@ -198,16 +263,19 @@ export default function RoutineManager({ isEditModeUnlocked }: RoutineManagerPro
   // Open Add Modal
   const handleOpenAddModal = (presetDay?: DayKey, presetSlotId?: string, presetLabKey?: any) => {
     setFormDayKey(presetDay || (selectedDay !== 'all' ? (selectedDay as DayKey) : 'sun'))
-    setFormSlotId(presetSlotId || 't1')
+    setFormSlotId(presetSlotId || activeSlots[0]?.id || 't1')
     setFormSpan(1)
-    const initialGrade = classes[0]?.name || '12 Eng'
+    if (presetLabKey) setFormLabKey(presetLabKey)
+    const initialGrade = dbClasses[0]?.name || ''
     setFormGrade(initialGrade)
-    const matchingSubs = subjects.filter((s) => s.grade === initialGrade || matchesGrade(s.grade, initialGrade))
-    const firstSubj = matchingSubs[0] || subjects[0]
-    setFormSubjectCode(firstSubj?.code || 'COMP-12')
-    setFormSubjectTitle(firstSubj?.title || 'Data Structures & Algorithms Lab')
-    setFormTeacher(firstSubj?.teacherName || faculty[0]?.name || 'Er. Anish Karki')
-    setFormStudents(classes[0]?.capacity || 36)
+    const matchedClass = dbClasses.find((c) => c.name === initialGrade) || dbClasses[0]
+    const classSubs = matchedClass ? dbClassSubjects.filter((cs) => cs.class_id === matchedClass.id) : []
+    const firstSubj = classSubs[0] || dbSubjects[0]
+    setFormClassSubjectId(firstSubj ? firstSubj.id : null)
+    setFormSubjectCode(firstSubj?.subject_code || (firstSubj as any)?.code || '')
+    setFormSubjectTitle(firstSubj?.subject_name || (firstSubj as any)?.name || '')
+    setFormTeacher(dbTeachers[0]?.full_name || '')
+    setFormStudents(dbClasses[0]?.capacity || 30)
     setFormError(null)
     setIsAddModalOpen(true)
   }
@@ -222,6 +290,7 @@ export default function RoutineManager({ isEditModeUnlocked }: RoutineManagerPro
     setFormGrade(session.grade)
     setFormSubjectCode(session.subjectCode)
     setFormSubjectTitle(session.subjectTitle)
+    setFormClassSubjectId(session.classSubjectId || null)
     setFormTeacher(session.teacher)
     setFormStudents(session.defaultStudents || 36)
     setFormError(null)
@@ -235,15 +304,15 @@ export default function RoutineManager({ isEditModeUnlocked }: RoutineManagerPro
       if (r.dayKey !== formDayKey) return false
       if (r.labKey !== formLabKey) return false
 
-      const rStart = MASTER_TIME_SLOTS.findIndex((s) => s.id === r.slotId)
+      const rStart = activeSlots.findIndex((s) => s.id === r.slotId)
       const rEnd = rStart + (r.span || 1) - 1
-      const fStart = MASTER_TIME_SLOTS.findIndex((s) => s.id === formSlotId)
+      const fStart = activeSlots.findIndex((s) => s.id === formSlotId)
       const fEnd = fStart + formSpan - 1
 
       if (rStart === -1 || fStart === -1) return false
       return fStart <= rEnd && fEnd >= rStart
     })
-  }, [routines, editingSession, formDayKey, formLabKey, formSlotId, formSpan])
+  }, [routines, editingSession, formDayKey, formLabKey, formSlotId, formSpan, activeSlots])
 
   // Save Add or Edit
   const handleSaveSession = async (e: React.FormEvent) => {
@@ -263,8 +332,8 @@ export default function RoutineManager({ isEditModeUnlocked }: RoutineManagerPro
     const dayName: DayName = dayObj?.label || 'Sunday'
     const computedTimeSlot = computeCombinedTimeRange(formSlotId, formSpan, activeSlots)
 
-    const labObj = LAB_ROOMS.find((l) => l.id === formLabKey)
-    const labName = labObj?.name || 'Computer Lab'
+    const labObj = dbLabs.find((l) => l.id === formLabKey)
+    const labName = labObj?.name || 'Laboratory'
 
     // Determine category and styling colors
     let category: MasterRoutineItem['category'] = 'Computer'
@@ -309,6 +378,23 @@ export default function RoutineManager({ isEditModeUnlocked }: RoutineManagerPro
         ? 'class-7'
         : 'class-6'
 
+    // Resolve authoritative classSubjectId
+    let resolvedCsId = formClassSubjectId
+    if (!resolvedCsId) {
+      const matchedClass = dbClasses.find(
+        (c) => c.name.toLowerCase() === formGrade.toLowerCase() || c.id.toLowerCase() === formGrade.toLowerCase()
+      )
+      if (matchedClass) {
+        const exactCs = dbClassSubjects.find(
+          (cs) =>
+            cs.class_id === matchedClass.id &&
+            (cs.subject_code?.toLowerCase() === formSubjectCode.toLowerCase() ||
+              cs.subject_id?.toLowerCase() === formSubjectCode.toLowerCase())
+        )
+        if (exactCs) resolvedCsId = exactCs.id
+      }
+    }
+
     if (editingSession) {
       await updateSession(editingSession.id, {
         day: dayName,
@@ -323,6 +409,7 @@ export default function RoutineManager({ isEditModeUnlocked }: RoutineManagerPro
         teacher: formTeacher.trim(),
         lab: labName as any,
         labKey: formLabKey,
+        classSubjectId: resolvedCsId,
         defaultStudents: formStudents,
         category,
         dotColor,
@@ -346,6 +433,7 @@ export default function RoutineManager({ isEditModeUnlocked }: RoutineManagerPro
         teacher: formTeacher.trim(),
         lab: labName as any,
         labKey: formLabKey,
+        classSubjectId: resolvedCsId,
         defaultStudents: formStudents,
         category,
         dotColor,
@@ -460,8 +548,8 @@ export default function RoutineManager({ isEditModeUnlocked }: RoutineManagerPro
     // Sort chronologically within each day
     map.forEach((items, dayKey) => {
       items.sort((a, b) => {
-        const aIdx = MASTER_TIME_SLOTS.findIndex((s) => s.id === a.slotId)
-        const bIdx = MASTER_TIME_SLOTS.findIndex((s) => s.id === b.slotId)
+        const aIdx = activeSlots.findIndex((s) => s.id === a.slotId)
+        const bIdx = activeSlots.findIndex((s) => s.id === b.slotId)
         return aIdx - bIdx
       })
     })
@@ -470,12 +558,12 @@ export default function RoutineManager({ isEditModeUnlocked }: RoutineManagerPro
       day: d,
       items: map.get(d.id) || [],
     }))
-  }, [filteredRoutines])
+  }, [filteredRoutines, activeSlots])
 
   // Groups by Facility
   const groupedByLab = useMemo(() => {
     const map = new Map<string, MasterRoutineItem[]>()
-    LAB_ROOMS.forEach((l) => {
+    dbLabs.forEach((l) => {
       map.set(l.id, [])
     })
 
@@ -485,11 +573,11 @@ export default function RoutineManager({ isEditModeUnlocked }: RoutineManagerPro
       map.set(r.labKey, list)
     })
 
-    return LAB_ROOMS.map((l) => ({
+    return dbLabs.map((l) => ({
       lab: l,
       items: map.get(l.id) || [],
     }))
-  }, [filteredRoutines])
+  }, [filteredRoutines, dbLabs])
 
   // Get Lab Icon & Accent (Neutral Institutional Standard)
   const getLabVisuals = (labKey: string) => {
@@ -917,7 +1005,7 @@ export default function RoutineManager({ isEditModeUnlocked }: RoutineManagerPro
                             const span = session.span || 1
                             const visuals = getLabVisuals(session.labKey)
                             const dynamicDur = getDynamicDuration(session.timeSlot, span)
-                            const slotObj = MASTER_TIME_SLOTS.find((s) => s.id === session.slotId)
+                            const slotObj = activeSlots.find((s) => s.id === session.slotId)
 
                             return (
                               <TableRow
@@ -1539,7 +1627,7 @@ export default function RoutineManager({ isEditModeUnlocked }: RoutineManagerPro
                     onChange={(e) => setFormLabKey(e.target.value as any)}
                     className="w-full h-9 px-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900 text-xs font-mono font-medium text-zinc-900 dark:text-zinc-100"
                   >
-                    {labs.map((l) => (
+                    {dbLabs.map((l) => (
                       <option key={l.id} value={l.id}>
                         {l.name}
                       </option>
@@ -1609,16 +1697,26 @@ export default function RoutineManager({ isEditModeUnlocked }: RoutineManagerPro
                     onChange={(e) => {
                       const newGrade = e.target.value
                       setFormGrade(newGrade)
-                      const targetCls = classes.find((c) => c.name === newGrade)
-                      if (targetCls) {
+                      const targetCls = dbClasses.find((c) => c.name === newGrade)
+                      if (targetCls && targetCls.capacity) {
                         setFormStudents(targetCls.capacity)
+                      }
+                      const classSubs = targetCls ? dbClassSubjects.filter((cs) => cs.class_id === targetCls.id) : []
+                      const matchingSub = classSubs.find((cs) => (cs.subject_code || cs.subject_id) === formSubjectCode) || classSubs[0]
+                      if (matchingSub) {
+                        setFormClassSubjectId(matchingSub.id)
+                        setFormSubjectCode(matchingSub.subject_code || matchingSub.subject_id)
+                        setFormSubjectTitle(matchingSub.subject_name || matchingSub.subject_code || '')
+                        if (matchingSub.default_lab_id) setFormLabKey(matchingSub.default_lab_id as any)
+                      } else {
+                        setFormClassSubjectId(null)
                       }
                     }}
                     className="w-full h-9 px-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900 text-xs font-mono font-medium text-zinc-900 dark:text-zinc-100"
                   >
-                    {classes.map((c) => (
+                    {dbClasses.map((c) => (
                       <option key={c.id} value={c.name}>
-                        {c.name} {c.stream ? `(${c.stream})` : ''}
+                        {c.name} {c.section ? `(${c.section})` : ''}
                       </option>
                     ))}
                   </select>
@@ -1652,28 +1750,28 @@ export default function RoutineManager({ isEditModeUnlocked }: RoutineManagerPro
                     </span>
                   </div>
                   <select
+                    value={curriculumSubjectsForGrade.some((s) => s.code === formSubjectCode) ? formSubjectCode : ''}
                     onChange={(e) => {
                       const code = e.target.value
-                      if (!code) return
-                      const sub = subjects.find((s) => s.code === code) || DEFAULT_SUBJECTS.find((s) => s.code === code)
+                      if (!code) {
+                        setFormClassSubjectId(null)
+                        return
+                      }
+                      const sub = curriculumSubjectsForGrade.find((s) => s.code === code) || dbSubjects.find((s) => s.code === code)
                       if (sub) {
+                        setFormClassSubjectId((sub as any).classSubjectId || null)
                         setFormSubjectCode(sub.code)
-                        setFormSubjectTitle(sub.title)
-                        if (sub.labId) setFormLabKey(sub.labId as any)
-                        if ('teacherName' in sub && (sub as any).teacherName) {
-                          setFormTeacher((sub as any).teacherName)
-                        } else if (sub.teacherId) {
-                          const t = faculty.find((f) => f.id === sub.teacherId)
-                          if (t) setFormTeacher(t.name)
-                        }
+                        setFormSubjectTitle((sub as any).title || (sub as any).name || '')
+                        if ('labId' in sub && (sub as any).labId) setFormLabKey((sub as any).labId)
+                        if ((sub as any).default_lab_id) setFormLabKey((sub as any).default_lab_id)
                       }
                     }}
                     className="w-full h-9 px-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900 text-xs font-mono font-medium text-zinc-900 dark:text-zinc-100"
                   >
                     <option value="">Choose subject from curriculum to auto-fill...</option>
                     {curriculumSubjectsForGrade.map((s) => (
-                      <option key={s.code} value={s.code}>
-                        {s.code} — {s.title} ({s.lab || 'Laboratory'})
+                      <option key={s.classSubjectId || s.code} value={s.code}>
+                        {s.code} — {s.title}
                       </option>
                     ))}
                   </select>
@@ -1720,9 +1818,9 @@ export default function RoutineManager({ isEditModeUnlocked }: RoutineManagerPro
                     className="w-1/2 h-9 px-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900 text-xs font-mono text-zinc-900 dark:text-zinc-100"
                   >
                     <option value="">Select Faculty...</option>
-                    {faculty.map((f) => (
-                      <option key={f.id} value={f.name}>
-                        {f.name} ({f.role || 'Faculty'})
+                    {dbTeachers.map((f) => (
+                      <option key={f.id} value={f.full_name}>
+                        {f.full_name} ({f.role || 'Faculty'})
                       </option>
                     ))}
                   </select>

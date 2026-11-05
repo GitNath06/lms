@@ -754,3 +754,88 @@ export function getLabDeskFloorStructure(
     centralAisle,
   }
 }
+
+/**
+ * Detects and auto-distributes colliding workstation coordinates
+ * so workstations never stack on top of each other.
+ * If two or more workstations are within 3% distance of each other,
+ * the colliding workstation is automatically placed into the next unoccupied canonical slot.
+ */
+export function deduplicateWorkstationCoordinates<
+  T extends { id: string; label: string; pos_x: number; pos_y: number; row_label?: string | null; position_id?: string | null }
+>(workstations: T[]): T[] {
+  const canonicalSlots = generateRoomGridSlots(
+    {
+      sides: 2,
+      rows: 6,
+      columns: 4,
+      rowNaming: 'letters',
+      terminalNaming: 'preserve',
+    },
+    2
+  )
+
+  const placed: { x: number; y: number }[] = []
+  const occupiedSlotIndices = new Set<number>()
+
+  // 1. Identify which canonical slots are already accurately occupied
+  for (const ws of workstations) {
+    for (const slot of canonicalSlots) {
+      if (Math.hypot(slot.pos_x - ws.pos_x, slot.pos_y - ws.pos_y) < 1.5) {
+        occupiedSlotIndices.add(slot.slotIndex + 1)
+        break
+      }
+    }
+  }
+
+  // 2. Map and redistribute duplicates
+  return workstations.map((ws) => {
+    const isTeacher =
+      ws.row_label?.toLowerCase().includes('teacher') ||
+      ws.label.toLowerCase().includes('teacher') ||
+      ws.label.toLowerCase().includes('podium')
+
+    if (isTeacher) {
+      placed.push({ x: ws.pos_x, y: ws.pos_y })
+      return ws
+    }
+
+    // Check collision with already placed stations (distance < 3%)
+    const hasCollision = placed.some(
+      (p) => Math.hypot(p.x - ws.pos_x, p.y - ws.pos_y) < 3
+    )
+
+    if (!hasCollision) {
+      placed.push({ x: ws.pos_x, y: ws.pos_y })
+      return ws
+    }
+
+    // Colliding station! Find its natural PC slot or next unoccupied canonical slot
+    const pcNumMatch = ws.label.match(/\d+/)
+    const pcNum = pcNumMatch ? parseInt(pcNumMatch[0], 10) : null
+
+    let targetSlot = pcNum
+      ? canonicalSlots.find((s) => s.slotIndex + 1 === pcNum && !occupiedSlotIndices.has(s.slotIndex + 1))
+      : undefined
+
+    if (!targetSlot) {
+      targetSlot = canonicalSlots.find((s) => !occupiedSlotIndices.has(s.slotIndex + 1))
+    }
+
+    if (targetSlot) {
+      occupiedSlotIndices.add(targetSlot.slotIndex + 1)
+      placed.push({ x: targetSlot.pos_x, y: targetSlot.pos_y })
+      return {
+        ...ws,
+        pos_x: targetSlot.pos_x,
+        pos_y: targetSlot.pos_y,
+        row_label: targetSlot.rowLabel,
+        position_id: targetSlot.positionId,
+      }
+    }
+
+    placed.push({ x: ws.pos_x, y: ws.pos_y })
+    return ws
+  })
+}
+

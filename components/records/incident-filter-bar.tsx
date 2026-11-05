@@ -10,6 +10,9 @@ import {
   Calendar,
   Wrench,
   Filter,
+  SlidersHorizontal,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react'
 import { IncidentRecordFilters } from '@/types/records'
 import { Button } from '@/components/ui/button'
@@ -32,6 +35,19 @@ export default function IncidentFilterBar({
 }: IncidentFilterBarProps) {
   // Local draft state for coarse scope filtering — commits on search or select change
   const [draftFilters, setDraftFilters] = useState<IncidentRecordFilters>(filters)
+  const [isMobileExpanded, setIsMobileExpanded] = useState(false)
+
+  const activeFilterCount = [
+    draftFilters.academic_year_id && draftFilters.academic_year_id !== 'all',
+    draftFilters.lab_id && draftFilters.lab_id !== 'all',
+    draftFilters.severity && draftFilters.severity !== 'all',
+    draftFilters.status && draftFilters.status !== 'all',
+    draftFilters.incident_type && draftFilters.incident_type !== 'all',
+    draftFilters.date_from,
+    draftFilters.date_to,
+    draftFilters.equipment_name,
+    draftFilters.title,
+  ].filter(Boolean).length
 
   useEffect(() => {
     setDraftFilters(filters)
@@ -98,7 +114,24 @@ export default function IncidentFilterBar({
           </div>
         </div>
 
-        <div className="flex items-center gap-2 self-end sm:self-auto">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
+          {/* Mobile on-demand toggle button */}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setIsMobileExpanded(!isMobileExpanded)}
+            className="md:hidden h-8 px-2.5 rounded-xl text-xs font-sans border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-200 gap-1.5"
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5 text-indigo-500" />
+            <span>Filters {activeFilterCount > 0 ? `(${activeFilterCount})` : ''}</span>
+            {isMobileExpanded ? (
+              <ChevronUp className="h-3 w-3 text-zinc-400" />
+            ) : (
+              <ChevronDown className="h-3 w-3 text-zinc-400" />
+            )}
+          </Button>
+
           <Button
             type="button"
             variant="outline"
@@ -121,8 +154,9 @@ export default function IncidentFilterBar({
         </div>
       </div>
 
-      {/* Filter Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 pt-2 border-t border-zinc-100 dark:border-zinc-800/80 text-xs">
+      {/* Filter Grid - Collapsible on Mobile */}
+      <div className={`${isMobileExpanded ? 'block' : 'hidden md:block'} space-y-3.5`}>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 pt-2 border-t border-zinc-100 dark:border-zinc-800/80 text-xs">
         {/* 1. Academic Year */}
         <div className="space-y-1">
           <label className="text-[11px] font-mono uppercase text-zinc-600 dark:text-slate-300 font-bold flex items-center gap-1">
@@ -226,6 +260,7 @@ export default function IncidentFilterBar({
             align="right"
           />
         </div>
+      </div>
       </div>
     </form>
   )

@@ -8,6 +8,7 @@ import PrintLayout from '@/components/print/print-layout'
 import { maintenanceReportSpec } from '@/lib/report-spec/maintenance-spec'
 import { truncateAtWordBoundary } from '@/lib/report-spec/filter-codec'
 import { FootnoteEntry, PrintDensityMode } from '@/types/report-spec'
+import { formatToNepaliMiti } from '@/lib/nepali-date'
 
 interface PrintMaintenanceViewProps {
   data: MaintenanceOverviewData
@@ -15,15 +16,16 @@ interface PrintMaintenanceViewProps {
 }
 
 export default function PrintMaintenanceView({ data, labId }: PrintMaintenanceViewProps) {
-  const [densityMode, setDensityMode] = useState<PrintDensityMode>(() => {
+  const [densityMode, setDensityMode] = useState<PrintDensityMode>('detailed')
+
+  React.useEffect(() => {
     if (typeof window !== 'undefined') {
       try {
         const saved = localStorage.getItem('lmr_print_density_mode') as PrintDensityMode | null
-        if (saved === 'compact' || saved === 'detailed') return saved
+        if (saved === 'compact' || saved === 'detailed') setDensityMode(saved)
       } catch {}
     }
-    return 'detailed'
-  })
+  }, [])
 
   const labDisplayName =
     labId === 'comp'
@@ -125,7 +127,7 @@ export default function PrintMaintenanceView({ data, labId }: PrintMaintenanceVi
       }
     >
       {/* Ledger Table */}
-      <div className="border border-zinc-300 rounded-lg overflow-hidden print:border print:border-zinc-800 print:rounded-none print-dense-table">
+      <div className="border border-zinc-300 rounded-lg overflow-hidden print:border-0 print:m-0 print:rounded-none print-dense-table">
         <table className="w-full text-left text-xs border-collapse print:text-[8.5pt]">
           <thead className="print:table-header-group">
             <tr className="bg-zinc-100 border-b border-zinc-300 text-[10px] text-zinc-800 uppercase font-bold print:text-[8pt] print:h-6">
@@ -190,7 +192,21 @@ export default function PrintMaintenanceView({ data, labId }: PrintMaintenanceVi
                 return (
                   <tr key={log.id} className="break-inside-avoid print:break-inside-avoid print:leading-[1.15]">
                     <td className="py-2.5 px-3 print:py-0.5 print:px-1.5 border-r border-zinc-300 print:border-zinc-300 font-medium text-zinc-900 whitespace-nowrap align-top print:text-[8pt]">
-                      {log.service_date}
+                      {(() => {
+                        const miti = formatToNepaliMiti(log.service_date)
+                        return miti ? (
+                          <div className="flex flex-col">
+                            <span className="font-bold print:text-[8pt] text-zinc-900 font-heading">
+                              {miti.bsFormattedNp}
+                            </span>
+                            <span className="text-[9px] print:text-[6.5pt] text-zinc-500 font-mono">
+                              {miti.adDateStr}
+                            </span>
+                          </div>
+                        ) : (
+                          log.service_date
+                        )
+                      })()}
                     </td>
                     <td className="py-2.5 px-3 print:py-0.5 print:px-1.5 border-r border-zinc-300 print:border-zinc-300 align-top text-[10px] print:text-[7.5pt] font-bold uppercase text-zinc-700">
                       {log.lab_name || log.lab_id}

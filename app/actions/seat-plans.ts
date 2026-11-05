@@ -59,19 +59,20 @@ async function resolveCanonicalClass(supabase: any, classIdOrName: string): Prom
  * Returns the complete floor plan, workstation assignments, active issues,
  * and unassigned student tray for a specific laboratory cohort.
  */
-export async function getLabSeatPlan(params: {
+async function _internalGetLabSeatPlan(params: {
   labId: string
   classId: string
   academicYearId?: string
-  internalBypassScopeCheck?: boolean
+  skipScopeCheck?: boolean
 }): Promise<{ success: boolean; data?: CohortSeatPlanData; error?: string }> {
   try {
-    const scope = await getServerUserScope()
-
-    if (!params.internalBypassScopeCheck && !isScopeAuthorized(scope.assignedClasses, scope.assignedLabIds, scope.isPrivileged, params.classId, params.labId)) {
-      return {
-        success: false,
-        error: `Access denied: You do not have permission to view seat plan for ${params.classId} in lab ${params.labId}.`,
+    if (!params.skipScopeCheck) {
+      const scope = await getServerUserScope()
+      if (!isScopeAuthorized(scope.assignedClasses, scope.assignedLabIds, scope.isPrivileged, params.classId, params.labId)) {
+        return {
+          success: false,
+          error: `Access denied: You do not have permission to view seat plan for ${params.classId} in lab ${params.labId}.`,
+        }
       }
     }
 
@@ -117,15 +118,24 @@ export async function getLabSeatPlan(params: {
     }
     const workstations = workstationsData || []
 
-    // 4. Fetch active issues for these workstations
+    // 4. Fetch active issues for these workstations (direct pg pool)
     const wsIds = workstations.map((w: any) => w.id)
-    const { data: issuesData } = wsIds.length > 0
-      ? await supabase
-          .from('workstation_issues')
-          .select('id, workstation_id, title, severity, status')
-          .in('workstation_id', wsIds)
-          .in('status', ['open', 'acknowledged', 'in_progress'])
-      : { data: [] }
+    let issuesData: any[] = []
+    if (wsIds.length > 0) {
+      try {
+        const pool = getPgPool()
+        const issuesRes = await pool.query(
+          `SELECT id, workstation_id, title, severity, status 
+           FROM public.workstation_issues 
+           WHERE workstation_id = ANY($1::uuid[]) 
+             AND status IN ('open', 'acknowledged', 'in_progress')`,
+          [wsIds]
+        )
+        issuesData = issuesRes.rows || []
+      } catch (err) {
+        console.error('Error fetching seat plan workstation issues via pg pool:', err)
+      }
+    }
 
     const issueMap = new Map<string, any>()
     ;(issuesData || []).forEach((issue: any) => {
@@ -174,7 +184,8 @@ export async function getLabSeatPlan(params: {
         student_name: row.student_enrollments.students.full_name,
         roll_number: row.student_enrollments.roll_number,
         notes: row.notes,
-        photo_url: row.student_enrollments.students.photo_url || null,
+        photo_url: null,
+        has_photo: Boolean(row.student_enrollments?.students?.photo_url),
       })
       assignedEnrollmentIds.add(row.enrollment_id)
     })
@@ -191,8 +202,10 @@ export async function getLabSeatPlan(params: {
             reason,
             enrollment_id,
             student_enrollments!inner (
+              student_id,
               roll_number,
               students!inner (
+                id,
                 full_name,
                 photo_url
               )
@@ -209,11 +222,13 @@ export async function getLabSeatPlan(params: {
     ;(overridesData || []).forEach((ov: any) => {
       overrideMap.set(ov.workstation_id, {
         override_id: ov.id,
+        student_id: ov.student_enrollments?.students?.id || ov.student_enrollments?.student_id,
         student_name: ov.student_enrollments.students.full_name,
         roll_number: ov.student_enrollments.roll_number,
         reason: ov.reason,
         original_workstation_label: ov.original_ws?.label || null,
-        photo_url: ov.student_enrollments.students.photo_url || null,
+        photo_url: null,
+        has_photo: Boolean(ov.student_enrollments?.students?.photo_url),
       })
     })
 
@@ -290,6 +305,18 @@ export async function getLabSeatPlan(params: {
     const msg = err instanceof Error ? err.message : 'Unknown error'
     return { success: false, error: msg }
   }
+}
+
+/**
+ * Public Server Action: Returns the complete floor plan, workstation assignments, active issues,
+ * and unassigned student tray for a specific laboratory cohort.
+ */
+export async function getLabSeatPlan(params: {
+  labId: string
+  classId: string
+  academicYearId?: string
+}): Promise<{ success: boolean; data?: CohortSeatPlanData; error?: string }> {
+  return _internalGetLabSeatPlan({ ...params, skipScopeCheck: false })
 }
 
 /**
@@ -537,15 +564,24 @@ export async function autoAssignRemainingSeats(
     // 3. Available workstations (not occupied and not under critical hardware repair)
     const availableWsCandidates = workstations.filter((w: any) => !occupiedWsIds.has(w.id))
 
-    // Check for critical/high severe issues or active repair (in_progress) that make a workstation unusable
+    // Check for critical/high severe issues or active repair (in_progress) that make a workstation unusable (direct pg pool)
     const candidateIds = availableWsCandidates.map((w: any) => w.id)
-    const { data: candidateIssues } = candidateIds.length > 0
-      ? await supabase
-          .from('workstation_issues')
-          .select('workstation_id, severity, status')
-          .in('workstation_id', candidateIds)
-          .in('status', ['open', 'in_progress'])
-      : { data: [] }
+    let candidateIssues: any[] = []
+    if (candidateIds.length > 0) {
+      try {
+        const pool = getPgPool()
+        const issuesRes = await pool.query(
+          `SELECT workstation_id, severity, status 
+           FROM public.workstation_issues 
+           WHERE workstation_id = ANY($1::uuid[]) 
+             AND status IN ('open', 'in_progress')`,
+          [candidateIds]
+        )
+        candidateIssues = issuesRes.rows || []
+      } catch (err) {
+        console.error('Error fetching candidate issues via pg pool:', err)
+      }
+    }
 
     // Unavailable if actively under repair (in_progress) or severe fault (critical/high). Minor issues remain usable!
     const unavailableWsIds = new Set<string>()
@@ -910,10 +946,10 @@ export async function getSessionSeatPlan(params: {
     const effectiveClassId = canonicalClass?.id || schedule.batch_name
 
     // 4. Fetch base Tier 1 plan (session ownership already validated above)
-    const basePlanRes = await getLabSeatPlan({
+    const basePlanRes = await _internalGetLabSeatPlan({
       labId: schedule.lab_id,
       classId: effectiveClassId,
-      internalBypassScopeCheck: true,
+      skipScopeCheck: true,
     })
 
     if (!basePlanRes.success || !basePlanRes.data) {

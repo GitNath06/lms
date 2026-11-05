@@ -18,6 +18,8 @@ import { Select } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
 import { NepaliDatePicker } from '@/components/ui/nepali-date-picker'
 import { createAdHocSession } from '@/app/actions/live-session'
+import { getEffectiveDate } from '@/lib/time-simulator'
+import { getNepalDateStr } from '@/lib/nepali-date'
 
 interface StartAdHocSessionModalProps {
   isOpen: boolean
@@ -49,22 +51,39 @@ export function StartAdHocSessionModal({
 }: StartAdHocSessionModalProps) {
   const [selectedClassId, setSelectedClassId] = useState<string>('')
   const [selectedClassSubjectId, setSelectedClassSubjectId] = useState<string>('')
-  const [sessionDate, setSessionDate] = useState<string>('')
-  const [startTime, setStartTime] = useState<string>('10:00')
-  const [endTime, setEndTime] = useState<string>('11:00')
+  const [sessionDate, setSessionDate] = useState<string>(() => getNepalDateStr(getEffectiveDate()))
+  const [startTime, setStartTime] = useState<string>(() => {
+    const d = getEffectiveDate()
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  })
+  const [endTime, setEndTime] = useState<string>(() => {
+    const d = new Date(getEffectiveDate().getTime() + 45 * 60 * 1000)
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Initialize date to today in YYYY-MM-DD
+  // Re-synchronize time and date whenever modal opens
   useEffect(() => {
-    const today = new Date().toISOString().split('T')[0]
-    setSessionDate(today)
+    if (isOpen) {
+      const now = getEffectiveDate()
+      const nowH = String(now.getHours()).padStart(2, '0')
+      const nowM = String(now.getMinutes()).padStart(2, '0')
+      setStartTime(`${nowH}:${nowM}`)
 
-    // Set default class if available
-    if (classes.length > 0 && !selectedClassId) {
-      setSelectedClassId(classes[0].id)
+      const endD = new Date(now.getTime() + 45 * 60 * 1000)
+      const endH = String(endD.getHours()).padStart(2, '0')
+      const endM = String(endD.getMinutes()).padStart(2, '0')
+      setEndTime(`${endH}:${endM}`)
+
+      setSessionDate(getNepalDateStr(now))
+
+      // Set default class if available
+      if (classes.length > 0 && !selectedClassId) {
+        setSelectedClassId(classes[0].id)
+      }
     }
-  }, [classes, selectedClassId])
+  }, [isOpen, classes, selectedClassId])
 
   // Filter available subjects for selected class from classSubjects
   const availableAssignments = classSubjects.filter(
@@ -116,18 +135,18 @@ export function StartAdHocSessionModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-xs font-sans">
-      <div className="w-full max-w-lg rounded-2xl border border-white/[0.08] bg-[#101726] shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+      <div className="w-full max-w-lg rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 max-h-[calc(100dvh-2rem)] flex flex-col text-zinc-900 dark:text-white">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-white/[0.08] p-4.5 bg-[#151E32]/60">
+        <div className="flex items-center justify-between border-b border-zinc-200 dark:border-white/[0.08] p-4.5 bg-zinc-50 dark:bg-[#151E32]/60 shrink-0">
           <div className="flex items-center gap-2.5">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-              <Play className="h-4 w-4 fill-indigo-400" />
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-500/20">
+              <Play className="h-4 w-4 fill-indigo-600 dark:fill-indigo-400" />
             </span>
             <div>
-              <h3 className="font-heading font-extrabold text-base text-white">
+              <h3 className="font-heading font-extrabold text-base text-zinc-900 dark:text-white">
                 Start Unscheduled Session
               </h3>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-zinc-600 dark:text-slate-400">
                 Launch an ad-hoc practical lab or makeup period in {labName}
               </p>
             </div>
@@ -135,32 +154,32 @@ export function StartAdHocSessionModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-white/5 hover:text-white transition-colors"
+            className="rounded-lg p-1.5 text-zinc-400 dark:text-slate-400 hover:bg-zinc-100 dark:hover:bg-white/5 hover:text-zinc-900 dark:hover:text-white transition-colors"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
         {/* Form */}
-        <form onSubmit={handleStartSession} className="p-5 space-y-4">
+        <form onSubmit={handleStartSession} className="p-5 space-y-4 overflow-y-auto flex-1">
           {error && (
-            <div className="flex items-center gap-2 rounded-xl bg-rose-500/10 border border-rose-500/20 p-3 text-xs text-rose-300">
-              <AlertCircle className="h-4 w-4 shrink-0 text-rose-400" />
+            <div className="flex items-center gap-2 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 p-3 text-xs text-rose-700 dark:text-rose-300">
+              <AlertCircle className="h-4 w-4 shrink-0 text-rose-500 dark:text-rose-400" />
               <span>{error}</span>
             </div>
           )}
 
           {/* Class Cohort */}
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-              <GraduationCap className="h-3.5 w-3.5 text-indigo-400" />
+            <label className="text-xs font-semibold text-zinc-700 dark:text-slate-300 flex items-center gap-1.5">
+              <GraduationCap className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
               <span>Academic Cohort / Class</span>
             </label>
             <Select
               required
               value={selectedClassId}
               onChange={(e) => setSelectedClassId(e.target.value)}
-              className="h-10 text-xs font-medium bg-[#151E32] border-white/10 text-white rounded-xl"
+              className="h-10 text-xs font-medium bg-zinc-50 dark:bg-[#151E32] border-zinc-200 dark:border-white/10 text-zinc-900 dark:text-white rounded-xl"
             >
               {classes.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -172,8 +191,8 @@ export function StartAdHocSessionModal({
 
           {/* Subject Assignment */}
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-              <BookOpen className="h-3.5 w-3.5 text-indigo-400" />
+            <label className="text-xs font-semibold text-zinc-700 dark:text-slate-300 flex items-center gap-1.5">
+              <BookOpen className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
               <span>Curriculum Subject</span>
             </label>
             {availableAssignments.length > 0 ? (
@@ -181,7 +200,7 @@ export function StartAdHocSessionModal({
                 required
                 value={selectedClassSubjectId}
                 onChange={(e) => setSelectedClassSubjectId(e.target.value)}
-                className="h-10 text-xs font-medium bg-[#151E32] border-white/10 text-white rounded-xl"
+                className="h-10 text-xs font-medium bg-zinc-50 dark:bg-[#151E32] border-zinc-200 dark:border-white/10 text-zinc-900 dark:text-white rounded-xl"
               >
                 {availableAssignments.map((cs) => (
                   <option key={cs.id} value={cs.id}>
@@ -190,7 +209,7 @@ export function StartAdHocSessionModal({
                 ))}
               </Select>
             ) : (
-              <div className="rounded-xl border border-dashed border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-300">
+              <div className="rounded-xl border border-dashed border-amber-300 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-300">
                 No active teaching assignments found for this class. Select another class.
               </div>
             )}
@@ -199,8 +218,8 @@ export function StartAdHocSessionModal({
           {/* Date & Time Slot */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-300 flex items-center gap-1">
-                <Calendar className="h-3.5 w-3.5 text-indigo-400" />
+              <label className="text-xs font-semibold text-zinc-700 dark:text-slate-300 flex items-center gap-1">
+                <Calendar className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
                 <span>Session Date</span>
               </label>
               <NepaliDatePicker
@@ -211,8 +230,8 @@ export function StartAdHocSessionModal({
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-300 flex items-center gap-1">
-                <Clock className="h-3.5 w-3.5 text-indigo-400" />
+              <label className="text-xs font-semibold text-zinc-700 dark:text-slate-300 flex items-center gap-1">
+                <Clock className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
                 <span>Start Time</span>
               </label>
               <Input
@@ -220,13 +239,13 @@ export function StartAdHocSessionModal({
                 required
                 value={startTime}
                 onChange={(e) => setStartTime(e.target.value)}
-                className="h-10 text-xs bg-[#151E32] border-white/10 text-white rounded-xl"
+                className="h-10 text-xs bg-zinc-50 dark:bg-[#151E32] border-zinc-200 dark:border-white/10 text-zinc-900 dark:text-white rounded-xl"
               />
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-300 flex items-center gap-1">
-                <Clock className="h-3.5 w-3.5 text-indigo-400" />
+              <label className="text-xs font-semibold text-zinc-700 dark:text-slate-300 flex items-center gap-1">
+                <Clock className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
                 <span>End Time</span>
               </label>
               <Input
@@ -234,26 +253,26 @@ export function StartAdHocSessionModal({
                 required
                 value={endTime}
                 onChange={(e) => setEndTime(e.target.value)}
-                className="h-10 text-xs bg-[#151E32] border-white/10 text-white rounded-xl"
+                className="h-10 text-xs bg-zinc-50 dark:bg-[#151E32] border-zinc-200 dark:border-white/10 text-zinc-900 dark:text-white rounded-xl"
               />
             </div>
           </div>
 
-          <div className="rounded-xl border border-white/[0.06] bg-[#151E32]/40 p-3 text-[11px] text-slate-400 flex items-start gap-2">
-            <Sparkles className="h-3.5 w-3.5 text-indigo-400 shrink-0 mt-0.5" />
+          <div className="rounded-xl border border-zinc-200 dark:border-white/[0.06] bg-zinc-50 dark:bg-[#151E32]/40 p-3 text-[11px] text-zinc-600 dark:text-slate-400 flex items-start gap-2">
+            <Sparkles className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400 shrink-0 mt-0.5" />
             <span>
               This will instantly create an ad-hoc timetable slot and derive the expected student roster from the canonical database without text heuristics.
             </span>
           </div>
 
           {/* Action Buttons */}
-          <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-white/[0.08]">
+          <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-zinc-200 dark:border-white/[0.08]">
             <Button
               type="button"
               variant="outline"
               onClick={onClose}
               disabled={loading}
-              className="h-9 px-4 text-xs rounded-xl border-white/10 text-slate-300 hover:bg-white/5"
+              className="h-9 px-4 text-xs rounded-xl border-zinc-200 dark:border-white/10 text-zinc-700 dark:text-slate-300 hover:bg-zinc-100 dark:hover:bg-white/5"
             >
               Cancel
             </Button>

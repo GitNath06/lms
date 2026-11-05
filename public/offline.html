@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Offline — LabSync LIMS</title>
+  <style>
+    :root {
+      color-scheme: dark;
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #09090b;
+      color: #f4f4f5;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      box-sizing: border-box;
+      padding: 24px;
+      text-align: center;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 9999px;
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #f87171;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 20px;
+    }
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: #ef4444;
+    }
+    h1 {
+      font-size: 24px;
+      font-weight: 700;
+      margin: 0 0 10px 0;
+      color: #ffffff;
+      letter-spacing: -0.02em;
+    }
+    p {
+      font-size: 14px;
+      color: #a1a1aa;
+      max-width: 380px;
+      line-height: 1.5;
+      margin: 0 0 28px 0;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: #4f46e5;
+      color: #ffffff;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background-color 0.15s ease;
+      touch-action: manipulation;
+    }
+    .btn:hover {
+      background: #4338ca;
+    }
+    .btn:active {
+      transform: scale(0.98);
+    }
+    .cached-notice {
+      margin-top: 24px;
+      font-size: 12px;
+      color: #71717a;
+    }
+  </style>
+</head>
+<body>
+  <div class="badge">
+    <div class="pulse-dot"></div>
+    <span>Offline Mode Active</span>
+  </div>
+  <h1>No Laboratory Connection</h1>
+  <p>
+    You are disconnected from the institutional network. Previously opened workspaces remain accessible offline.
+  </p>
+  <button class="btn" onclick="window.location.reload()">
+    Retry Connection
+  </button>
+  <div class="cached-notice">
+    LabSync LIMS • Offline Cache Engine v1.0
+  </div>
+</body>
+</html>
+

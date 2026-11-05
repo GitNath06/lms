@@ -19,6 +19,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { saveMaintenancePlan, MaintenancePlanRecord } from '@/app/actions/maintenance'
+import { getMaintenanceRoutineTemplates } from '@/app/actions/maintenance-templates'
+import type { MaintenanceRoutineTemplateRow } from '@/types/database'
 
 interface CreatePlanModalProps {
   isOpen: boolean
@@ -36,53 +38,6 @@ const PRESET_INTERVALS = [
   { label: 'Annual (365d)', days: 365 },
 ]
 
-const COMPUTER_ROUTINE_PRESETS = [
-  {
-    title: 'PC Thermal Paste & Heatsink Cleaning',
-    category: 'Thermal & Hardware',
-    intervalDays: 180,
-    severity: 'routine' as const,
-    checklist: [
-      'Clean CPU heatsink and remove old thermal grease',
-      'Apply fresh Arctic MX-4 compound onto processor',
-      'Vacuum intake and exhaust dust filters',
-      'Verify idle and stress temperatures remain < 70°C',
-    ],
-  },
-  {
-    title: 'BIOS Firmware & Driver Patching',
-    category: 'Firmware & OS',
-    intervalDays: 120,
-    severity: 'high' as const,
-    checklist: [
-      'Flash motherboards with latest stable OEM BIOS release',
-      'Update chipset and network adapter drivers',
-      'Verify Secure Boot and TPM 2.0 status across machines',
-    ],
-  },
-  {
-    title: 'PC Deep Dusting & Power Supply Inspection',
-    category: 'Hardware Maintenance',
-    intervalDays: 90,
-    severity: 'routine' as const,
-    checklist: [
-      'Blow out internal dust from case, GPU, and RAM slots',
-      'Check power supply fan spin and exhaust temperature',
-      'Inspect SATA/NVMe drive cables and cable ties',
-    ],
-  },
-  {
-    title: 'Lab Software Image & Security Update Rollout',
-    category: 'Software & Security',
-    intervalDays: 60,
-    severity: 'routine' as const,
-    checklist: [
-      'Deploy latest Windows updates and IDE compilers (VSCode, GCC, Python)',
-      'Update student freeze/restore software (DeepFreeze/RebootRestore)',
-      'Verify network drive mounting and offline cache permissions',
-    ],
-  },
-]
 
 export default function CreatePlanModal({
   isOpen,
@@ -111,16 +66,33 @@ export default function CreatePlanModal({
   const [newCheckItem, setNewCheckItem] = useState('')
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
+  const [availableTemplates, setAvailableTemplates] = useState<MaintenanceRoutineTemplateRow[]>([])
+
+  React.useEffect(() => {
+    async function load() {
+      const res = await getMaintenanceRoutineTemplates()
+      if (res.success && res.data) {
+        setAvailableTemplates(res.data)
+      }
+    }
+    load()
+  }, [])
 
   if (!isOpen) return null
 
-  const handleApplyPreset = (preset: (typeof COMPUTER_ROUTINE_PRESETS)[0]) => {
-    setTitle(preset.title)
-    setCategory(preset.category)
-    setIntervalDays(preset.intervalDays)
-    setSeverity(preset.severity)
-    setChecklist([...preset.checklist])
+  const handleApplyTemplate = (template: MaintenanceRoutineTemplateRow) => {
+    setTitle(template.title)
+    setCategory(template.category)
+    setIntervalDays(template.interval_days)
+    setSeverity(template.severity as any)
+    const list = Array.isArray(template.checklist)
+      ? template.checklist
+      : typeof template.checklist === 'string'
+      ? JSON.parse(template.checklist)
+      : []
+    setChecklist([...list])
   }
+
 
   const handleAddChecklist = () => {
     if (!newCheckItem.trim()) return
@@ -179,7 +151,7 @@ export default function CreatePlanModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] font-sans">
+      <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden flex flex-col max-h-[calc(100dvh-2rem)] font-sans">
         {/* Header */}
         <div className="p-4 sm:p-5 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between bg-zinc-50/50 dark:bg-zinc-800/30">
           <div className="flex items-center gap-3">
@@ -213,24 +185,31 @@ export default function CreatePlanModal({
             </div>
           )}
 
-          {/* Quick Computer Lab Presets */}
-          {!initialPlan && (
+          {/* Quick Routine Presets */}
+          {!initialPlan && availableTemplates.length > 0 && (
             <div className="p-3 rounded-xl bg-indigo-50/50 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/40 space-y-2">
-              <div className="text-[11px] font-semibold text-indigo-900 dark:text-indigo-300 flex items-center gap-1.5">
-                <Sparkles className="h-3.5 w-3.5 text-indigo-500" />
-                Quick Computer Lab Routine Templates:
+              <div className="text-[11px] font-semibold text-indigo-900 dark:text-indigo-300 flex items-center justify-between">
+                <span className="flex items-center gap-1.5">
+                  <Sparkles className="h-3.5 w-3.5 text-indigo-500" />
+                  Quick Routine Presets:
+                </span>
+                <span className="text-[10px] text-zinc-400 font-normal">Click to autofill template</span>
               </div>
               <div className="flex flex-wrap gap-1.5">
-                {COMPUTER_ROUTINE_PRESETS.map((preset, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => handleApplyPreset(preset)}
-                    className="text-[11px] px-2.5 py-1 rounded-lg bg-white dark:bg-zinc-900 border border-indigo-200 dark:border-indigo-800 text-indigo-800 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/50 transition-colors font-medium cursor-pointer shadow-2xs"
-                  >
-                    + {preset.title.split(' ')[0]} {preset.title.split(' ')[1]} ({preset.intervalDays}d)
-                  </button>
-                ))}
+                {availableTemplates
+                  .filter((t) => t.lab_id === labId || t.lab_id === 'all' || labId === 'all')
+                  .slice(0, 6)
+                  .map((tpl) => (
+                    <button
+                      key={tpl.id}
+                      type="button"
+                      onClick={() => handleApplyTemplate(tpl)}
+                      className="text-[11px] px-2.5 py-1 rounded-lg bg-white dark:bg-zinc-900 border border-indigo-200 dark:border-indigo-800 text-indigo-800 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/50 transition-colors font-medium cursor-pointer shadow-2xs flex items-center gap-1"
+                    >
+                      <Plus className="h-3 w-3 shrink-0" />
+                      <span>{tpl.title.split(' ').slice(0, 2).join(' ')} ({tpl.interval_days}d)</span>
+                    </button>
+                  ))}
               </div>
             </div>
           )}

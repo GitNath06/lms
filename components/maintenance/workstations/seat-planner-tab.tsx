@@ -135,16 +135,18 @@ export function SeatPlannerTab({
         setPlanData(seatRes.data)
       }
 
-      if (floorRes.success && floorRes.data) {
-        setFloorElements(floorRes.data)
+        if (floorRes.success && Array.isArray(floorRes.data)) {
+          setFloorElements(floorRes.data)
+        } else {
+          setFloorElements([])
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Error loading seat plan'
+        setError(msg)
+      } finally {
+        setLoading(false)
       }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Error loading seat plan'
-      setError(msg)
-    } finally {
-      setLoading(false)
-    }
-  }, [labId, selectedClassId, selectedYearId])
+    }, [labId, selectedClassId, selectedYearId])
 
   useEffect(() => {
     fetchSeatPlan()
@@ -319,21 +321,21 @@ export function SeatPlannerTab({
   return (
     <div className="space-y-4">
       {/* 1. TOP COHORT SELECTOR & TELEMETRY STRIP */}
-      <div className="rounded-2xl border border-white/[0.08] bg-[#101726] p-3.5 shadow-sm">
+      <div className="rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] p-3.5 shadow-sm">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           {/* Cohort Selectors: Year + Class */}
           <div className="flex items-center gap-2.5 flex-wrap">
             {/* Academic Year */}
-            <div className="flex items-center gap-1.5 rounded-xl border border-white/[0.08] bg-[#151E32] px-3 py-1.5 text-xs">
-              <Calendar className="h-3.5 w-3.5 text-indigo-400" />
-              <span className="text-[10px] uppercase font-bold text-slate-400">Year:</span>
+            <div className="flex items-center gap-1.5 rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] px-3 py-1.5 text-xs text-zinc-800 dark:text-white">
+              <Calendar className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+              <span className="text-[10px] uppercase font-bold text-zinc-500 dark:text-slate-400">Year:</span>
               <select
                 value={selectedYearId}
                 onChange={(e) => setSelectedYearId(e.target.value)}
-                className="bg-transparent font-bold text-white focus:outline-none cursor-pointer"
+                className="bg-transparent font-bold text-zinc-900 dark:text-white focus:outline-none cursor-pointer"
               >
                 {academicYears.map((yr) => (
-                  <option key={yr.id} value={yr.id} className="bg-[#101726] text-white">
+                  <option key={yr.id} value={yr.id}>
                     {yr.name}
                   </option>
                 ))}
@@ -341,16 +343,16 @@ export function SeatPlannerTab({
             </div>
 
             {/* Class / Cohort */}
-            <div className="flex items-center gap-1.5 rounded-xl border border-white/[0.08] bg-[#151E32] px-3 py-1.5 text-xs">
-              <GraduationCap className="h-3.5 w-3.5 text-emerald-400" />
-              <span className="text-[10px] uppercase font-bold text-slate-400">Class:</span>
+            <div className="flex items-center gap-1.5 rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] px-3 py-1.5 text-xs text-zinc-800 dark:text-white">
+              <GraduationCap className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+              <span className="text-[10px] uppercase font-bold text-zinc-500 dark:text-slate-400">Class:</span>
               <select
                 value={selectedClassId}
                 onChange={(e) => setSelectedClassId(e.target.value)}
-                className="bg-transparent font-bold text-white focus:outline-none cursor-pointer"
+                className="bg-transparent font-bold text-zinc-900 dark:text-white focus:outline-none cursor-pointer"
               >
                 {classes.map((cls) => (
-                  <option key={cls.id} value={cls.id} className="bg-[#101726] text-white">
+                  <option key={cls.id} value={cls.id}>
                     {cls.name}
                   </option>
                 ))}
@@ -362,7 +364,7 @@ export function SeatPlannerTab({
               type="button"
               disabled={loading}
               onClick={fetchSeatPlan}
-              className="rounded-xl border border-white/[0.08] bg-[#151E32] p-2 text-slate-400 hover:text-white transition-colors cursor-pointer"
+              className="rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] p-2 text-zinc-500 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white transition-colors cursor-pointer"
               title="Refresh seat plan"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
@@ -391,22 +393,22 @@ export function SeatPlannerTab({
           {planData && (
             <div className="flex items-center gap-4 text-xs flex-wrap">
               <div className="flex items-center gap-1.5">
-                <span className="text-slate-400">Total Enrolled:</span>
-                <span className="font-mono font-extrabold text-white tabular-nums">
+                <span className="text-zinc-500 dark:text-slate-400">Total Enrolled:</span>
+                <span className="font-mono font-extrabold text-zinc-900 dark:text-white tabular-nums">
                   {planData.total_students}
                 </span>
               </div>
-              <div className="h-3 w-px bg-white/10 hidden sm:block" />
+              <div className="h-3 w-px bg-zinc-200 dark:bg-white/10 hidden sm:block" />
               <div className="flex items-center gap-1.5">
-                <span className="text-slate-400">Seated:</span>
-                <span className="font-mono font-extrabold text-emerald-400 tabular-nums">
+                <span className="text-zinc-500 dark:text-slate-400">Seated:</span>
+                <span className="font-mono font-extrabold text-emerald-600 dark:text-emerald-400 tabular-nums">
                   {planData.assigned_count}
                 </span>
               </div>
-              <div className="h-3 w-px bg-white/10 hidden sm:block" />
+              <div className="h-3 w-px bg-zinc-200 dark:bg-white/10 hidden sm:block" />
               <div className="flex items-center gap-1.5">
-                <span className="text-slate-400">Unassigned:</span>
-                <span className="font-mono font-extrabold text-amber-400 tabular-nums">
+                <span className="text-zinc-500 dark:text-slate-400">Unassigned:</span>
+                <span className="font-mono font-extrabold text-amber-600 dark:text-amber-400 tabular-nums">
                   {planData.unassigned_count}
                 </span>
               </div>
@@ -418,17 +420,16 @@ export function SeatPlannerTab({
       {/* Floating Action / Status Toast Banner */}
       {actionMessage && (
         <div
-          className={`flex items-center justify-between p-3 rounded-xl border text-xs font-semibold shadow-lg animate-in fade-in slide-in-from-top-2 ${
-            actionMessage.type === 'success'
-              ? 'border-emerald-500/50 bg-emerald-950/80 text-emerald-200'
-              : 'border-rose-500/50 bg-rose-950/80 text-rose-200'
-          }`}
+          className={`flex items-center justify-between p-3 rounded-xl border text-xs font-semibold shadow-lg animate-in fade-in slide-in-from-top-2 ${actionMessage.type === 'success'
+              ? 'border-emerald-300 dark:border-emerald-500/50 bg-emerald-50 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-200'
+              : 'border-rose-300 dark:border-rose-500/50 bg-rose-50 dark:bg-rose-950/80 text-rose-800 dark:text-rose-200'
+            }`}
         >
           <span>{actionMessage.text}</span>
           <button
             type="button"
             onClick={() => setActionMessage(null)}
-            className="p-1 rounded hover:bg-white/10"
+            className="p-1 rounded hover:bg-zinc-200 dark:hover:bg-white/10"
           >
             <X className="h-3.5 w-3.5" />
           </button>
@@ -437,19 +438,19 @@ export function SeatPlannerTab({
 
       {/* Selected Student Active Notice */}
       {selectedStudent && (
-        <div className="flex items-center justify-between rounded-xl border border-indigo-500/50 bg-indigo-950/80 px-4 py-2 text-xs text-indigo-200 shadow-md">
+        <div className="flex items-center justify-between rounded-xl border border-indigo-200 dark:border-indigo-500/50 bg-indigo-50 dark:bg-indigo-950/80 px-4 py-2 text-xs text-indigo-900 dark:text-indigo-200 shadow-md">
           <div className="flex items-center gap-2">
-            <span className="font-extrabold font-mono bg-indigo-500/20 px-2 py-0.5 rounded">
+            <span className="font-extrabold font-mono bg-indigo-100 dark:bg-indigo-500/20 px-2 py-0.5 rounded text-indigo-700 dark:text-indigo-300">
               Roll {selectedStudent.roll_number}
             </span>
             <span>
-              Assigning <strong className="text-white">{selectedStudent.full_name}</strong> &mdash; Click any PC workstation node to place.
+              Assigning <strong className="text-zinc-900 dark:text-white">{selectedStudent.full_name}</strong> &mdash; Click any PC workstation node to place.
             </span>
           </div>
           <button
             type="button"
             onClick={() => setSelectedStudent(null)}
-            className="text-xs font-bold text-indigo-300 hover:text-white underline cursor-pointer"
+            className="text-xs font-bold text-indigo-700 dark:text-indigo-300 hover:text-indigo-950 dark:hover:text-white underline cursor-pointer"
           >
             Cancel
           </button>
@@ -461,27 +462,19 @@ export function SeatPlannerTab({
         {/* Floor Canvas Area (Primary Hero - 8 or 9 cols on desktop) */}
         <div className="lg:col-span-8 xl:col-span-9 space-y-3">
           {error ? (
-            <div className="rounded-2xl border border-rose-500/30 bg-[#101726] p-8 text-center">
+            <div className="rounded-2xl border border-rose-300 dark:border-rose-500/30 bg-white dark:bg-[#101726] p-8 text-center shadow-xs">
               <ShieldAlert className="h-10 w-10 text-rose-500 mx-auto mb-2" />
-              <h3 className="text-sm font-bold text-white">Seat Plan Unavailable</h3>
-              <p className="text-xs text-slate-400 mt-1">{error}</p>
+              <h3 className="text-sm font-bold text-zinc-900 dark:text-white">Seat Plan Unavailable</h3>
+              <p className="text-xs text-zinc-600 dark:text-slate-400 mt-1">{error}</p>
             </div>
           ) : (
             <div
-              className="relative w-full aspect-[16/9] min-h-[380px] sm:min-h-[500px] rounded-2xl border border-white/[0.08] bg-[#0B0F19] overflow-hidden select-none shadow-2xl"
-              style={{
-                backgroundImage: `
-                  radial-gradient(circle at 50% 50%, rgba(99, 102, 241, 0.03) 0%, transparent 80%),
-                  linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-                  linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px)
-                `,
-                backgroundSize: '100% 100%, 32px 32px, 32px 32px',
-              }}
+              className="cad-canvas-grid relative w-full aspect-[16/9] min-h-[380px] sm:min-h-[500px] rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-slate-100 dark:bg-[#0B0F19] overflow-hidden select-none shadow-2xl"
             >
               {/* Database-backed Floor Landmarks */}
-              {floorElements.map((el) => (
-                <FloorLandmarkNode key={el.id} element={el} />
-              ))}
+                {(Array.isArray(floorElements) ? floorElements : []).map((el) => (
+                  <FloorLandmarkNode key={el.id} element={el} />
+                ))}
 
               {/* Workstation Nodes with Student Badges */}
               {(planData?.workstations || []).map((ws) => (
@@ -500,9 +493,9 @@ export function SeatPlannerTab({
 
               {/* Loading Overlay */}
               {loading && (
-                <div className="absolute inset-0 bg-[#0B0F19]/60 backdrop-blur-xs flex items-center justify-center z-40">
-                  <div className="flex items-center gap-2 rounded-xl bg-[#151E32] px-4 py-2 border border-white/10 text-xs font-semibold text-white">
-                    <Loader2 className="h-4 w-4 animate-spin text-indigo-400" />
+                <div className="absolute inset-0 bg-white/60 dark:bg-[#0B0F19]/60 backdrop-blur-xs flex items-center justify-center z-40">
+                  <div className="flex items-center gap-2 rounded-xl bg-white dark:bg-[#151E32] px-4 py-2 border border-zinc-200 dark:border-white/10 text-xs font-semibold text-zinc-900 dark:text-white shadow-md">
+                    <Loader2 className="h-4 w-4 animate-spin text-indigo-500 dark:text-indigo-400" />
                     <span>Loading cohort seating...</span>
                   </div>
                 </div>
@@ -511,7 +504,7 @@ export function SeatPlannerTab({
           )}
 
           {/* Visual Floor Status Legend Bar */}
-          <div className="flex items-center justify-between gap-4 rounded-xl border border-white/[0.08] bg-[#101726] p-3 text-xs text-slate-300 flex-wrap">
+          <div className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] p-3 text-xs text-zinc-700 dark:text-slate-300 flex-wrap shadow-xs">
             <div className="flex items-center gap-4 flex-wrap">
               <div className="flex items-center gap-1.5">
                 <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]" />
@@ -560,17 +553,17 @@ export function SeatPlannerTab({
 
       {/* 3. MOBILE BOTTOM SHEET FOR UNASSIGNED TRAY */}
       {isMobileTrayOpen && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 backdrop-blur-sm lg:hidden">
-          <div className="w-full max-h-[80vh] rounded-t-3xl border-t border-white/10 bg-[#101726] p-4 flex flex-col">
-            <div className="flex items-center justify-between pb-3 border-b border-white/10">
-              <h3 className="font-heading font-bold text-sm text-white flex items-center gap-2">
-                <Users className="h-4 w-4 text-indigo-400" />
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 backdrop-blur-sm lg:hidden select-none">
+          <div className="w-full max-h-[80vh] rounded-t-3xl border-t border-zinc-200 dark:border-white/10 bg-white dark:bg-[#101726] p-4 flex flex-col font-sans">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-200 dark:border-white/10">
+              <h3 className="font-heading font-bold text-sm text-zinc-900 dark:text-white flex items-center gap-2">
+                <Users className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
                 <span>Unassigned Students ({planData?.unassigned_count || 0})</span>
               </h3>
               <button
                 type="button"
                 onClick={() => setIsMobileTrayOpen(false)}
-                className="p-1 rounded-full text-slate-400 hover:text-white"
+                className="p-1 rounded-full text-zinc-500 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white cursor-pointer"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -598,21 +591,21 @@ export function SeatPlannerTab({
 
       {/* 4. WORKSTATION ACTION POPOVER / MODAL */}
       {activeWsModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-2xl border border-white/[0.08] bg-[#101726] p-5 shadow-2xl">
-            <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm select-none">
+          <div className="w-full max-w-sm rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] p-5 shadow-2xl font-sans">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-200 dark:border-white/[0.08]">
               <div>
-                <h4 className="font-heading font-extrabold text-base text-white">
+                <h4 className="font-heading font-extrabold text-base text-zinc-900 dark:text-white">
                   {activeWsModal.label}
                 </h4>
-                <span className="text-[11px] text-slate-400">
+                <span className="text-[11px] text-zinc-500 dark:text-slate-400">
                   {activeWsModal.row_label || 'Workstation'} &bull; {activeWsModal.device_type}
                 </span>
               </div>
               <button
                 type="button"
                 onClick={() => setActiveWsModal(null)}
-                className="p-1 text-slate-400 hover:text-white"
+                className="p-1 text-zinc-500 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white cursor-pointer"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -621,33 +614,33 @@ export function SeatPlannerTab({
             <div className="py-4 space-y-3">
               {/* Assignment Info */}
               {activeWsModal.assignment ? (
-                <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/10 p-3">
-                  <span className="text-[10px] font-bold uppercase text-indigo-400">
+                <div className="rounded-xl border border-indigo-200 dark:border-indigo-500/20 bg-indigo-50 dark:bg-indigo-500/10 p-3">
+                  <span className="text-[10px] font-bold uppercase text-indigo-700 dark:text-indigo-400">
                     Default Assigned Student
                   </span>
                   <div className="mt-1 flex items-baseline justify-between">
-                    <span className="text-sm font-bold text-white">
+                    <span className="text-sm font-bold text-zinc-900 dark:text-white">
                       {activeWsModal.assignment.student_name}
                     </span>
-                    <span className="font-mono text-xs font-extrabold text-indigo-300">
+                    <span className="font-mono text-xs font-extrabold text-indigo-700 dark:text-indigo-300">
                       Roll {activeWsModal.assignment.roll_number}
                     </span>
                   </div>
                 </div>
               ) : (
-                <div className="rounded-xl border border-dashed border-white/10 bg-[#151E32]/50 p-3 text-center text-xs text-slate-400">
+                <div className="rounded-xl border border-dashed border-zinc-300 dark:border-white/10 bg-zinc-50 dark:bg-[#151E32]/50 p-3 text-center text-xs text-zinc-600 dark:text-slate-400">
                   No default student assigned to this workstation.
                 </div>
               )}
 
               {/* Active Issue Info if any */}
               {activeWsModal.active_issue && (
-                <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 p-3">
-                  <div className="flex items-center gap-1.5 text-rose-400 text-xs font-bold">
+                <div className="rounded-xl border border-rose-300 dark:border-rose-500/20 bg-rose-50 dark:bg-rose-500/10 p-3">
+                  <div className="flex items-center gap-1.5 text-rose-700 dark:text-rose-400 text-xs font-bold">
                     <ShieldAlert className="h-3.5 w-3.5" />
                     <span>Active Hardware Fault</span>
                   </div>
-                  <p className="text-xs text-rose-200 mt-1">
+                  <p className="text-xs text-rose-800 dark:text-rose-200 mt-1">
                     {activeWsModal.active_issue.title || 'Maintenance ticket reported.'}
                   </p>
                 </div>
@@ -660,16 +653,16 @@ export function SeatPlannerTab({
                     <button
                       type="button"
                       onClick={() => setIsSwapDialogOpen(true)}
-                      className="w-full flex items-center justify-center gap-2 rounded-xl border border-white/[0.08] bg-[#151E32] px-3 py-2 text-xs font-semibold text-slate-200 hover:text-white hover:border-indigo-500/50 transition-colors"
+                      className="w-full flex items-center justify-center gap-2 rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] px-3 py-2 text-xs font-semibold text-zinc-700 dark:text-slate-200 hover:text-zinc-900 dark:hover:text-white hover:border-indigo-400 dark:hover:border-indigo-500/50 transition-colors cursor-pointer"
                     >
-                      <ArrowRightLeft className="h-3.5 w-3.5 text-indigo-400" />
+                      <ArrowRightLeft className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
                       <span>Swap Seat with Another PC</span>
                     </button>
 
                     <button
                       type="button"
                       onClick={handleClearAssignment}
-                      className="w-full flex items-center justify-center gap-2 rounded-xl border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-xs font-semibold text-rose-300 hover:bg-rose-500/20 transition-colors"
+                      className="w-full flex items-center justify-center gap-2 rounded-xl border border-rose-300 dark:border-rose-500/20 bg-rose-50 dark:bg-rose-500/10 px-3 py-2 text-xs font-semibold text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-500/20 transition-colors cursor-pointer"
                     >
                       <span>Remove Student Assignment</span>
                     </button>
@@ -677,7 +670,7 @@ export function SeatPlannerTab({
                 )}
 
                 {!isPrivileged && activeWsModal.assignment && (
-                  <div className="rounded-xl border border-white/5 bg-[#151E32]/40 p-2.5 text-center text-[11px] text-slate-400">
+                  <div className="rounded-xl border border-zinc-200 dark:border-white/5 bg-zinc-50 dark:bg-[#151E32]/40 p-2.5 text-center text-[11px] text-zinc-600 dark:text-slate-400">
                     Read-only session view. Seat allocations can only be modified by Super Admin or Lab In-Charge.
                   </div>
                 )}
@@ -689,7 +682,7 @@ export function SeatPlannerTab({
                       onInspectWorkstation(activeWsModal.id)
                       setActiveWsModal(null)
                     }}
-                    className="w-full flex items-center justify-center gap-2 rounded-xl border border-white/[0.08] bg-[#151E32] px-3 py-2 text-xs font-semibold text-slate-300 hover:text-white transition-colors"
+                    className="w-full flex items-center justify-center gap-2 rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] px-3 py-2 text-xs font-semibold text-zinc-700 dark:text-slate-300 hover:text-zinc-900 dark:hover:text-white transition-colors cursor-pointer"
                   >
                     <span>Inspect Hardware &amp; Tickets</span>
                   </button>
@@ -702,22 +695,22 @@ export function SeatPlannerTab({
 
       {/* 5. ATOMIC STUDENT SWAP DIALOG */}
       {isSwapDialogOpen && activeWsModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-2xl border border-white/[0.08] bg-[#101726] p-5 shadow-2xl">
-            <h4 className="font-heading font-extrabold text-sm text-white mb-2">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm select-none">
+          <div className="w-full max-w-sm rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] p-5 shadow-2xl font-sans">
+            <h4 className="font-heading font-extrabold text-sm text-zinc-900 dark:text-white mb-2">
               Swap Seats &mdash; {activeWsModal.label}
             </h4>
-            <p className="text-xs text-slate-400 mb-4">
+            <p className="text-xs text-zinc-600 dark:text-slate-400 mb-4">
               Select another workstation to swap positions atomically without data loss.
             </p>
 
             <div className="space-y-3">
               <div>
-                <label className="text-[11px] font-bold uppercase text-slate-400">Target Workstation</label>
+                <label className="text-[11px] font-bold uppercase text-zinc-700 dark:text-slate-400">Target Workstation</label>
                 <select
                   value={swapTargetWsId}
                   onChange={(e) => setSwapTargetWsId(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-white/[0.08] bg-[#151E32] px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                  className="mt-1 w-full rounded-xl border border-zinc-300 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] px-3 py-2 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-indigo-500 cursor-pointer"
                 >
                   <option value="">-- Choose workstation --</option>
                   {(planData?.workstations || [])
@@ -734,7 +727,7 @@ export function SeatPlannerTab({
                 <button
                   type="button"
                   onClick={() => setIsSwapDialogOpen(false)}
-                  className="px-3 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white"
+                  className="px-3 py-2 rounded-xl text-xs font-semibold text-zinc-500 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -742,7 +735,7 @@ export function SeatPlannerTab({
                   type="button"
                   disabled={!swapTargetWsId || isPending}
                   onClick={handleExecuteSwap}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white shadow-md transition-all disabled:opacity-50"
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white shadow-md transition-all disabled:opacity-50 cursor-pointer"
                 >
                   {isPending && <Loader2 className="h-3 w-3 animate-spin" />}
                   <span>Confirm Swap</span>
@@ -755,33 +748,33 @@ export function SeatPlannerTab({
 
       {/* 6. AUTO-ASSIGN CONFIRMATION MODAL */}
       {isAutoAssignDialogOpen && planData && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-white/[0.08] bg-[#101726] p-5 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm select-none">
+          <div className="w-full max-w-md rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] p-5 shadow-2xl font-sans">
             <div className="flex items-center gap-2 mb-2">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-400">
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-500/20">
                 <Wand2 className="h-4 w-4" />
               </span>
-              <h4 className="font-heading font-extrabold text-base text-white">
+              <h4 className="font-heading font-extrabold text-base text-zinc-900 dark:text-white">
                 Auto Assign Remaining Students
               </h4>
             </div>
 
-            <p className="text-xs text-slate-300 leading-relaxed mb-4">
+            <p className="text-xs text-zinc-600 dark:text-slate-300 leading-relaxed mb-4">
               This will automatically match remaining unassigned students to available workstations in ascending roll number order.
             </p>
 
-            <div className="rounded-xl border border-white/[0.06] bg-[#151E32]/60 p-3 space-y-2 text-xs mb-4">
-              <div className="flex justify-between text-slate-300">
+            <div className="rounded-xl border border-zinc-200 dark:border-white/[0.06] bg-zinc-50 dark:bg-[#151E32]/60 p-3 space-y-2 text-xs mb-4">
+              <div className="flex justify-between text-zinc-700 dark:text-slate-300">
                 <span>Unassigned Students:</span>
-                <span className="font-mono font-bold text-amber-400">{planData.unassigned_count}</span>
+                <span className="font-mono font-bold text-amber-600 dark:text-amber-400">{planData.unassigned_count}</span>
               </div>
-              <div className="flex justify-between text-slate-300">
+              <div className="flex justify-between text-zinc-700 dark:text-slate-300">
                 <span>Existing Manual Seats:</span>
-                <span className="font-bold text-emerald-400">Preserved (Untouched)</span>
+                <span className="font-bold text-emerald-600 dark:text-emerald-400">Preserved (Untouched)</span>
               </div>
-              <div className="flex justify-between text-slate-300">
+              <div className="flex justify-between text-zinc-700 dark:text-slate-300">
                 <span>Severe Faulty PCs:</span>
-                <span className="font-bold text-rose-400">Excluded</span>
+                <span className="font-bold text-rose-600 dark:text-rose-400">Excluded</span>
               </div>
             </div>
 

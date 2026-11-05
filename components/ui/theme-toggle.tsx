@@ -33,6 +33,7 @@ export default function ThemeToggle() {
       onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
       className="h-9 w-9 rounded-xl text-zinc-700 dark:text-zinc-300 shadow-2xs"
       title={resolvedTheme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+      aria-label="Toggle theme"
     >
       {resolvedTheme === 'dark' ? (
         <Sun className="h-4 w-4 text-amber-400" />

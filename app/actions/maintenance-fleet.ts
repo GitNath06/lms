@@ -16,14 +16,32 @@ import {
  * Validates administrative permission for Lab Maintenance operations
  */
 async function getAuthorizedProfile() {
-  const scope = await getServerUserScope()
-  const isPrivileged =
-    scope.isPrivileged ||
-    scope.role === 'super_admin' ||
-    scope.role === 'lab_incharge' ||
-    scope.role === 'hod' ||
-    process.env.NODE_ENV === 'development'
-  return { scope, isPrivileged }
+  try {
+    const scope = await getServerUserScope()
+    const isPrivileged =
+      !scope.isPending &&
+      scope.approvalStatus === 'approved' &&
+      (scope.isPrivileged ||
+        scope.role === 'super_admin' ||
+        scope.role === 'lab_incharge' ||
+        scope.role === 'hod')
+    return { scope, isPrivileged }
+  } catch {
+    return {
+      scope: {
+        role: 'teacher',
+        userId: '',
+        fullName: 'Guest User',
+        isPending: true,
+        approvalStatus: 'pending',
+        isPrivileged: false,
+        assignedLabs: [],
+        assignedClasses: [],
+        assignedSubjects: [],
+      } as any,
+      isPrivileged: false,
+    }
+  }
 }
 
 /**

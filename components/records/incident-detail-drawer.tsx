@@ -19,6 +19,7 @@ import {
   Camera,
   Maximize2,
   Users,
+  Loader2,
 } from 'lucide-react'
 import { IncidentRecordItem } from '@/types/records'
 import { updateIncidentWorkflow } from '@/app/actions/records'
@@ -49,6 +50,7 @@ export default function IncidentDetailDrawer({
 }: IncidentDetailDrawerProps) {
   const [mounted, setMounted] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [submittingAction, setSubmittingAction] = useState<string | null>(null)
   const [resolutionNotes, setResolutionNotes] = useState('')
   const [escalationReason, setEscalationReason] = useState('')
   const [showEscalateInput, setShowEscalateInput] = useState(false)
@@ -111,6 +113,7 @@ export default function IncidentDetailDrawer({
     }
 
     setIsSubmitting(true)
+    setSubmittingAction(newStatus)
     try {
       const res = await updateIncidentWorkflow(incident.id, {
         status: newStatus,
@@ -118,8 +121,8 @@ export default function IncidentDetailDrawer({
       })
 
       if (res.success) {
-        onSuccess()
         onClose()
+        onSuccess()
       } else {
         setErrorMessage(res.error || 'Failed to update status')
       }
@@ -127,6 +130,7 @@ export default function IncidentDetailDrawer({
       setErrorMessage(e.message || 'Action failed')
     } finally {
       setIsSubmitting(false)
+      setSubmittingAction(null)
     }
   }
 
@@ -138,6 +142,7 @@ export default function IncidentDetailDrawer({
     }
 
     setIsSubmitting(true)
+    setSubmittingAction('escalate')
     try {
       const res = await updateIncidentWorkflow(incident.id, {
         status: 'escalated_to_hod',
@@ -146,8 +151,8 @@ export default function IncidentDetailDrawer({
       })
 
       if (res.success) {
-        onSuccess()
         onClose()
+        onSuccess()
       } else {
         setErrorMessage(res.error || 'Failed to escalate to HOD')
       }
@@ -155,12 +160,13 @@ export default function IncidentDetailDrawer({
       setErrorMessage(e.message || 'Escalation failed')
     } finally {
       setIsSubmitting(false)
+      setSubmittingAction(null)
     }
   }
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/70 backdrop-blur-md animate-in fade-in duration-200 select-none overflow-y-auto font-sans">
-      <div className="relative w-full max-w-2xl bg-white dark:bg-zinc-900 rounded-3xl shadow-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden flex flex-col max-h-[90vh] my-auto">
+      <div className="relative w-full max-w-2xl bg-white dark:bg-zinc-900 rounded-3xl shadow-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden flex flex-col max-h-[calc(100dvh-2rem)] my-auto">
         {/* Drawer Header */}
         <div
           className={`p-5 px-6 border-b flex items-center justify-between ${
@@ -296,7 +302,7 @@ export default function IncidentDetailDrawer({
           </div>
 
           {/* 2. SPECIFICATIONS GRID */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
             <div className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200 dark:border-zinc-800">
               <span className="text-[10px] font-mono text-zinc-400 uppercase">Facility Room</span>
               <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100 uppercase mt-0.5 flex items-center gap-1.5">
@@ -366,23 +372,23 @@ export default function IncidentDetailDrawer({
                   {involvedStudents.map((st) => (
                     <div
                       key={st.student_id}
-                      className="flex items-center gap-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 pl-1.5 pr-3 py-1.5 rounded-xl shadow-2xs"
+                      className="flex items-center gap-2.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 p-2 rounded-xl shadow-2xs w-full sm:w-auto"
                     >
-                      <div className="h-7 w-7 rounded-full overflow-hidden border border-white/20 bg-zinc-800 flex items-center justify-center shrink-0">
+                      <div className="h-12 w-12 rounded-full overflow-hidden border border-zinc-200 dark:border-zinc-700 bg-zinc-800 flex items-center justify-center shrink-0">
                         {st.photo_url ? (
                           <img src={st.photo_url} alt={st.full_name} className="h-full w-full object-cover" />
                         ) : (
-                          <span className="text-[10px] font-bold text-indigo-300 font-heading">
+                          <span className="text-sm font-bold text-indigo-300 font-heading">
                             {st.full_name.slice(0, 1).toUpperCase()}
                           </span>
                         )}
                       </div>
-                      <div className="flex flex-col text-left">
-                        <span className="text-xs font-bold text-zinc-900 dark:text-white leading-tight">
+                      <div className="flex flex-col text-left min-w-0">
+                        <span className="text-xs font-bold text-zinc-900 dark:text-white leading-tight truncate">
                           {st.full_name}
                         </span>
-                        <span className="text-[10px] font-mono text-zinc-500 leading-tight">
-                          Roll {st.roll_number} {st.admission_no ? `• ${st.admission_no}` : ''}
+                        <span className="text-[11px] font-mono text-zinc-500 leading-tight mt-0.5">
+                          Roll {st.roll_number} {st.section ? `• Sec ${st.section}` : ''} {incident.batch_name ? `• ${incident.batch_name}` : ''}
                         </span>
                       </div>
                     </div>
@@ -408,17 +414,17 @@ export default function IncidentDetailDrawer({
               </div>
               <div
                 onClick={() => setLightboxUrl(incident.photo_url!)}
-                className="relative rounded-xl overflow-hidden border border-zinc-200 dark:border-zinc-700 bg-zinc-900 cursor-pointer group max-h-56 sm:max-h-64 flex items-center justify-center shadow-2xs"
+                className="relative rounded-xl overflow-hidden border border-zinc-200 dark:border-zinc-700 bg-zinc-900 cursor-pointer group h-44 w-full flex items-center justify-center shadow-2xs"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={incident.photo_url}
                   alt="Incident Evidence"
-                  className="w-full h-auto max-h-56 sm:max-h-64 object-contain group-hover:scale-[1.02] transition-transform duration-200"
+                  className="w-full h-44 max-h-44 object-cover group-hover:scale-[1.02] transition-transform duration-200"
                 />
                 <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 text-white text-xs font-medium">
                   <Maximize2 className="h-4 w-4" />
-                  <span>Click to enlarge photo</span>
+                  <span>Tap to zoom photo</span>
                 </div>
               </div>
             </div>
@@ -446,15 +452,22 @@ export default function IncidentDetailDrawer({
               </div>
 
               {/* Status Update Buttons */}
-              <div className="flex flex-wrap items-center gap-2 pt-1">
+              <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 pt-1">
                 <Button
                   size="sm"
                   onClick={() => handleStatusUpdate('under_repair')}
                   disabled={isSubmitting}
                   variant="outline"
-                  className="h-8 px-3 rounded-xl border-sky-500/30 text-sky-700 dark:text-sky-300 hover:bg-sky-50 dark:hover:bg-sky-950/40 text-xs font-mono font-bold"
+                  className="h-8 px-3 rounded-xl border-sky-500/30 text-sky-700 dark:text-sky-300 hover:bg-sky-50 dark:hover:bg-sky-950/40 text-xs font-mono font-bold w-full sm:w-auto"
                 >
-                  Mark Under Repair
+                  {isSubmitting && submittingAction === 'under_repair' ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                      <span>Updating...</span>
+                    </>
+                  ) : (
+                    <span>Mark Under Repair</span>
+                  )}
                 </Button>
 
                 <Button
@@ -462,19 +475,35 @@ export default function IncidentDetailDrawer({
                   onClick={() => handleStatusUpdate('replaced')}
                   disabled={isSubmitting}
                   variant="outline"
-                  className="h-8 px-3 rounded-xl border-indigo-500/30 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-xs font-mono font-bold"
+                  className="h-8 px-3 rounded-xl border-indigo-500/30 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-xs font-mono font-bold w-full sm:w-auto"
                 >
-                  Mark Replaced
+                  {isSubmitting && submittingAction === 'replaced' ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                      <span>Updating...</span>
+                    </>
+                  ) : (
+                    <span>Mark Replaced</span>
+                  )}
                 </Button>
 
                 <Button
                   size="sm"
                   onClick={() => handleStatusUpdate('resolved')}
                   disabled={isSubmitting}
-                  className="h-8 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-mono font-bold shadow-xs ml-auto"
+                  className="col-span-2 sm:col-span-1 h-8 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-mono font-bold shadow-xs sm:ml-auto w-full sm:w-auto justify-center"
                 >
-                  <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
-                  Certify Resolved
+                  {isSubmitting && submittingAction === 'resolved' ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                      <span>Certifying...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                      <span>Certify Resolved</span>
+                    </>
+                  )}
                 </Button>
               </div>
 
@@ -516,7 +545,14 @@ export default function IncidentDetailDrawer({
                           disabled={isSubmitting}
                           className="h-7 px-3 bg-rose-600 hover:bg-rose-700 text-white text-xs font-mono font-bold"
                         >
-                          Confirm HOD Escalation
+                          {isSubmitting && submittingAction === 'escalate' ? (
+                            <>
+                              <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                              <span>Escalating...</span>
+                            </>
+                          ) : (
+                            <span>Confirm HOD Escalation</span>
+                          )}
                         </Button>
                       </div>
                     </div>

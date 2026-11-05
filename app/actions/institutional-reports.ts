@@ -89,7 +89,7 @@ export async function getStudentBoardComplianceReport(params: {
          AND pl.status = 'conducted'`,
       [yearId, classId, className]
     )
-    const totalHeld = Math.max(1, sessionsRes.rows[0]?.total_held || 0)
+    const totalHeld = sessionsRes.rows[0]?.total_held || 0
 
     // 3. Count sessions attended by each enrollment in log_attendance
     const attendanceRes = await pool.query(
@@ -113,10 +113,10 @@ export async function getStudentBoardComplianceReport(params: {
     let totalRateSum = 0
 
     const records: StudentComplianceRecord[] = enrollmentsRes.rows.map((row) => {
-      const attended = attendanceMap.get(row.enrollment_id) ?? totalHeld // default full if no specific negative marks
-      const clampedAttended = Math.min(totalHeld, attended)
-      const absent = Math.max(0, totalHeld - clampedAttended)
-      const rate = Math.round((clampedAttended / totalHeld) * 100)
+      const attended = attendanceMap.get(row.enrollment_id) ?? 0 // strictly default 0 if unrecorded (never totalHeld)
+      const clampedAttended = totalHeld > 0 ? Math.min(totalHeld, attended) : 0
+      const absent = totalHeld > 0 ? Math.max(0, totalHeld - clampedAttended) : 0
+      const rate = totalHeld > 0 ? Math.round((clampedAttended / totalHeld) * 100) : 0
       const isEligible = rate >= 75
 
       if (isEligible) eligibleCount++

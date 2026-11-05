@@ -44,6 +44,7 @@ test('Phase 6: Sprint 3 — Triple-Collision Defense Engine & Immutable Audit Le
   const testSchedId = `test-sched-c3-${Date.now()}`
   let testTeacherId = ''
   let testTeacherName = 'Prof. Test Instructor'
+  let testCsId = 'cs-12eng'
 
   await t.before(async () => {
     // Resolve a valid teacher profile
@@ -57,7 +58,9 @@ test('Phase 6: Sprint 3 — Triple-Collision Defense Engine & Immutable Audit Le
 
     // Resolve a valid class_subject_id
     const csRes = await pool.query(`SELECT id FROM public.class_subjects LIMIT 1`)
-    const testCsId = csRes.rows[0]?.id || 'cs-12eng'
+    if (csRes.rows.length > 0) {
+      testCsId = csRes.rows[0].id
+    }
 
     // Insert baseline schedule for Monday Period 3 (t3)
     await pool.query(
@@ -78,18 +81,18 @@ test('Phase 6: Sprint 3 — Triple-Collision Defense Engine & Immutable Audit Le
   })
 
   await t.test('1. Slot Range & Time Window Overlap Computation', () => {
-    // t1 is index 0, span 2 covers indices 0, 1 (t1, t2)
+    // In SLOT_ORDER ['t0', 'pre', 't1', 't2', ...], t1 is index 2, span 2 covers indices 2, 3 (t1, t2)
     const r1 = getSlotRange('t1', 2)
-    assert.deepEqual(r1, { start: 0, end: 1 })
+    assert.deepEqual(r1, { start: 2, end: 3 })
 
-    // t2 is index 1, span 1 covers index 1
+    // t2 is index 3, span 1 covers index 3
     const r2 = getSlotRange('t2', 1)
-    assert.deepEqual(r2, { start: 1, end: 1 })
+    assert.deepEqual(r2, { start: 3, end: 3 })
 
-    // r1 and r2 overlap at index 1
+    // r1 and r2 overlap at index 3
     assert.equal(slotRangesOverlap(r1, r2), true, 't1 (span 2) and t2 must overlap')
 
-    // t3 is index 2, should NOT overlap with r1
+    // t3 is index 4, should NOT overlap with r1
     const r3 = getSlotRange('t3', 1)
     assert.equal(slotRangesOverlap(r1, r3), false, 't1 (span 2) and t3 must not overlap')
 
@@ -208,5 +211,39 @@ test('Phase 6: Sprint 3 — Triple-Collision Defense Engine & Immutable Audit Le
     assert.ok(history.length >= 1, 'History for test issue retrieved')
     assert.equal(history[0].changes?.before?.status, 'open')
     assert.equal(history[0].changes?.after?.status, 'resolved')
+  })
+
+  await t.test('7. Triple-Collision Engine: Skipped Routine on Date Allows Unscheduled Booking Without Facility Collision', async () => {
+    const testDate = '2026-10-27'
+    const skipLogId = `test-skip-${Date.now()}`
+
+    // Insert a skipped practical log for testSchedId on testDate
+    await pool.query(
+      `INSERT INTO public.practical_logs (
+         id, schedule_id, lab_id, date, status, practical_title, skip_reason, period_label, subject_name, batch_group, class_subject_id
+       ) VALUES ($1, $2, 'comp', $3, 'skipped', 'Advanced Computing Practical (Skipped)', 'Instructor absent', '11:45 – 12:30', 'Advanced Computing Practical', 'Class 12 Science A', $4)
+       ON CONFLICT (id) DO NOTHING`,
+      [skipLogId, testSchedId, testDate, testCsId]
+    )
+
+    try {
+      // Attempt to book same lab (comp) at same day (mon) and slot (t3) on testDate with a different teacher and cohort
+      const result = await checkSchedulingConflicts({
+        labId: 'comp',
+        dayKey: 'mon',
+        slotId: 't3',
+        span: 1,
+        batchName: 'Class 11 Science B',
+        teacherName: 'Other Teacher',
+        date: testDate,
+      })
+
+      // Facility collision must be bypassed because the scheduled slot is skipped on target date!
+      assert.equal(result.hasConflict, false, 'Facility collision must be bypassed for skipped schedule slot on target date')
+      assert.equal(result.conflictType, 'none')
+      assert.equal(result.conflicts.length, 0)
+    } finally {
+      await pool.query(`DELETE FROM public.practical_logs WHERE id = $1`, [skipLogId])
+    }
   })
 })

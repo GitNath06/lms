@@ -3,7 +3,7 @@
 import { getPgPool } from '@/lib/db'
 import { isSupabaseConfigured } from '@/lib/supabase/config'
 import { getNepalDateStr, getNepaliDate } from '@/lib/nepali-date'
-import { MASTER_ROUTINE, type MasterRoutineItem } from '@/lib/master-data'
+import type { MasterRoutineItem } from '@/lib/master-data'
 import { getAcademicHolidays } from '@/app/actions/holidays'
 import {
   sendTeacherDailyScheduleEmail,
@@ -13,16 +13,43 @@ import {
   sendUpcomingHolidayLabNoticeEmail,
   sendNewUserRegistrationAdminAlertEmail,
 } from '@/lib/mailer'
+import { getServerUserScope } from '@/lib/context/server-user-scope'
+import { headers } from 'next/headers'
+
+/**
+ * Validates caller authorization for notification dispatches.
+ * Permits Vercel Cron via Authorization: Bearer <CRON_SECRET>, or authenticated approved users.
+ */
+async function assertCallerAuthorized(requirePrivileged = false) {
+  // Allow if valid CRON_SECRET is present in Authorization header
+  try {
+    const headerList = await headers()
+    const authHeader = headerList.get('authorization')
+    if (process.env.CRON_SECRET && authHeader === `Bearer ${process.env.CRON_SECRET}`) {
+      return
+    }
+  } catch {
+    // Headers unavailable outside active HTTP request cycle
+  }
+
+  const scope = await getServerUserScope()
+  if (scope.isPending || scope.approvalStatus !== 'approved' || !scope.userId) {
+    throw new Error('Access Denied: Unauthenticated or pending accounts cannot execute notification actions.')
+  }
+  if (requirePrivileged && !scope.isPrivileged) {
+    throw new Error('Access Denied: Super Admin or Lab In-Charge role required.')
+  }
+}
 
 // In-memory fallback for local dev when PostgreSQL is offline
 const IN_MEMORY_DISPATCH_LOGS = new Set<string>()
 
 /**
- * Idempotency Check & Record
+ * Idempotency Check & Record (Internal helper)
  * Returns TRUE if dispatch should proceed (not yet sent today).
  * Returns FALSE if duplicate already exists.
  */
-export async function checkAndRecordDispatch(
+async function checkAndRecordDispatch(
   dispatchType: string,
   recipientEmail: string,
   referenceDate: string,
@@ -65,6 +92,7 @@ export async function checkAndRecordDispatch(
  * 1. Dispatch Daily Practical Reminders to Teachers (7:00 AM NPT)
  */
 export async function dispatchTeacherDailyReminders(force = false) {
+  await assertCallerAuthorized(true)
   const todayDateStr = getNepalDateStr(new Date())
   const nepaliObj = getNepaliDate(new Date())
   const dayOfWeek = new Date().getDay() // 0=Sun, 1=Mon, ..., 5=Fri, 6=Sat
@@ -81,10 +109,43 @@ export async function dispatchTeacherDailyReminders(force = false) {
   const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri']
   const todayKey = DAY_KEYS[dayOfWeek] || 'sun'
 
-  // Fetch active routines for today
-  const todaysSessions = MASTER_ROUTINE.filter(
-    (r: MasterRoutineItem) => r.dayKey === todayKey && (r.category as string) !== 'Recess'
-  )
+  // Fetch active routines for today directly from canonical schedules table
+  let todaysSessions: any[] = []
+  let teacherProfiles: Array<{ full_name: string; email: string }> = []
+
+  try {
+    const pool = getPgPool()
+    const schedRes = await pool.query(
+      `SELECT 
+        s.id,
+        s.time_slot as "timeSlot",
+        s.slot_id as "slotId",
+        s.day_key as "dayKey",
+        s.default_students as "defaultStudents",
+        s.class_grade as grade,
+        s.class_grade as "gradeKey",
+        s.subject_code as "subjectCode",
+        s.subject_title as "subjectTitle",
+        COALESCE(l.name, s.lab_id, 'Laboratory') as lab,
+        COALESCE(p.full_name, 'Unassigned') as teacher,
+        p.email as teacher_email
+      FROM public.schedules s
+      LEFT JOIN public.profiles p ON s.teacher_id = p.id
+      LEFT JOIN public.labs l ON s.lab_id = l.id
+      WHERE s.day_key = $1
+      ORDER BY s.start_time ASC;`,
+      [todayKey]
+    )
+    todaysSessions = schedRes.rows || []
+
+    const profRes = await pool.query(
+      `SELECT full_name, email FROM public.profiles WHERE is_active = TRUE AND email IS NOT NULL;`
+    )
+    teacherProfiles = profRes.rows
+  } catch (err) {
+    console.warn('[Mailer] Could not query schedules from DB:', err)
+    todaysSessions = []
+  }
 
   if (todaysSessions.length === 0) {
     return {
@@ -95,26 +156,14 @@ export async function dispatchTeacherDailyReminders(force = false) {
   }
 
   // Group by Teacher
-  const teacherSessionsMap = new Map<string, MasterRoutineItem[]>()
-  todaysSessions.forEach((s: MasterRoutineItem) => {
+  const teacherSessionsMap = new Map<string, any[]>()
+  todaysSessions.forEach((s: any) => {
     const teacherKey = s.teacher || 'Unassigned'
     if (!teacherSessionsMap.has(teacherKey)) {
       teacherSessionsMap.set(teacherKey, [])
     }
     teacherSessionsMap.get(teacherKey)!.push(s)
   })
-
-  // Lookup teacher emails from database profiles
-  let teacherProfiles: Array<{ full_name: string; email: string }> = []
-  try {
-    const pool = getPgPool()
-    const res = await pool.query(
-      `SELECT full_name, email FROM public.profiles WHERE is_active = TRUE AND email IS NOT NULL;`
-    )
-    teacherProfiles = res.rows
-  } catch (err) {
-    console.warn('[Mailer] Could not query teacher profiles from DB:', err)
-  }
 
   let dispatchedCount = 0
   let skippedDuplicates = 0
@@ -179,6 +228,7 @@ export async function dispatchTeacherDailyReminders(force = false) {
  * 2. Dispatch Skipped Session Alert to Teacher
  */
 export async function dispatchSkippedSessionNotification(logRecord: any) {
+  await assertCallerAuthorized(false)
   try {
     const teacherName = logRecord.teacher_name || logRecord.teacher || 'Instructor'
     let recipientEmail = logRecord.teacher_email || ''
@@ -223,6 +273,7 @@ export async function dispatchSkippedSessionNotification(logRecord: any) {
  * 3. Dispatch Incident & Breakage Alert to Lab In-Charge, Coordinator & HOD
  */
 export async function dispatchIncidentEmailAlert(incident: any, isEscalated = false) {
+  await assertCallerAuthorized(false)
   try {
     let leadershipEmails: Array<{ full_name: string; email: string; role: string }> = []
     try {
@@ -295,6 +346,7 @@ export async function dispatchIncidentEmailAlert(incident: any, isEscalated = fa
  * 4. Dispatch Overdue Maintenance Alerts to Lab In-Charges (Daily Cron)
  */
 export async function dispatchOverdueMaintenanceAlerts(force = false) {
+  await assertCallerAuthorized(true)
   const todayDateStr = getNepalDateStr(new Date())
 
   try {
@@ -391,6 +443,7 @@ export async function dispatchOverdueMaintenanceAlerts(force = false) {
  * 5. Dispatch Upcoming Holiday Lab Shutdown Notice (48h Notice)
  */
 export async function dispatchUpcomingHolidayNotices(force = false) {
+  await assertCallerAuthorized(true)
   try {
     const holidays = await getAcademicHolidays()
     const now = new Date()
@@ -507,6 +560,7 @@ export async function dispatchNewUserRegistrationAlert(newUser: {
  * 7. Query Email Dispatch Logs for Admin Audit View
  */
 export async function getEmailDispatchLogs(limit = 25) {
+  await assertCallerAuthorized(true)
   try {
     const pool = getPgPool()
     const res = await pool.query(
@@ -529,6 +583,7 @@ export async function getEmailDispatchLogs(limit = 25) {
  * 8. Query Email Notification Engine Health Status
  */
 export async function getEmailEngineStatus() {
+  await assertCallerAuthorized(true)
   const isGmailConfigured = Boolean(
     process.env.GMAIL_USER?.trim() && process.env.GMAIL_APP_PASSWORD?.trim()
   )

@@ -76,8 +76,13 @@ export default function TimeTravelController() {
     setShowCustomPicker(false)
   }
 
+  // Only render in development mode, and hide on mobile/tablet viewports (<lg)
+  if (process.env.NODE_ENV !== 'development') {
+    return null
+  }
+
   return (
-    <div className="fixed bottom-4 left-4 z-50 select-none font-sans print:hidden">
+    <div className="hidden lg:flex fixed bottom-4 left-14 sm:left-16 z-50 select-none font-sans print:hidden">
       {/* 1. COLLAPSED TRIGGER PILL */}
       {!isOpen && (
         <button

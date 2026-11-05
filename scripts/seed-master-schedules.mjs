@@ -40,8 +40,6 @@ async function runSeed() {
     { id: 'comp', name: 'Computer Engineering Lab 01', code: 'LAB-COMP-01', type: 'computer_lab', capacity: 40 },
     { id: 'phys', name: 'Physics Laboratory', code: 'LAB-PHYS-01', type: 'physics_lab', capacity: 38 },
     { id: 'chem', name: 'Chemistry Laboratory', code: 'LAB-CHEM-01', type: 'chemistry_lab', capacity: 40 },
-    { id: 'bio', name: 'Biology & Life Sciences Lab', code: 'LAB-BIO-01', type: 'biology_lab', capacity: 35 },
-    { id: 'elec', name: 'Electronics & Hardware Lab', code: 'LAB-ELEC-01', type: 'electronics_lab', capacity: 30 },
   ]
 
   for (const lab of standardLabs) {
@@ -53,13 +51,13 @@ async function runSeed() {
   }
   console.log('✓ Standard laboratory rooms verified.')
 
-  console.log('Extracting MASTER_ROUTINE from lib/master-data.ts...')
-  const fileContent = fs.readFileSync('lib/master-data.ts', 'utf-8')
+  console.log('Extracting BASELINE_ROUTINE_ITEMS from lib/baseline-routines.ts...')
+  const fileContent = fs.readFileSync('lib/baseline-routines.ts', 'utf-8')
 
-  const startMarker = 'export const MASTER_ROUTINE: MasterRoutineItem[] = ['
+  const startMarker = 'export const BASELINE_ROUTINE_ITEMS: MasterRoutineItem[] = ['
   const startIdx = fileContent.indexOf(startMarker)
   if (startIdx === -1) {
-    throw new Error('Could not find MASTER_ROUTINE start marker!')
+    throw new Error('Could not find BASELINE_ROUTINE_ITEMS start marker!')
   }
 
   const arrayCode = fileContent.substring(startIdx + startMarker.length - 1).trim()

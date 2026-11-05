@@ -47,6 +47,7 @@ const TEACHER_ANISH = {
   email: 'a.karki@rrl.edu.np',
   full_name: 'Er. Anish Karki',
   role: 'teacher',
+  approval_status: 'approved',
   is_active: true,
   permissions: {},
 }
@@ -56,6 +57,7 @@ const TEACHER_PRAKASH = {
   email: 'p.adhikari@rrl.edu.np',
   full_name: 'Dr. Prakash Adhikari',
   role: 'teacher',
+  approval_status: 'approved',
   is_active: true,
   permissions: {},
 }
@@ -65,6 +67,7 @@ const LAB_INCHARGE = {
   email: 'incharge@rrl.edu.np',
   full_name: 'Dr. Rajesh Sharma',
   role: 'lab_incharge',
+  approval_status: 'approved',
   is_active: true,
   permissions: {},
 }
@@ -74,6 +77,7 @@ const SUPER_ADMIN = {
   email: 'admin@rrl.edu.np',
   full_name: 'System Administrator',
   role: 'super_admin',
+  approval_status: 'approved',
   is_active: true,
   permissions: {},
 }

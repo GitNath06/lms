@@ -10,6 +10,7 @@ import { incidentReportSpec } from '@/lib/report-spec/incident-spec'
 import { formatClassCode } from '@/lib/report-spec/practical-spec'
 import { searchParamsToFilters, truncateAtWordBoundary, resolveExportPrintScope } from '@/lib/report-spec/filter-codec'
 import { FootnoteEntry, PrintDensityMode } from '@/types/report-spec'
+import { formatToNepaliMiti } from '@/lib/nepali-date'
 
 interface PrintIncidentsPageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>
@@ -24,17 +25,19 @@ export default function PrintIncidentsPage({ searchParams }: PrintIncidentsPageP
   const [loading, setLoading] = useState(true)
   const [resolvedSelectedIds, setResolvedSelectedIds] = useState<string[] | undefined>(undefined)
 
-  // Density mode state: honors URL param > localStorage > default 'detailed'
-  const [densityMode, setDensityMode] = useState<PrintDensityMode>(() => {
-    if (filters.density) return filters.density
-    if (typeof window !== 'undefined') {
+  // Refinement #4: Clean SSR hydration: initialize deterministically, read localStorage only on mount
+  const [densityMode, setDensityMode] = useState<PrintDensityMode>(filters.density || 'detailed')
+
+  useEffect(() => {
+    if (!filters.density && typeof window !== 'undefined') {
       try {
         const saved = localStorage.getItem('lmr_print_density_mode') as PrintDensityMode | null
-        if (saved === 'compact' || saved === 'detailed') return saved
+        if (saved === 'compact' || saved === 'detailed') {
+          setDensityMode(saved)
+        }
       } catch {}
     }
-    return 'detailed'
-  })
+  }, [filters.density])
 
   const labId = filters.lab_id || 'all'
   const severity = filters.severity || 'all'
@@ -42,13 +45,15 @@ export default function PrintIncidentsPage({ searchParams }: PrintIncidentsPageP
   const dateFrom = filters.date_from || ''
   const dateTo = filters.date_to || ''
 
-  // Resolve active visible columns
+  // Resolve active visible columns with Refinement #3: Context-aware dynamic column pruning
   const visibleColSet = useMemo(() => {
     if (filters.cols && filters.cols.trim()) {
       return new Set(filters.cols.split(',').map((s) => s.trim()).filter(Boolean))
     }
-    return new Set(['date_case', 'facility', 'equipment', 'title_circ', 'severity', 'teacher_batch', 'status', 'resolution'])
-  }, [filters.cols])
+    const defaultCols = new Set(['date_case', 'facility', 'equipment', 'title_circ', 'severity', 'teacher_batch', 'status', 'resolution'])
+    if (labId !== 'all') defaultCols.delete('facility')
+    return defaultCols
+  }, [filters.cols, labId])
 
   useEffect(() => {
     async function loadData() {
@@ -247,7 +252,7 @@ export default function PrintIncidentsPage({ searchParams }: PrintIncidentsPageP
       }
     >
       {/* Table */}
-      <div className="border border-zinc-900 rounded-md overflow-x-auto mb-6 print:border print:border-zinc-800 print:rounded-none print:mb-4 print:overflow-visible print-dense-table">
+      <div className="border border-zinc-900 rounded-md overflow-x-auto mb-6 print:border-0 print:m-0 print:rounded-none print:mb-4 print:overflow-visible print-dense-table">
         <table className="w-full text-left border-collapse text-xs font-sans print:text-[8.5pt]">
           <thead className="print:table-header-group">
             <tr className="bg-zinc-100 border-b border-zinc-900 text-zinc-900 uppercase font-mono font-bold text-[10px] print:text-[8pt] print:h-6">
@@ -327,12 +332,16 @@ export default function PrintIncidentsPage({ searchParams }: PrintIncidentsPageP
             ) : (
               computedIncidents.map((inc: any) => (
                 <tr key={inc.id} className="hover:bg-zinc-50/60 break-inside-avoid print:break-inside-avoid print:leading-[1.15]">
-                  {visibleColSet.has('date_case') && (
-                    <td className="py-2.5 px-3 print:py-0.5 print:px-1.5 border-r border-zinc-300 print:border-zinc-300 font-mono align-top text-[11px] print:text-[8pt]">
-                      <div className="font-bold">{inc.date || inc.created_at?.split('T')[0]}</div>
-                      <div className="text-[10px] print:text-[7.5pt] text-zinc-500 font-mono">#{inc.id.slice(0, 8)}</div>
-                    </td>
-                  )}
+                  {visibleColSet.has('date_case') && (() => {
+                    const rawDate = inc.date || inc.created_at?.split('T')[0]
+                    const miti = formatToNepaliMiti(rawDate)
+                    return (
+                      <td className="py-2.5 px-3 print:py-0.5 print:px-1.5 border-r border-zinc-300 print:border-zinc-300 font-mono align-top text-[11px] print:text-[8pt]">
+                        <div className="font-bold">{miti ? miti.bsFormattedNp : rawDate}</div>
+                        <div className="text-[10px] print:text-[7pt] text-zinc-500 font-mono">#{inc.id.slice(-6).toUpperCase()}</div>
+                      </td>
+                    )
+                  })()}
                   {visibleColSet.has('facility') && (
                     <td className="py-2.5 px-3 print:py-0.5 print:px-1.5 border-r border-zinc-300 print:border-zinc-300 font-medium align-top print:text-[8pt]">
                       {inc.labs?.name?.split(' ')[0] || inc.lab_id?.toUpperCase()} Lab

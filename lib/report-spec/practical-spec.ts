@@ -92,6 +92,53 @@ export function formatClassCode(batchGroup: string | null | undefined): string {
   return clean
 }
 
+/**
+ * Formats subject code to strictly isolate the subject code without the class suffix.
+ * E.g. "WMAD-11" -> "WMAD", "COMP-12" -> "COMP", "CHEM-11" -> "CHEM", "CP-9" -> "CP".
+ */
+export function cleanSubjectCode(code?: string | null, name?: string | null): string {
+  if (code && code.trim()) {
+    return code.trim().replace(/[-_\s]+(?:Class\s*)?\d+[A-Za-z]?$/i, '').trim()
+  }
+  if (name && name.trim()) {
+    const codeMatch = name.match(/\b([A-Z]{2,6})(?:[-_\s]*\d+)?\b/)
+    if (codeMatch) return codeMatch[1]
+    return name.slice(0, 6).toUpperCase()
+  }
+  return '—'
+}
+
+/**
+ * Strips course code and class prefixes from the practical title.
+ * E.g. "WMAD-11 Practical Session" -> "Practical Session"
+ * E.g. "CHEM-11 - Chemistry Lab" -> "Chemistry Lab"
+ * E.g. "COMP-12 Practical Session" -> "Practical Session"
+ * E.g. "PHY-12 - Physics Lab" -> "Physics Lab"
+ * E.g. "CP-9 - Computer Prog" -> "Computer Prog"
+ */
+export function cleanPracticalTitle(title: string | null | undefined): string {
+  if (!title || !title.trim()) return '—'
+  let clean = title.trim()
+  clean = clean.replace(/^[A-Z]{2,6}[-_ ]?\d*[A-Za-z]?\s*[-:–—]\s*/i, '')
+  clean = clean.replace(/^[A-Z]{2,6}[-_ ]?\d*[A-Za-z]?\s+/i, '')
+  return clean || title
+}
+
+/**
+ * Converts long facility names to short institutional facility codes.
+ * E.g. "Chemistry Laboratory" -> "Chem-Lab", "Physics Laboratory" -> "Phys-Lab", "Computer Lab" -> "Com-Lab"
+ */
+export function formatFacilityShortCode(facility?: string | null): string {
+  if (!facility || !facility.trim()) return '—'
+  const lower = facility.toLowerCase()
+  if (lower.includes('comp') || lower.includes('computer')) return 'Com-Lab'
+  if (lower.includes('chem') || lower.includes('chemistry')) return 'Chem-Lab'
+  if (lower.includes('phys') || lower.includes('physics')) return 'Phys-Lab'
+  if (lower.includes('bio') || lower.includes('biology')) return 'Bio-Lab'
+  if (lower.includes('elec') || lower.includes('electronics')) return 'Elec-Lab'
+  return facility.replace(/\s+(Laboratory|Lab).*$/i, '-Lab')
+}
+
 export const practicalReportSpec: RecordReportSpec<PracticalRecordItem> = {
   reportId: 'practical_logs',
   title: 'Practical Experiment Records & Attendance Logbook',
@@ -129,7 +176,7 @@ export const practicalReportSpec: RecordReportSpec<PracticalRecordItem> = {
     {
       id: 'period_label',
       key: 'period_label',
-      label: 'Period / Slot',
+      label: 'Period',
       classification: 'structured',
       align: 'left',
       sortable: true,
@@ -138,20 +185,20 @@ export const practicalReportSpec: RecordReportSpec<PracticalRecordItem> = {
       typicalLength: 18,
       maxLength: 28,
       ui: {
-        widthClass: 'w-20',
+        widthClass: 'w-16',
       },
       print: {
-        detailed: { widthPercent: 6, maxChars: 18 },
-        compact: { widthPercent: 6, maxChars: 12 },
+        detailed: { widthPercent: 5, maxChars: 18 },
+        compact: { widthPercent: 5, maxChars: 12 },
       },
       export: {
-        xlsxWidth: 16,
-        csvHeader: 'Period / Slot',
+        xlsxWidth: 14,
+        csvHeader: 'Period',
         alwaysFullText: true,
       },
       accessor: (r) => ({
         raw: r.period_label,
-        displayText: r.period_label,
+        displayText: r.period_label ? r.period_label.replace(/\s*\([^)]*\)/, '') : '—',
       }),
     },
     {
@@ -166,11 +213,11 @@ export const practicalReportSpec: RecordReportSpec<PracticalRecordItem> = {
       typicalLength: 16,
       maxLength: 25,
       ui: {
-        widthClass: 'w-20',
+        widthClass: 'w-16',
       },
       print: {
-        detailed: { widthPercent: 7, maxChars: 14 },
-        compact: { widthPercent: 7, maxChars: 10 },
+        detailed: { widthPercent: 5, maxChars: 14 },
+        compact: { widthPercent: 5, maxChars: 10 },
       },
       export: {
         xlsxWidth: 14,
@@ -192,51 +239,51 @@ export const practicalReportSpec: RecordReportSpec<PracticalRecordItem> = {
       sortable: true,
       dbColumn: 'subject_name',
       filterType: 'text',
-      typicalLength: 25,
-      maxLength: 45,
+      typicalLength: 10,
+      maxLength: 20,
       ui: {
-        widthClass: 'w-36',
+        widthClass: 'w-20',
       },
       print: {
-        detailed: { widthPercent: 14, maxChars: 30 },
-        compact: { widthPercent: 13, maxChars: 22 },
+        detailed: { widthPercent: 7, maxChars: 15 },
+        compact: { widthPercent: 6, maxChars: 12 },
       },
       export: {
-        xlsxWidth: 26,
-        csvHeader: 'Subject Name',
+        xlsxWidth: 16,
+        csvHeader: 'Subject Code',
         alwaysFullText: true,
       },
       accessor: (r) => ({
-        raw: r.subject_name,
-        displayText: sanitizeSubjectTitle(r.subject_name),
+        raw: r.subject_code || r.subject_name,
+        displayText: cleanSubjectCode(r.subject_code, r.subject_name),
       }),
     },
     {
       id: 'practical_title',
       key: 'practical_title',
-      label: 'Practical Experiment',
+      label: 'Practicals',
       classification: 'structured',
       align: 'left',
       sortable: true,
       dbColumn: 'practical_title',
       filterType: 'text',
       typicalLength: 35,
-      maxLength: 70,
+      maxLength: 80,
       ui: {
-        widthClass: 'min-w-[220px]',
+        widthClass: 'min-w-[240px]',
       },
       print: {
-        detailed: { widthPercent: 22, maxChars: 65 },
-        compact: { widthPercent: 21, maxChars: 45 },
+        detailed: { widthPercent: 30, maxChars: 80 },
+        compact: { widthPercent: 28, maxChars: 60 },
       },
       export: {
-        xlsxWidth: 38,
-        csvHeader: 'Practical Experiment Title',
+        xlsxWidth: 42,
+        csvHeader: 'Practicals',
         alwaysFullText: true,
       },
       accessor: (r) => ({
         raw: r.practical_title,
-        displayText: r.practical_title,
+        displayText: cleanPracticalTitle(r.practical_title),
       }),
     },
     {
@@ -336,7 +383,7 @@ export const practicalReportSpec: RecordReportSpec<PracticalRecordItem> = {
     {
       id: 'remarks',
       key: 'remarks',
-      label: 'Verification Remarks',
+      label: 'Remark',
       classification: 'narrative',
       align: 'left',
       sortable: false,
@@ -349,8 +396,8 @@ export const practicalReportSpec: RecordReportSpec<PracticalRecordItem> = {
         truncateChars: 60,
       },
       print: {
-        detailed: { widthPercent: 18, maxChars: 90 },
-        compact: { widthPercent: 18, maxChars: 45 },
+        detailed: { widthPercent: 20, maxChars: 95 },
+        compact: { widthPercent: 18, maxChars: 50 },
       },
       export: {
         xlsxWidth: 40,

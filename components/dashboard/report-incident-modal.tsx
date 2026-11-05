@@ -10,17 +10,19 @@ import {
   ShieldAlert,
   Clock,
   UserCheck,
+  Loader2,
 } from 'lucide-react'
 import { useIncidentState } from '@/hooks/use-incident-state'
 import { useInfrastructureState } from '@/hooks/use-infrastructure-state'
+import { getIssueCategories } from '@/app/actions/workstations'
 import { getNepalDateStr } from '@/lib/nepali-date'
-import { MASTER_TIME_SLOTS } from '@/lib/master-data'
 import { useUserScope } from '@/hooks/use-user-scope'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { IncidentPhotoUploader, UploadedPhoto } from '@/components/incidents/incident-photo-uploader'
+import { formatClassBatchLabel } from '@/lib/master-data'
 
 interface ReportIncidentModalProps {
   isOpen: boolean
@@ -36,16 +38,15 @@ export default function ReportIncidentModal({
   defaultLabId = 'chem',
 }: ReportIncidentModalProps) {
   const { logIncident } = useIncidentState()
-  const { faculty, classes, incidentCategories } = useInfrastructureState()
+  const { faculty, classes, periods } = useInfrastructureState()
   const { scope, isTeacher } = useUserScope()
+  const [categories, setCategories] = useState<any[]>([])
 
   // Primary focus on Physics, Chemistry, and Computer labs
   const TARGET_LABS = [
     { id: 'phys', name: 'Physics Laboratory' },
     { id: 'chem', name: 'Chemistry Laboratory' },
     { id: 'comp', name: 'Computer Laboratory' },
-    { id: 'elec', name: 'Electronics & Hardware Lab' },
-    { id: 'bio', name: 'Biology & Life Sciences Lab' },
   ]
 
   const availableClasses =
@@ -55,11 +56,11 @@ export default function ReportIncidentModal({
 
   const [labId, setLabId] = useState<string>(defaultLabId)
   const [periodSlot, setPeriodSlot] = useState<string>('Period 2 (11:00 - 11:45)')
-  const [batchName, setBatchName] = useState<string>(availableClasses[0]?.name || '12 Eng')
+  const [batchName, setBatchName] = useState<string>(availableClasses[0]?.name || '')
   const [teacherName, setTeacherName] = useState<string>(
-    isTeacher && scope?.fullName ? scope.fullName : faculty[0]?.name || 'Dr. Prakash Adhikari'
+    isTeacher && scope?.fullName ? scope.fullName : faculty[0]?.name || ''
   )
-  const [incidentType, setIncidentType] = useState<string>(incidentCategories[0]?.code || 'breakage')
+  const [incidentType, setIncidentType] = useState<string>('Equipment / Glassware Breakage')
   const [severity, setSeverity] = useState<any>('minor')
   const [equipmentName, setEquipmentName] = useState<string>('')
   const [incidentTitle, setIncidentTitle] = useState<string>('')
@@ -67,6 +68,27 @@ export default function ReportIncidentModal({
   const [studentRolls, setStudentRolls] = useState<string>('')
   const [photos, setPhotos] = useState<UploadedPhoto[]>([])
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false)
+  const [formError, setFormError] = useState<string | null>(null)
+
+  // Fetch canonical issue_categories directly from PostgreSQL
+  React.useEffect(() => {
+    async function loadCategories() {
+      try {
+        const res = await getIssueCategories({ activeOnly: true })
+        if (res.success && res.data && res.data.length > 0) {
+          setCategories(res.data)
+          if (!incidentTitle) {
+            setIncidentType(res.data[0].name)
+            const sev = res.data[0].default_severity
+            setSeverity(sev === 'critical' ? 'major_critical' : sev === 'high' || sev === 'medium' ? 'moderate' : 'minor')
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load issue categories from PostgreSQL:', err)
+      }
+    }
+    loadCategories()
+  }, [incidentTitle])
 
   // Reactively sync teacherName when scope loads
   React.useEffect(() => {
@@ -82,6 +104,7 @@ export default function ReportIncidentModal({
     if (!incidentTitle.trim() && !circumstances.trim()) return
 
     setIsSubmitting(true)
+    setFormError(null)
     try {
       const displayTitle =
         incidentTitle.trim() ||
@@ -89,7 +112,7 @@ export default function ReportIncidentModal({
 
       const primaryPhotoUrl = photos.length > 0 ? (photos[0].dataUrl || photos[0].previewUrl) : undefined
 
-      await logIncident({
+      const res = await logIncident({
         lab_id: labId,
         date: getNepalDateStr(),
         session_label: periodSlot,
@@ -109,6 +132,12 @@ export default function ReportIncidentModal({
         reported_by_id: scope?.userId || undefined,
       })
 
+      if (res && !(res as any).success && (res as any).error) {
+        setFormError((res as any).error)
+        return
+      }
+
+      onClose()
       if (onSuccess) {
         onSuccess(
           severity === 'major_critical'
@@ -116,7 +145,8 @@ export default function ReportIncidentModal({
             : 'Incident reported. Notified Lab In-Charge and Admin.'
         )
       }
-      onClose()
+    } catch (err: any) {
+      setFormError(err?.message || 'Failed to submit incident report.')
     } finally {
       setIsSubmitting(false)
     }
@@ -154,6 +184,12 @@ export default function ReportIncidentModal({
         <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
           {/* Scrollable Form Body */}
           <div className="p-5 sm:p-6 overflow-y-auto space-y-4.5 text-sm font-sans flex-1 min-h-0">
+            {formError && (
+              <div className="p-3 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400 text-xs flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                <span>{formError}</span>
+              </div>
+            )}
             {/* Target Facility Lab & Period Slot */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
               <div className="space-y-1.5">
@@ -174,7 +210,7 @@ export default function ReportIncidentModal({
                   Period / Time Slot <span className="text-rose-500 font-bold">*</span>
                 </label>
                 <Select value={periodSlot} onChange={(e) => setPeriodSlot(e.target.value)}>
-                  {MASTER_TIME_SLOTS.map((s) => (
+                  {(periods || []).map((s) => (
                     <option key={s.id} value={`${s.name} (${s.label})`}>
                       {s.name} ({s.label})
                     </option>
@@ -197,15 +233,22 @@ export default function ReportIncidentModal({
                   onChange={(e) => {
                     const val = e.target.value
                     setIncidentType(val)
-                    const found = incidentCategories.find((c) => c.code === val)
-                    if (found) setSeverity(found.severity)
+                    const found = categories.find((c) => c.name === val || c.id === val)
+                    if (found) {
+                      const sev = found.default_severity
+                      setSeverity(sev === 'critical' ? 'major_critical' : sev === 'high' || sev === 'medium' ? 'moderate' : 'minor')
+                    }
                   }}
                 >
-                  {incidentCategories.map((cat) => (
-                    <option key={cat.id} value={cat.code}>
-                      {cat.name.replace(/Apparatus/g, 'Equipment')}
-                    </option>
-                  ))}
+                  {categories.length > 0 ? (
+                    categories.map((cat) => (
+                      <option key={cat.id} value={cat.name}>
+                        {cat.name.replace(/Apparatus/g, 'Equipment')}
+                      </option>
+                    ))
+                  ) : (
+                    <option value="General Equipment Damage">General Equipment Damage</option>
+                  )}
                 </Select>
               </div>
 
@@ -287,16 +330,11 @@ export default function ReportIncidentModal({
                   {availableClasses.length > 0 ? (
                     availableClasses.map((c) => (
                       <option key={c.id} value={c.name}>
-                        {c.name} ({c.stream || c.section})
+                        {formatClassBatchLabel(c)}
                       </option>
                     ))
                   ) : (
-                    <>
-                      <option value="Class 12C">Class 12C (Science)</option>
-                      <option value="Class 12B">Class 12B (Science)</option>
-                      <option value="Class 11A">Class 11A (General)</option>
-                      <option value="Class 11SC">Class 11SC (Science)</option>
-                    </>
+                    <option value="General Batch">General Batch</option>
                   )}
                 </Select>
               </div>
@@ -358,7 +396,10 @@ export default function ReportIncidentModal({
               className="h-10 px-5 rounded-xl text-sm font-bold font-sans bg-indigo-600 hover:bg-indigo-500 text-white gap-2 shadow-xs cursor-pointer"
             >
               {isSubmitting ? (
-                'Filing Report...'
+                <span className="flex items-center gap-1.5">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span>Saving...</span>
+                </span>
               ) : (
                 <>
                   <AlertTriangle className="h-4 w-4" />

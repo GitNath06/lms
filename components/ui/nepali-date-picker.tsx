@@ -24,6 +24,7 @@ export interface NepaliDatePickerProps {
   placeholder?: string
   disabled?: boolean
   className?: string
+  inputClassName?: string
   align?: 'start' | 'center' | 'end' | 'left' | 'right'
 }
 
@@ -33,6 +34,7 @@ export function NepaliDatePicker({
   placeholder = 'मिति छान्नुहोस् / Select Nepali Date',
   disabled = false,
   className = '',
+  inputClassName = '',
   align = 'start',
 }: NepaliDatePickerProps) {
   const [isOpen, setIsOpen] = useState(false)
@@ -136,7 +138,7 @@ export function NepaliDatePicker({
               isOpen
                 ? 'border-indigo-500 ring-2 ring-indigo-500/20 bg-white dark:bg-[#151E32]'
                 : 'border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] hover:border-zinc-300 dark:hover:border-white/[0.15]'
-            } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+            } ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${inputClassName}`}
           >
             <div className="flex items-center gap-2 truncate">
               <CalendarIcon className="h-4 w-4 text-indigo-500 shrink-0" />
@@ -182,7 +184,7 @@ export function NepaliDatePicker({
                   className="text-xs font-bold font-mono bg-zinc-100 dark:bg-[#151E32] text-zinc-900 dark:text-white rounded-lg px-2 py-1 border border-zinc-200 dark:border-white/[0.08] focus:outline-none cursor-pointer"
                 >
                   {availableYears.map((yr) => (
-                    <option key={yr} value={yr} className="bg-white dark:bg-[#101726]">
+                    <option key={yr} value={yr}>
                       {yr} B.S. ({toNepaliDigits(yr)})
                     </option>
                   ))}
@@ -194,7 +196,7 @@ export function NepaliDatePicker({
                   className="text-xs font-bold bg-zinc-100 dark:bg-[#151E32] text-zinc-900 dark:text-white rounded-lg px-2 py-1 border border-zinc-200 dark:border-white/[0.08] focus:outline-none cursor-pointer max-w-[130px]"
                 >
                   {NEPALI_MONTHS_EN.map((name, idx) => (
-                    <option key={name} value={idx + 1} className="bg-white dark:bg-[#101726]">
+                    <option key={name} value={idx + 1}>
                       {idx + 1}. {NEPALI_MONTHS_NP[idx]} ({name})
                     </option>
                   ))}

@@ -97,12 +97,12 @@ export function DisplacedStudentsQueue({
   const currentFeedback = feedback?.id === currentStudent.enrollmentId ? feedback.text : null
 
   return (
-    <div className="h-8 px-3 rounded-lg bg-[#101726]/95 border border-white/10 dark:border-white/15 shadow-xs flex items-center justify-between gap-2.5 text-xs animate-in fade-in duration-150 overflow-hidden">
+    <div className="h-8 px-3 rounded-lg bg-white/95 dark:bg-[#101726]/95 border border-zinc-200 dark:border-white/15 shadow-xs flex items-center justify-between gap-2.5 text-xs animate-in fade-in duration-150 overflow-hidden">
       {/* Left: Triage Category & Student Selector */}
       <div className="flex items-center gap-2 min-w-0">
         {displacedStudents.length > 1 ? (
           <div className="flex items-center gap-1.5 shrink-0">
-            <span className="flex h-5 items-center gap-1 px-1.5 rounded bg-amber-500/10 border border-amber-500/25 text-amber-400 text-[10px] font-mono font-bold">
+            <span className="flex h-5 items-center gap-1 px-1.5 rounded bg-amber-100 dark:bg-amber-500/10 border border-amber-300 dark:border-amber-500/25 text-amber-800 dark:text-amber-400 text-[10px] font-mono font-bold">
               <AlertTriangle className="h-2.5 w-2.5" />
               <span>Triage ({displacedStudents.length})</span>
             </span>
@@ -119,7 +119,7 @@ export function DisplacedStudentsQueue({
                       className={`h-5 px-1.5 text-[10px] font-mono font-semibold rounded transition-colors cursor-pointer shrink-0 ${
                         isActive
                           ? 'bg-indigo-600 text-white'
-                          : 'bg-white/5 text-slate-400 hover:text-white hover:bg-white/10'
+                          : 'bg-zinc-100 dark:bg-white/5 text-zinc-600 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-200 dark:hover:bg-white/10'
                       }`}
                     >
                       R-{ds.rollNumber} {ds.type === 'unassigned' ? '· Unseated' : `· ${ds.originalWsLabel}`}
@@ -132,7 +132,7 @@ export function DisplacedStudentsQueue({
                 <button
                   type="button"
                   onClick={() => setSelectedIndex((prev) => (prev > 0 ? prev - 1 : displacedStudents.length - 1))}
-                  className="h-5 w-5 flex items-center justify-center rounded bg-white/5 text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                  className="h-5 w-5 flex items-center justify-center rounded bg-zinc-100 dark:bg-white/5 text-zinc-600 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-200 dark:hover:bg-white/10 transition-colors cursor-pointer"
                   title="Previous student"
                 >
                   <ChevronLeft className="h-3 w-3" />
@@ -140,10 +140,10 @@ export function DisplacedStudentsQueue({
                 <select
                   value={safeIndex}
                   onChange={(e) => setSelectedIndex(Number(e.target.value))}
-                  className="h-5 text-[10px] font-mono bg-white/5 border border-white/10 text-slate-200 rounded px-1.5 focus:outline-hidden cursor-pointer max-w-[190px] truncate"
+                  className="h-5 text-[10px] font-mono bg-zinc-100 dark:bg-white/5 border border-zinc-200 dark:border-white/10 text-zinc-800 dark:text-slate-200 rounded px-1.5 focus:outline-hidden cursor-pointer max-w-[190px] truncate"
                 >
                   {displacedStudents.map((ds, idx) => (
-                    <option key={ds.enrollmentId} value={idx} className="bg-[#101726] text-white">
+                    <option key={ds.enrollmentId} value={idx}>
                       {idx + 1}/{displacedStudents.length}: Roll {ds.rollNumber} ({ds.type === 'unassigned' ? 'Unseated' : ds.originalWsLabel})
                     </option>
                   ))}
@@ -151,7 +151,7 @@ export function DisplacedStudentsQueue({
                 <button
                   type="button"
                   onClick={() => setSelectedIndex((prev) => (prev < displacedStudents.length - 1 ? prev + 1 : 0))}
-                  className="h-5 w-5 flex items-center justify-center rounded bg-white/5 text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                  className="h-5 w-5 flex items-center justify-center rounded bg-zinc-100 dark:bg-white/5 text-zinc-600 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-200 dark:hover:bg-white/10 transition-colors cursor-pointer"
                   title="Next student"
                 >
                   <ChevronRight className="h-3 w-3" />
@@ -163,18 +163,18 @@ export function DisplacedStudentsQueue({
           <span
             className={`flex h-5 items-center gap-1 px-1.5 rounded text-[10px] font-mono font-bold shrink-0 ${
               currentStudent.type === 'unassigned'
-                ? 'bg-indigo-500/15 border border-indigo-500/30 text-indigo-300'
-                : 'bg-amber-500/15 border border-amber-500/30 text-amber-300'
+                ? 'bg-indigo-100 text-indigo-800 border border-indigo-200 dark:bg-indigo-500/15 dark:border-indigo-500/30 dark:text-indigo-300'
+                : 'bg-amber-100 text-amber-800 border border-amber-200 dark:bg-amber-500/15 dark:border-amber-500/30 dark:text-amber-300'
             }`}
           >
             {currentStudent.type === 'unassigned' ? (
               <>
-                <Users className="h-2.5 w-2.5 text-indigo-400" />
+                <Users className="h-2.5 w-2.5 text-indigo-600 dark:text-indigo-400" />
                 <span>Unseated</span>
               </>
             ) : (
               <>
-                <AlertTriangle className="h-2.5 w-2.5 text-amber-400" />
+                <AlertTriangle className="h-2.5 w-2.5 text-amber-600 dark:text-amber-400" />
                 <span>Station Offline</span>
               </>
             )}
@@ -183,20 +183,20 @@ export function DisplacedStudentsQueue({
 
         {/* Current Student Details */}
         <div className="flex items-center gap-1.5 min-w-0 text-xs">
-          <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-slate-300 shrink-0">
+          <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-white/5 border border-zinc-200 dark:border-white/10 text-zinc-700 dark:text-slate-300 shrink-0">
             Roll {currentStudent.rollNumber}
           </span>
-          <span className="font-heading font-semibold text-xs text-white truncate max-w-[120px] sm:max-w-[160px]">
+          <span className="font-heading font-semibold text-xs text-zinc-900 dark:text-white truncate max-w-[120px] sm:max-w-[160px]">
             {currentStudent.studentName}
           </span>
-          <span className="text-zinc-600 text-[10px] hidden sm:inline">&bull;</span>
-          <span className="text-[11px] text-slate-400 truncate max-w-[180px] hidden lg:inline">
+          <span className="text-zinc-400 dark:text-zinc-600 text-[10px] hidden sm:inline">&bull;</span>
+          <span className="text-[11px] text-zinc-600 dark:text-slate-400 truncate max-w-[180px] hidden lg:inline">
             {currentStudent.type === 'unassigned' ? (
-              <span className="text-amber-400/90 font-medium">Needs workstation allocation</span>
+              <span className="text-amber-700 dark:text-amber-400/90 font-medium">Needs workstation allocation</span>
             ) : (
               <>
-                <span className="text-rose-400 font-mono font-semibold">{currentStudent.originalWsLabel}: </span>
-                <span className="italic text-slate-400">{currentStudent.issueTitle}</span>
+                <span className="text-rose-600 dark:text-rose-400 font-mono font-semibold">{currentStudent.originalWsLabel}: </span>
+                <span className="italic text-zinc-600 dark:text-slate-400">{currentStudent.issueTitle}</span>
               </>
             )}
           </span>
@@ -215,10 +215,10 @@ export function DisplacedStudentsQueue({
                   [currentStudent.enrollmentId]: e.target.value,
                 }))
               }
-              className="h-6 text-[11px] font-mono bg-[#0B0F19] border border-white/15 text-slate-200 rounded-md px-2 focus:outline-hidden focus:border-indigo-400 cursor-pointer max-w-[170px] sm:max-w-[210px] truncate"
+              className="h-6 text-[11px] font-mono bg-zinc-50 dark:bg-[#0B0F19] border border-zinc-300 dark:border-white/15 text-zinc-900 dark:text-slate-200 rounded-md px-2 focus:outline-hidden focus:border-indigo-500 cursor-pointer max-w-[170px] sm:max-w-[210px] truncate"
             >
               {availableWorkstations.map((ws) => (
-                <option key={ws.id} value={ws.id} className="bg-[#101726] text-white">
+                <option key={ws.id} value={ws.id}>
                   {ws.label} {ws.description ? `· ${ws.description}` : '· Available'}
                 </option>
               ))}
@@ -259,7 +259,7 @@ export function DisplacedStudentsQueue({
             setIsDismissed(true)
             onDismiss?.()
           }}
-          className="p-1 rounded text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer ml-0.5"
+          className="p-1 rounded text-zinc-400 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/5 transition-colors cursor-pointer ml-0.5"
           title="Dismiss triage strip"
         >
           <X className="h-3 w-3" />

@@ -4,6 +4,7 @@ import React, { useState, useMemo, useCallback, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import {
   X,
+  Check,
   CheckCircle2,
   AlertCircle,
   Merge,
@@ -20,22 +21,22 @@ import {
   Building2,
   Info,
   Pencil,
+  Loader2,
+  Calendar,
 } from 'lucide-react'
 import {
   MasterRoutineItem,
-  MASTER_TIME_SLOTS,
   DAYS,
-  LAB_ROOMS,
   DayKey,
-  DEFAULT_CLASSES,
-  DEFAULT_SUBJECTS,
   formatGradeBadge,
+  formatClassBatchLabel,
   isLabBusyInSlot,
   isTeacherBusyInSlot,
   getOccupiedLabsInSlot,
+  matchesGrade,
+  computeCombinedTimeRange,
 } from '@/lib/master-data'
 import { getNepalDateStr } from '@/lib/nepali-date'
-import { matchesGrade } from '@/lib/context/institutional-relationships'
 import { PracticalLogRecord } from '@/hooks/use-logs-state'
 import { createPracticalLog } from '@/app/actions/logs'
 import { Button } from '@/components/ui/button'
@@ -49,13 +50,6 @@ import { useIncidentState } from '@/hooks/use-incident-state'
 import { UserProfile } from '@/app/actions/auth'
 import { resolveUserScope } from '@/lib/context/user-scope'
 
-const TEACHER_NAME_MAP: Record<string, string> = {
-  t1: 'Dr. Rajesh Sharma (Computer Science)',
-  t2: 'Dr. Prakash Adhikari (Physics)',
-  t3: 'Ms. Sunita Thapa (Chemistry)',
-  t4: 'Er. Anish Karki (Electronics)',
-  t5: 'Dr. Nirmala Poudel (Biology)',
-}
 
 export type ModalMode = 'log' | 'skip' | 'merge' | 'adhoc' | 'book' | 'delete' | 'edit' | 'substitute' | 'incident'
 
@@ -79,15 +73,18 @@ interface SessionActionModalProps {
     mergedTeacher?: string
   ) => void
   onUnmergeSession?: (sessionId: string) => void
-  onAddSession?: (session: MasterRoutineItem | any) => void
+  onAddSession?: (session: MasterRoutineItem | any) => void | Promise<{ success: boolean; error?: string } | void | any>
   onUpdateSession?: (sessionId: string, updatedFields: Partial<MasterRoutineItem>) => void
   onSaveLog?: (logData: Omit<PracticalLogRecord, 'id' | 'createdAt'> & { id?: string; seatingSnapshot?: any[]; seating_snapshot?: any[] }) => void | Promise<void>
   onSkipSession?: (sessionId: string, reason: string) => void | Promise<void>
   onUnskipSession?: (sessionId: string) => void | Promise<void>
+  onApproveSession?: (sessionId: string) => void | Promise<void>
+  onRejectSession?: (sessionId: string, reason?: string) => void | Promise<void>
   seatingSnapshot?: any[]
   initialTotalStudents?: number
   initialAbsentRolls?: number[]
   initialAbsentCount?: number
+  sessionDate?: string
 }
 
 export default function SessionActionModal(props: SessionActionModalProps) {
@@ -124,10 +121,13 @@ function SessionActionModalContent({
   onSaveLog,
   onSkipSession,
   onUnskipSession,
+  onApproveSession,
+  onRejectSession,
   seatingSnapshot,
   initialTotalStudents,
   initialAbsentRolls,
   initialAbsentCount,
+  sessionDate,
 }: SessionActionModalProps) {
   const isBookingMode =
     initialMode === 'book' ||
@@ -154,6 +154,7 @@ function SessionActionModalContent({
     subjects: infraSubjects,
     classes: infraClasses,
     labs: infraLabs,
+    periods: infraPeriods,
     getHolidayForDate,
   } = useInfrastructureState()
 
@@ -161,7 +162,9 @@ function SessionActionModalContent({
   const holidayItem = getHolidayForDate(todayStr)
   const isHoliday = Boolean(holidayItem)
 
-  const allClasses = (infraClasses && infraClasses.length > 0) ? infraClasses : DEFAULT_CLASSES
+  const allClasses = (infraClasses && infraClasses.length > 0) ? infraClasses : []
+  const allPeriods = (infraPeriods && infraPeriods.length > 0) ? infraPeriods : []
+  const allLabs = (infraLabs && infraLabs.length > 0) ? infraLabs : []
   const scopedClasses = (isTeacher && userScope.assignedClasses.length > 0)
     ? allClasses.filter((c) =>
         userScope.assignedClasses.some((ac) => ac === c.name || c.name.includes(ac) || ac.includes(c.name))
@@ -174,7 +177,7 @@ function SessionActionModalContent({
     : rawInitialGrade
 
   const getSubjectsForGrade = useCallback((gradeName: string) => {
-    const rawSubs = (infraSubjects && infraSubjects.length > 0) ? infraSubjects : DEFAULT_SUBJECTS
+    const rawSubs = (infraSubjects && infraSubjects.length > 0) ? infraSubjects : []
     // 1. Direct match
     const direct = rawSubs.filter((s) => s.grade === gradeName)
     let candidate = direct
@@ -188,17 +191,28 @@ function SessionActionModalContent({
       candidate = rawSubs
     }
 
+    // Deduplicate candidate subjects by code so dropdown options and keys are strictly unique
+    const seenCodes = new Set<string>()
+    const uniqueCandidate: typeof candidate = []
+    for (const s of candidate) {
+      const code = s.code.trim().toUpperCase()
+      if (!seenCodes.has(code)) {
+        seenCodes.add(code)
+        uniqueCandidate.push(s)
+      }
+    }
+
     if (isTeacher && userScope.assignedSubjects.length > 0) {
-      const filtered = candidate.filter((s) =>
+      const filtered = uniqueCandidate.filter((s) =>
         userScope.assignedSubjects.some((asub) =>
           asub.code.toLowerCase() === s.code.toLowerCase() ||
           asub.title.toLowerCase().includes(s.title.toLowerCase()) ||
           s.title.toLowerCase().includes(asub.title.toLowerCase())
         )
       )
-      return filtered.length > 0 ? filtered : candidate
+      return filtered.length > 0 ? filtered : uniqueCandidate
     }
-    return candidate
+    return uniqueCandidate
   }, [infraSubjects, isTeacher, userScope.assignedSubjects])
 
   // Booking form state
@@ -211,7 +225,7 @@ function SessionActionModalContent({
     return getSubjectsForGrade(bookGrade)
   }, [getSubjectsForGrade, bookGrade])
 
-  const initialBookSub = bookClassSubjects[0] || (infraSubjects && infraSubjects[0]) || DEFAULT_SUBJECTS[0]
+  const initialBookSub = bookClassSubjects[0] || (infraSubjects && infraSubjects[0]) || { code: 'COMP-12', title: 'Computer Science Practical', labId: 'comp' }
   const initialCls = scopedClasses.find((c: any) => c.name === initialGrade) || allClasses.find((c: any) => c.name === initialGrade)
 
   const [bookSubjectCode, setBookSubjectCode] = useState<string>(session?.subjectCode || initialBookSub.code)
@@ -222,8 +236,15 @@ function SessionActionModalContent({
   const [bookTeacher, setBookTeacher] = useState<string>(
     isTeacher
       ? teacherName
-      : (session?.teacher || (initialBookSub as any)?.teacherName || 'Dr. Rajesh Sharma')
+      : (session?.teacher || (initialBookSub as any)?.teacherName || '')
   )
+  const [bookIsRecurring, setBookIsRecurring] = useState<boolean>(Boolean(session && !session.isAdHoc && !session.specificDate && !session.id?.startsWith('adhoc-')))
+  const [bookTeacherId, setBookTeacherId] = useState<string | null>(() => {
+    if (isTeacher) return currentUser?.id || null
+    if (session?.teacherId) return session.teacherId
+    const fac = infraFaculty.find((f) => f.name === (session?.teacher || (initialBookSub as any)?.teacherName || ''))
+    return fac?.id || (initialBookSub as any)?.teacherId || null
+  })
   const [bookSpan, setBookSpan] = useState<number>(session?.span || 1)
   const [bookStudents, setBookStudents] = useState<number>((initialCls as any)?.capacity || (initialCls as any)?.strength || session?.defaultStudents || 38)
 
@@ -245,29 +266,31 @@ function SessionActionModalContent({
       setBookLabKey((sub.labId || 'comp') as MasterRoutineItem['labKey'])
       if (!isTeacher) {
         const teacher = infraFaculty.find((f) => f.id === sub.teacherId)
-        setBookTeacher(teacher ? teacher.name : (sub as any).teacherName || 'Dr. Rajesh Sharma')
+        setBookTeacher(teacher ? teacher.name : (sub as any).teacherName || '')
+        setBookTeacherId(teacher ? teacher.id : (sub as any).teacherId || null)
       }
     }
   }
 
   const handleBookSubjectChange = (code: string) => {
     setBookSubjectCode(code)
-    const sub = infraSubjects.find((s) => s.code === code) || DEFAULT_SUBJECTS.find((s) => s.code === code)
+    const sub = infraSubjects.find((s) => s.code === code)
     if (sub) {
       setBookSubjectTitle(sub.title)
       setBookLabKey((sub.labId || 'comp') as MasterRoutineItem['labKey'])
       if (!isTeacher) {
         const teacher = infraFaculty.find((f) => f.id === sub.teacherId)
-        setBookTeacher(teacher ? teacher.name : (sub as any).teacherName || 'Dr. Rajesh Sharma')
+        setBookTeacher(teacher ? teacher.name : (sub as any).teacherName || '')
+        setBookTeacherId(teacher ? teacher.id : (sub as any).teacherId || null)
       }
     }
   }
 
   // Find consecutive next session for merging
-  const currentSlotIdx = session ? MASTER_TIME_SLOTS.findIndex((t) => t.id === session.slotId) : -1
+  const currentSlotIdx = (session && allPeriods.length > 0) ? allPeriods.findIndex((t) => t.id === session.slotId) : -1
   const span = session?.span || 1
   const nextSlotIdx = currentSlotIdx !== -1 ? currentSlotIdx + span : -1
-  const nextSlot = nextSlotIdx < MASTER_TIME_SLOTS.length ? MASTER_TIME_SLOTS[nextSlotIdx] : null
+  const nextSlot = (nextSlotIdx !== -1 && nextSlotIdx < allPeriods.length) ? allPeriods[nextSlotIdx] : null
 
   const nextSession = (session && nextSlot)
     ? allRoutines.find((r) => r.dayKey === session.dayKey && r.slotId === nextSlot.id)
@@ -307,10 +330,6 @@ function SessionActionModalContent({
   const [coTeacher, setCoTeacher] = useState<string>(session?.coTeacher || '')
   const isAlreadyLogged = Boolean(existingLog)
 
-  const occupiedLabsInSlot = useMemo(() => {
-    return getOccupiedLabsInSlot(allRoutines, bookDayKey, bookSlotId, session?.id)
-  }, [allRoutines, bookDayKey, bookSlotId, session?.id])
-
   const maintenanceLabKeys = useMemo(() => {
     const set = new Set<string>()
     infraLabs.forEach((l) => {
@@ -319,8 +338,7 @@ function SessionActionModalContent({
         if (l.type === 'computer_lab') set.add('comp')
         if (l.type === 'physics_lab') set.add('phys')
         if (l.type === 'chemistry_lab') set.add('chem')
-        if (l.type === 'biology_lab') set.add('bio')
-        if (l.type === 'electronics_lab') set.add('elec')
+        if (l.code) set.add(l.code.toLowerCase())
       }
     })
     return set
@@ -342,10 +360,24 @@ function SessionActionModalContent({
   const { logIncident } = useIncidentState()
 
   // Substitution state
-  const [subTeacherId, setSubTeacherId] = useState<string>(infraFaculty[0]?.id || 't4')
-  const [subDate, setSubDate] = useState<string>(getNepalDateStr())
+  const [subTeacherId, setSubTeacherId] = useState<string>(infraFaculty[0]?.id || '')
+  const [subDate, setSubDate] = useState<string>(sessionDate || (session as any)?.date || getNepalDateStr())
   const [subReason, setSubReason] = useState<string>('Official Leave / Exam Duty')
   const [subError, setSubError] = useState<string | null>(null)
+
+  const effectiveBookingDate = bookIsRecurring
+    ? null
+    : (sessionDate || session?.date || session?.specificDate || subDate || null)
+
+  const occupiedLabsInSlot = useMemo(() => {
+    return getOccupiedLabsInSlot(allRoutines, bookDayKey, bookSlotId, session?.id, allPeriods, effectiveBookingDate)
+  }, [allRoutines, bookDayKey, bookSlotId, session?.id, allPeriods, effectiveBookingDate])
+
+  const normSelectedLab = (bookLabKey || '').toLowerCase().trim()
+  const isSelectedLabOccupied = occupiedLabsInSlot.has(normSelectedLab) ||
+    (targetLabInfo?.type === 'computer_lab' && occupiedLabsInSlot.has('comp')) ||
+    (targetLabInfo?.type === 'physics_lab' && occupiedLabsInSlot.has('phys')) ||
+    (targetLabInfo?.type === 'chemistry_lab' && occupiedLabsInSlot.has('chem'))
 
   // Incident & Damage state
   const [incTitle, setIncTitle] = useState<string>('')
@@ -400,8 +432,30 @@ function SessionActionModalContent({
         return
       }
 
+      let effectiveSpecificDate = bookIsRecurring
+        ? null
+        : (sessionDate || session?.date || session?.specificDate || subDate || null)
+
+      // Align specific date with selected bookDayKey within the target week
+      if (effectiveSpecificDate && !bookIsRecurring) {
+        try {
+          const d = new Date(effectiveSpecificDate)
+          const dayMap: Record<string, number> = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 }
+          const targetDayIndex = dayMap[bookDayKey]
+          if (targetDayIndex !== undefined) {
+            const currentDayIndex = d.getDay()
+            const diffDays = targetDayIndex - currentDayIndex
+            if (diffDays !== 0) {
+              d.setDate(d.getDate() + diffDays)
+              effectiveSpecificDate = d.toISOString().split('T')[0]
+            }
+          }
+        } catch {}
+      }
+      const cleanReqDate = effectiveSpecificDate ? effectiveSpecificDate.split('T')[0] : null
+
       // Hard Collision Prevention on Single & Dual-Lab Facility Booking
-      const bookStartIdx = MASTER_TIME_SLOTS.findIndex((t) => t.id === bookSlotId)
+      const bookStartIdx = allPeriods.findIndex((t) => t.id === bookSlotId)
       const bookEndIdx = bookStartIdx + bookSpan
 
       const hasRoomConflict = allRoutines.some((s) => {
@@ -409,7 +463,12 @@ function SessionActionModalContent({
         if (s.dayKey !== bookDayKey) return false
         if (s.isSkipped || s.status === 'skipped') return false
 
-        const sStartIdx = MASTER_TIME_SLOTS.findIndex((t) => t.id === s.slotId)
+        // Date specificity checks
+        const sDate = s.specificDate ? s.specificDate.split('T')[0] : (s.date ? s.date.split('T')[0] : null)
+        if (cleanReqDate && sDate && cleanReqDate !== sDate) return false
+        if (!cleanReqDate && sDate) return false
+
+        const sStartIdx = allPeriods.findIndex((t) => t.id === s.slotId)
         if (sStartIdx === -1) return false
         const sEndIdx = sStartIdx + (s.span || 1)
         const overlaps = bookStartIdx < sEndIdx && bookEndIdx > sStartIdx
@@ -427,27 +486,31 @@ function SessionActionModalContent({
         return false
       })
 
-      if (hasRoomConflict) {
-        setSubError('Facility conflict: One or both selected laboratories already have a scheduled session in this period.')
+      if (isSelectedLabOccupied || hasRoomConflict) {
+        setSubError(`Facility conflict: "${targetLabInfo?.name || 'Selected laboratory'}" is already reserved for another scheduled session during this period.`)
         setIsSubmitting(false)
         return
       }
 
       const assignedTeacher = isTeacher ? (currentUser?.full_name || 'Subject Teacher') : bookTeacher
-      if (isTeacherBusyInSlot(allRoutines, bookDayKey, bookSlotId, assignedTeacher, session?.id)) {
+      const resolvedTeacherId = isTeacher
+        ? (currentUser?.id || null)
+        : (bookTeacherId || infraFaculty.find((f) => f.name === assignedTeacher)?.id || null)
+      const resolvedClassSubjectId = session?.classSubjectId || (bookClassSubjects.find((s) => s.code === bookSubjectCode) as any)?.id || null
+      if (isTeacherBusyInSlot(allRoutines, bookDayKey, bookSlotId, assignedTeacher, session?.id, cleanReqDate)) {
         setSubError(`Teacher conflict: ${assignedTeacher} is already assigned to another practical session in this period.`)
         setIsSubmitting(false)
         return
       }
 
-      if (isDualLab && coTeacher && coTeacher !== assignedTeacher && isTeacherBusyInSlot(allRoutines, bookDayKey, bookSlotId, coTeacher, session?.id)) {
+      if (isDualLab && coTeacher && coTeacher !== assignedTeacher && isTeacherBusyInSlot(allRoutines, bookDayKey, bookSlotId, coTeacher, session?.id, cleanReqDate)) {
         setSubError(`Co-teacher conflict: ${coTeacher} is already assigned to another practical session in this period.`)
         setIsSubmitting(false)
         return
       }
       const dayObj = DAYS.find((d) => d.id === bookDayKey)
-      const slotObj = MASTER_TIME_SLOTS.find((s) => s.id === bookSlotId)
-      const labObj = LAB_ROOMS.find((l) => l.id === bookLabKey) || LAB_ROOMS[0]
+      const slotObj = allPeriods.find((s) => s.id === bookSlotId)
+      const labObj = allLabs.find((l) => l.id === bookLabKey) || allLabs[0]
 
       const labCategory =
         bookLabKey === 'comp'
@@ -456,9 +519,7 @@ function SessionActionModalContent({
           ? 'Physics'
           : bookLabKey === 'chem'
           ? 'Chemistry'
-          : bookLabKey === 'bio'
-          ? 'Biology'
-          : 'Electronics'
+          : (labObj?.name?.replace(/\s*Lab(oratory)?/i, '') || 'General')
 
       const dotColor =
         bookLabKey === 'comp'
@@ -467,9 +528,7 @@ function SessionActionModalContent({
           ? 'bg-cyan-500'
           : bookLabKey === 'chem'
           ? 'bg-rose-500'
-          : bookLabKey === 'bio'
-          ? 'bg-emerald-500'
-          : 'bg-amber-500'
+          : 'bg-emerald-500'
 
       const accentColor =
         bookLabKey === 'comp'
@@ -478,9 +537,7 @@ function SessionActionModalContent({
           ? 'border-l-cyan-500 bg-cyan-50/50 dark:bg-cyan-950/20 text-zinc-950 dark:text-white'
           : bookLabKey === 'chem'
           ? 'border-l-rose-500 bg-rose-50/50 dark:bg-rose-950/20 text-zinc-950 dark:text-white'
-          : bookLabKey === 'bio'
-          ? 'border-l-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/20 text-zinc-950 dark:text-white'
-          : 'border-l-amber-500 bg-amber-50/50 dark:bg-amber-950/20 text-zinc-950 dark:text-white'
+          : 'border-l-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/20 text-zinc-950 dark:text-white'
 
       const badgeColor =
         bookLabKey === 'comp'
@@ -489,11 +546,13 @@ function SessionActionModalContent({
           ? 'bg-cyan-100 dark:bg-cyan-900/60 text-cyan-800 dark:text-cyan-200 border-cyan-200 dark:border-cyan-700'
           : bookLabKey === 'chem'
           ? 'bg-rose-100 dark:bg-rose-900/60 text-rose-800 dark:text-rose-200 border-rose-200 dark:border-rose-700'
-          : bookLabKey === 'bio'
-          ? 'bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 border-emerald-200 dark:border-emerald-700'
-          : 'bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 border-amber-200 dark:border-amber-700'
+          : 'bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 border-emerald-200 dark:border-emerald-700'
 
-      const allLabs = (infraLabs && infraLabs.length > 0) ? infraLabs : LAB_ROOMS
+      const effectiveSpan = bookSpan || 1
+      const combinedTimeSlot = (effectiveSpan > 1 && bookSlotId)
+        ? computeCombinedTimeRange(bookSlotId, effectiveSpan, allPeriods)
+        : (slotObj?.label || '')
+
       const secondaryLabObj = isDualLab
         ? (allLabs.find((l: any) => l.id === secondaryLabKey) || { name: 'Physics Lab' })
         : undefined
@@ -504,14 +563,19 @@ function SessionActionModalContent({
           : `sess-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         day: dayObj?.label || 'Monday',
         dayKey: bookDayKey,
-        timeSlot: slotObj?.label || '10:10 - 11:00',
+        timeSlot: combinedTimeSlot,
         slotId: bookSlotId,
-        span: bookSpan,
+        span: effectiveSpan,
         subjectCode: bookSubjectCode,
         subjectTitle: bookSubjectTitle,
         grade: bookGrade,
         gradeKey: ('class-' + (bookGrade.replace(/\D/g, '') || '12')) as MasterRoutineItem['gradeKey'],
         teacher: assignedTeacher,
+        teacherId: resolvedTeacherId,
+        classSubjectId: resolvedClassSubjectId || null,
+        specificDate: effectiveSpecificDate,
+        date: effectiveSpecificDate || undefined,
+        isAdHoc: !bookIsRecurring,
         lab: labObj.name as MasterRoutineItem['lab'],
         labKey: bookLabKey,
         secondaryLab: isDualLab ? secondaryLabObj?.name : undefined,
@@ -532,17 +596,26 @@ function SessionActionModalContent({
         if (onSuccess) {
           onSuccess(`Practical session updated successfully for ${dayObj?.label}!`)
         }
-      } else {
-        if (onAddSession) {
-          onAddSession(newSessionItem)
+        onClose()
+        return
+      } else if (onAddSession) {
+        const res: any = await onAddSession(newSessionItem)
+        if (res && res.success === false) {
+          setSubError(res.error || 'Failed to submit slot booking request.')
+          setIsSubmitting(false)
+          return
         }
         if (onSuccess) {
           if (isTeacher) {
             onSuccess(`Practical slot booking request submitted for ${dayObj?.label} (${assignedTeacher})!`)
+          } else if (!bookIsRecurring) {
+            onSuccess(`One-time practical reservation booked for ${effectiveSpecificDate || dayObj?.label}!`)
           } else {
-            onSuccess(`Practical session booked successfully for ${dayObj?.label}!`)
+            onSuccess(`Master weekly recurring practical session booked for ${dayObj?.label}!`)
           }
         }
+        onClose()
+        return
       }
       onClose()
       return
@@ -618,10 +691,12 @@ function SessionActionModalContent({
       const safeAbsent = Math.max(0, Math.min(safeTotal, effectiveAbsentCount))
       const safePresent = Math.max(0, Math.min(safeTotal, safeTotal - safeAbsent))
 
+      const effectiveSessionDate = sessionDate || (session as any)?.date || subDate || getNepalDateStr()
+
       const logRecord: any = {
         id: existingLog?.id,
         sessionId: session.id,
-        date: getNepalDateStr(),
+        date: effectiveSessionDate,
         dayKey: session.dayKey,
         slotId: session.slotId,
         timeSlot: session.timeSlot,
@@ -656,7 +731,7 @@ function SessionActionModalContent({
             schedule_id: session.id,
             lab_id: session.labKey || 'comp',
             teacher_id: selectedTeacher || session.teacher,
-            date: getNepalDateStr(),
+            date: effectiveSessionDate,
             period_label: session.timeSlot,
             subject_name: session.subjectTitle?.toLowerCase().startsWith(session.subjectCode.toLowerCase())
               ? session.subjectTitle
@@ -678,8 +753,8 @@ function SessionActionModalContent({
           }
         }
 
-        if (onSuccess) onSuccess(existingLog ? 'Practical record updated successfully.' : 'Practical log recorded successfully.')
         onClose()
+        if (onSuccess) onSuccess(existingLog ? 'Practical record updated successfully.' : 'Practical log recorded successfully.')
       } catch (err: any) {
         setSubError(err.message || 'Error occurred while saving practical record.')
       } finally {
@@ -706,10 +781,11 @@ function SessionActionModalContent({
         }
 
         if (onSaveLog) {
+          const effectiveSkipDate = sessionDate || (session as any)?.date || subDate || getNepalDateStr()
           await onSaveLog({
             id: existingLog?.id,
             sessionId: session.id,
-            date: getNepalDateStr(),
+            date: effectiveSkipDate,
             dayKey: session.dayKey,
             slotId: session.slotId,
             timeSlot: session.timeSlot,
@@ -726,8 +802,8 @@ function SessionActionModalContent({
             absentStudents: 0,
           })
         }
-        if (onSuccess) onSuccess(`Session marked as skipped: ${skipReason}`)
         onClose()
+        if (onSuccess) onSuccess(`Session marked as skipped: ${skipReason}`)
       } catch (err: any) {
         setSubError(err.message || 'Error marking session as skipped.')
       } finally {
@@ -754,13 +830,14 @@ function SessionActionModalContent({
         return
       }
 
-      if (onSuccess) onSuccess(`Proxy teacher assigned: ${subFacultyObj?.name} for ${session.teacher}`)
       onClose()
+      if (onSuccess) onSuccess(`Proxy teacher assigned: ${subFacultyObj?.name} for ${session.teacher}`)
     } else if (activeTab === 'incident' && session) {
+      const effectiveIncDate = sessionDate || (session as any)?.date || subDate || getNepalDateStr()
       await logIncident({
         lab_id: session.labKey || 'comp',
         schedule_id: session.id,
-        date: getNepalDateStr(),
+        date: effectiveIncDate,
         session_label: `${session.timeSlot} (${session.grade})`,
         subject_name: session.subjectTitle?.toLowerCase().startsWith(session.subjectCode.toLowerCase())
           ? session.subjectTitle
@@ -777,14 +854,14 @@ function SessionActionModalContent({
         reported_by: selectedTeacher || session.teacher,
       })
 
-      if (onSuccess) onSuccess('Incident reported. Alerts dispatched to Admin, Lab In-Charge & HOD.')
       onClose()
+      if (onSuccess) onSuccess('Incident reported. Alerts dispatched to Admin, Lab In-Charge & HOD.')
     }
   }
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 md:p-6 bg-black/70 backdrop-blur-sm animate-in fade-in duration-150 select-none">
-      <div className="relative w-full max-w-2xl sm:max-w-3xl h-[min(88vh,780px)] min-h-[520px] bg-white dark:bg-zinc-950 rounded-2xl sm:rounded-3xl shadow-2xl border border-zinc-200/90 dark:border-zinc-800 overflow-hidden flex flex-col my-auto">
+      <div className="relative w-full max-w-2xl sm:max-w-3xl max-h-[calc(100dvh-2rem)] h-[min(calc(100dvh-2rem),780px)] sm:min-h-[520px] bg-white dark:bg-zinc-950 rounded-2xl sm:rounded-3xl shadow-2xl border border-zinc-200/90 dark:border-zinc-800 overflow-hidden flex flex-col my-auto">
         {/* Header Bar (Firmly pinned at top with shrink-0) */}
         <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-zinc-100 dark:border-zinc-800/80 bg-zinc-50/80 dark:bg-zinc-900/60">
           <div className="flex items-center gap-2.5">
@@ -811,6 +888,79 @@ function SessionActionModalContent({
               <p className="text-[11px] text-amber-700 dark:text-amber-300/90 leading-relaxed">
                 {targetLabInfo?.name || 'This laboratory'} is currently designated as Under Maintenance. Practical session booking and routine execution are restricted until servicing is completed.
               </p>
+            </div>
+          </div>
+        )}
+
+        {/* 📋 Pending Slot Booking Review Banner */}
+        {session?.status === 'requested' && (
+          <div className="shrink-0 mx-6 mt-3 p-3.5 rounded-2xl bg-amber-500/10 dark:bg-amber-950/30 border border-amber-500/30 text-amber-900 dark:text-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs font-sans">
+            <div className="flex items-start gap-2.5 min-w-0">
+              <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5">
+                <Clock className="h-4 w-4" />
+              </div>
+              <div className="space-y-0.5 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-xs">Slot Booking Request Pending Review</span>
+                  <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-500/20 text-amber-700 dark:text-amber-300">
+                    Awaiting Approval
+                  </span>
+                </div>
+                <p className="text-[11px] text-amber-700 dark:text-amber-300/90 truncate">
+                  Requested by <strong>{session.requestedBy || session.teacher}</strong> for {session.subjectTitle} ({session.grade}) on {session.day} ({sessionDate || session?.specificDate || session?.date || 'Single Session'}), Period {session.timeSlot}.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              {!isTeacher && onApproveSession && (
+                <Button
+                  size="sm"
+                  type="button"
+                  onClick={async () => {
+                    await onApproveSession(session.id)
+                    if (onSuccess) onSuccess(`Slot booking approved for ${session.requestedBy || session.teacher}!`)
+                    onClose()
+                  }}
+                  className="h-8 px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs gap-1.5 shadow-xs cursor-pointer"
+                >
+                  <Check className="h-3.5 w-3.5" />
+                  <span>Approve Slot</span>
+                </Button>
+              )}
+
+              {!isTeacher && onRejectSession && (
+                <Button
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    onClose()
+                    onRejectSession(session.id)
+                  }}
+                  className="h-8 px-3 border-rose-300 dark:border-rose-900/60 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 font-semibold text-xs gap-1.5 cursor-pointer"
+                >
+                  <X className="h-3.5 w-3.5" />
+                  <span>Decline</span>
+                </Button>
+              )}
+
+              {isTeacher && isOwnSession && onDeleteSession && (
+                <Button
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    onDeleteSession(session.id)
+                    if (onSuccess) onSuccess('Slot booking request canceled.')
+                    onClose()
+                  }}
+                  className="h-8 px-3 border-zinc-300 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 font-semibold text-xs gap-1.5 cursor-pointer"
+                >
+                  <X className="h-3.5 w-3.5" />
+                  <span>Cancel Request</span>
+                </Button>
+              )}
             </div>
           </div>
         )}
@@ -952,6 +1102,68 @@ function SessionActionModalContent({
                   </span>
                 </div>
 
+                {/* Session Cadence: One-Time vs Master Recurring */}
+                <div className="p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-900/40 space-y-2 font-sans">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5 font-sans">
+                      <Calendar className="h-3.5 w-3.5 text-indigo-500" />
+                      <span>Booking Cadence</span>
+                    </label>
+                    {isTeacher ? (
+                      <Badge className="text-[10px] bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 font-sans">
+                        Single Date Only
+                      </Badge>
+                    ) : (
+                      <span className="text-[10px] font-mono text-zinc-400 dark:text-zinc-500">
+                        {bookIsRecurring ? 'RECURRING' : 'DATE-SPECIFIC'}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 font-sans">
+                    <button
+                      type="button"
+                      onClick={() => setBookIsRecurring(false)}
+                      className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col gap-0.5 ${
+                        !bookIsRecurring
+                          ? 'bg-indigo-50/90 dark:bg-indigo-950/50 border-indigo-500/80 ring-1 ring-indigo-500/40 text-indigo-950 dark:text-indigo-100 shadow-xs'
+                          : 'bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:border-zinc-300 dark:hover:border-zinc-700'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100">One-Time Reservation</span>
+                        {!bookIsRecurring && <span className="h-2 w-2 rounded-full bg-indigo-500" />}
+                      </div>
+                      <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                        {sessionDate || (session as any)?.date || subDate ? `For ${sessionDate || (session as any)?.date || subDate} only` : 'Only for selected calendar date'} (does not recur weekly)
+                      </p>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isTeacher}
+                      onClick={() => !isTeacher && setBookIsRecurring(true)}
+                      className={`p-2.5 rounded-xl border text-left transition-all flex flex-col gap-0.5 ${
+                        isTeacher
+                          ? 'opacity-40 cursor-not-allowed bg-zinc-100/50 dark:bg-zinc-800/30 border-zinc-200 dark:border-zinc-800'
+                          : 'cursor-pointer'
+                      } ${
+                        bookIsRecurring
+                          ? 'bg-indigo-50/90 dark:bg-indigo-950/50 border-indigo-500/80 ring-1 ring-indigo-500/40 text-indigo-950 dark:text-indigo-100 shadow-xs'
+                          : 'bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:border-zinc-300 dark:hover:border-zinc-700'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100">Master Weekly Routine</span>
+                        {bookIsRecurring && <span className="h-2 w-2 rounded-full bg-indigo-500" />}
+                      </div>
+                      <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                        {isTeacher ? 'Requires Super Admin / Lab Incharge' : 'Permanent schedule repeating every week'}
+                      </p>
+                    </button>
+                  </div>
+                </div>
+
                 {/* 1. Schedule Timing Row (Day, Period, Duration in a compact 3-column strip) */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
                   <div className="space-y-1.5 font-sans">
@@ -982,7 +1194,7 @@ function SessionActionModalContent({
                       onChange={(e) => setBookSlotId(e.target.value)}
                       className="h-10 text-sm font-medium font-sans"
                     >
-                      {MASTER_TIME_SLOTS.map((slot) => (
+                      {allPeriods.map((slot) => (
                         <option key={slot.id} value={slot.id}>
                           {slot.name} ({slot.label})
                         </option>
@@ -1019,7 +1231,7 @@ function SessionActionModalContent({
                     >
                       {scopedClasses.map((c: any) => (
                         <option key={c.id} value={c.name}>
-                          {c.name} {c.stream ? `— ${c.stream}` : ''}
+                          {formatClassBatchLabel(c)}
                         </option>
                       ))}
                     </Select>
@@ -1036,7 +1248,7 @@ function SessionActionModalContent({
                       className="h-10 text-sm font-medium font-sans"
                     >
                       {bookClassSubjects.map((s) => (
-                        <option key={s.code} value={s.code}>
+                        <option key={s.classSubjectId || s.code} value={s.code}>
                           {s.code} — {s.title}
                         </option>
                       ))}
@@ -1061,31 +1273,35 @@ function SessionActionModalContent({
                       onChange={(e) => setBookLabKey(e.target.value as MasterRoutineItem['labKey'])}
                       className="h-10 text-sm font-medium font-sans"
                     >
-                      {((infraLabs && infraLabs.length > 0) ? infraLabs : LAB_ROOMS).map((lab: any) => {
-                        const isOcc = occupiedLabsInSlot.has(lab.id) ||
+                      {allLabs.map((lab: any) => {
+                        const normLabId = (lab.id || '').toLowerCase().trim()
+                        const isOcc = occupiedLabsInSlot.has(normLabId) ||
                           (lab.type === 'computer_lab' && occupiedLabsInSlot.has('comp')) ||
                           (lab.type === 'physics_lab' && occupiedLabsInSlot.has('phys')) ||
-                          (lab.type === 'chemistry_lab' && occupiedLabsInSlot.has('chem')) ||
-                          (lab.type === 'biology_lab' && occupiedLabsInSlot.has('bio')) ||
-                          (lab.type === 'electronics_lab' && occupiedLabsInSlot.has('elec'))
+                          (lab.type === 'chemistry_lab' && occupiedLabsInSlot.has('chem'))
                         const isMaint = maintenanceLabKeys.has(lab.id) ||
                           (lab.type === 'computer_lab' && maintenanceLabKeys.has('comp')) ||
                           (lab.type === 'physics_lab' && maintenanceLabKeys.has('phys')) ||
-                          (lab.type === 'chemistry_lab' && maintenanceLabKeys.has('chem')) ||
-                          (lab.type === 'biology_lab' && maintenanceLabKeys.has('bio')) ||
-                          (lab.type === 'electronics_lab' && maintenanceLabKeys.has('elec'))
-                        const isPrimary = lab.id === bookLabKey
+                          (lab.type === 'chemistry_lab' && maintenanceLabKeys.has('chem'))
                         return (
                           <option
                             key={lab.id}
                             value={lab.id}
-                            disabled={(isOcc && !isPrimary) || isMaint}
+                            disabled={isOcc || isMaint}
                           >
-                            {lab.name} {isMaint ? '• [UNDER MAINTENANCE]' : isOcc && !isPrimary ? '• [OCCUPIED IN THIS PERIOD]' : ''}
+                            {lab.name} {isMaint ? '• [UNDER MAINTENANCE]' : isOcc ? '• [OCCUPIED IN THIS PERIOD]' : ''}
                           </option>
                         )
                       })}
                     </Select>
+                    {isSelectedLabOccupied && (
+                      <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-200 text-xs flex items-center gap-2">
+                        <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                        <span>
+                          <strong>{targetLabInfo?.name || 'Selected laboratory'}</strong> is already occupied in Period {bookSlotId.toUpperCase()} on {DAYS.find((d) => d.id === bookDayKey)?.label || bookDayKey}. Please choose an unoccupied laboratory or another period.
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   <div className="space-y-1.5 font-sans">
@@ -1108,7 +1324,12 @@ function SessionActionModalContent({
                     ) : (
                       <Select
                         value={bookTeacher}
-                        onChange={(e) => setBookTeacher(e.target.value)}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          setBookTeacher(val)
+                          const fac = infraFaculty.find((f) => f.name === val)
+                          setBookTeacherId(fac ? fac.id : null)
+                        }}
                         className="h-10 text-sm font-medium font-sans"
                       >
                         {infraFaculty.map((f) => (
@@ -1145,7 +1366,6 @@ function SessionActionModalContent({
                         const checked = e.target.checked
                         setIsDualLab(checked)
                         if (checked && secondaryLabKey === bookLabKey) {
-                          const allLabs = (infraLabs && infraLabs.length > 0) ? infraLabs : LAB_ROOMS
                           const alternative = allLabs.find((l: any) => l.id !== bookLabKey && !occupiedLabsInSlot.has(l.id) && !maintenanceLabKeys.has(l.id))
                           if (alternative) {
                             setSecondaryLabKey(alternative.id as MasterRoutineItem['labKey'])
@@ -1168,20 +1388,18 @@ function SessionActionModalContent({
                           onChange={(e) => setSecondaryLabKey(e.target.value as MasterRoutineItem['labKey'])}
                           className="h-10 text-sm font-medium font-sans"
                         >
-                          {((infraLabs && infraLabs.length > 0) ? infraLabs : LAB_ROOMS).map((lab: any) => {
+                          {allLabs.map((lab: any) => {
                             const isPrimary = lab.id === bookLabKey
                             const isOcc = occupiedLabsInSlot.has(lab.id) ||
+                              occupiedLabsInSlot.has(lab.code?.toLowerCase()) ||
                               (lab.type === 'computer_lab' && occupiedLabsInSlot.has('comp')) ||
                               (lab.type === 'physics_lab' && occupiedLabsInSlot.has('phys')) ||
-                              (lab.type === 'chemistry_lab' && occupiedLabsInSlot.has('chem')) ||
-                              (lab.type === 'biology_lab' && occupiedLabsInSlot.has('bio')) ||
-                              (lab.type === 'electronics_lab' && occupiedLabsInSlot.has('elec'))
+                              (lab.type === 'chemistry_lab' && occupiedLabsInSlot.has('chem'))
                             const isMaint = maintenanceLabKeys.has(lab.id) ||
+                              maintenanceLabKeys.has(lab.code?.toLowerCase()) ||
                               (lab.type === 'computer_lab' && maintenanceLabKeys.has('comp')) ||
                               (lab.type === 'physics_lab' && maintenanceLabKeys.has('phys')) ||
-                              (lab.type === 'chemistry_lab' && maintenanceLabKeys.has('chem')) ||
-                              (lab.type === 'biology_lab' && maintenanceLabKeys.has('bio')) ||
-                              (lab.type === 'electronics_lab' && maintenanceLabKeys.has('elec'))
+                              (lab.type === 'chemistry_lab' && maintenanceLabKeys.has('chem'))
                             const isDisabled = isPrimary || isOcc || isMaint
                             return (
                               <option
@@ -1764,6 +1982,7 @@ function SessionActionModalContent({
             size="sm"
             disabled={
               isSubmitting ||
+              (activeTab === 'book' && isSelectedLabOccupied) ||
               (activeTab === 'skip' && (!isOwnSession || Boolean(session?.isSkipped || session?.status === 'skipped')))
             }
             className={`h-10 px-5 gap-1.5 text-xs font-bold font-sans text-white shadow-xs ${
@@ -1781,7 +2000,10 @@ function SessionActionModalContent({
             }`}
           >
             {isSubmitting ? (
-              'Processing...'
+              <span className="flex items-center gap-1.5">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <span>Saving...</span>
+              </span>
             ) : activeTab === 'book' ? (
               <>
                 <CalendarPlus className="h-3.5 w-3.5" />

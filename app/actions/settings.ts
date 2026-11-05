@@ -46,6 +46,96 @@ export async function getInstitutionSetting<T>(key: string, fallback: T): Promis
   }
 }
 
+import { sortPeriodSlots } from '@/lib/utils'
+
+export interface PeriodSlotRecord {
+  id: string
+  name: string
+  label: string
+}
+
+/**
+ * Returns dynamic bell / period slots from PostgreSQL institution_settings.
+ * Always sorted chronologically by start time.
+ */
+export async function getPeriodSlotsAction(): Promise<{
+  success: boolean
+  data: PeriodSlotRecord[]
+  error?: string
+}> {
+  try {
+    let slots = await getInstitutionSetting<PeriodSlotRecord[]>('master_time_slots', [])
+    if (!slots || slots.length === 0) {
+      slots = await getInstitutionSetting<PeriodSlotRecord[]>('infrastructure_periods', [])
+    }
+    if (slots && slots.length > 0) {
+      const sorted = sortPeriodSlots(slots)
+      return { success: true, data: sorted }
+    }
+    return { success: true, data: [] }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Unknown error'
+    return { success: false, data: [], error: msg }
+  }
+}
+
+/**
+ * Update bell / period slots atomically across both keys in PostgreSQL.
+ * Automatically sorts slots chronologically by start time so morning periods always precede afternoon periods.
+ * Allowed for privileged personnel (super_admin, admin, lab_incharge).
+ */
+export async function updatePeriodSlotsAction(
+  slots: PeriodSlotRecord[]
+): Promise<{ success: boolean; data: PeriodSlotRecord[]; error?: string }> {
+  try {
+    const scope = await getServerUserScope()
+    if (!scope.isPrivileged || scope.approvalStatus !== 'approved') {
+      return {
+        success: false,
+        data: [],
+        error: 'Unauthorized: Only administrative faculty can update institutional bell timings.',
+      }
+    }
+
+    if (!Array.isArray(slots)) {
+      return { success: false, data: [], error: 'Invalid slots array' }
+    }
+
+    // Sort strictly chronologically
+    const sorted = sortPeriodSlots(slots)
+
+    const pool = getPgPool()
+    await pool.query(
+      `
+      INSERT INTO public.institution_settings (key, value, updated_at, updated_by)
+      VALUES 
+        ('master_time_slots', $1::jsonb, now(), $2),
+        ('infrastructure_periods', $1::jsonb, now(), $2)
+      ON CONFLICT (key) DO UPDATE SET
+        value = EXCLUDED.value,
+        updated_at = now(),
+        updated_by = EXCLUDED.updated_by;
+      `,
+      [JSON.stringify(sorted), scope.userId || null]
+    )
+
+    // Invalidate server cache for both keys
+    settingsCache.delete('master_time_slots')
+    settingsCache.delete('infrastructure_periods')
+
+    // Revalidate affected routes
+    revalidatePath('/schedules')
+    revalidatePath('/admin')
+    revalidatePath('/records/new')
+    revalidatePath('/')
+
+    return { success: true, data: sorted }
+  } catch (err: any) {
+    console.error('[LMR] Failed to update period slots:', err)
+    return { success: false, data: [], error: err?.message || 'Failed to update period slots' }
+  }
+}
+
 /**
  * Update an institutional setting in PostgreSQL with role verification.
  * Only privileged personnel (super_admin, admin, lab_incharge, hod) can update.
@@ -56,11 +146,37 @@ export async function updateInstitutionSetting<T>(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const scope = await getServerUserScope()
-    if (!scope.isPrivileged) {
+    if (!scope.isPrivileged || scope.approvalStatus !== 'approved') {
       return {
         success: false,
         error: 'Unauthorized: Only administrative faculty can update institutional settings.',
       }
+    }
+
+    // If updating periods via generic setting, keep both in sync and sort chronologically
+    if (key === 'master_time_slots' || key === 'infrastructure_periods') {
+      const slots = Array.isArray(value) ? sortPeriodSlots(value as any) : value
+      const pool = getPgPool()
+      await pool.query(
+        `
+        INSERT INTO public.institution_settings (key, value, updated_at, updated_by)
+        VALUES 
+          ('master_time_slots', $1::jsonb, now(), $2),
+          ('infrastructure_periods', $1::jsonb, now(), $2)
+        ON CONFLICT (key) DO UPDATE SET
+          value = EXCLUDED.value,
+          updated_at = now(),
+          updated_by = EXCLUDED.updated_by;
+        `,
+        [JSON.stringify(slots), scope.userId || null]
+      )
+      settingsCache.delete('master_time_slots')
+      settingsCache.delete('infrastructure_periods')
+      revalidatePath('/schedules')
+      revalidatePath('/admin')
+      revalidatePath('/records/new')
+      revalidatePath('/')
+      return { success: true }
     }
 
     const pool = getPgPool()

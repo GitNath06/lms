@@ -22,6 +22,7 @@ import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { MaintenanceLogRecord, exportMaintenanceRecordsAction } from '@/app/actions/maintenance'
+import { downloadExportStream } from '@/lib/exports/browser-downloader'
 
 interface MaintenanceLedgerTableProps {
   logs: MaintenanceLogRecord[]
@@ -82,12 +83,16 @@ export default function MaintenanceLedgerTable({
     setExportMenuOpen(false)
     try {
       showToast(`Generating certified ${format.toUpperCase()} export...`)
-      const res = await exportMaintenanceRecordsAction(selectedLab, format)
-      if (res.success && res.base64 && res.filename && res.contentType) {
-        downloadFile(res.base64, res.filename, res.contentType)
-        showToast(`Downloaded ${res.filename}`)
+      const streamUrl = `/api/export/maintenance-records?lab_id=${encodeURIComponent(selectedLab)}&format=${format}`
+
+      const streamRes = await downloadExportStream(streamUrl, {
+        fallbackAction: () => exportMaintenanceRecordsAction(selectedLab, format),
+      })
+
+      if (streamRes.success) {
+        showToast(`Downloaded ${streamRes.filename}`)
       } else {
-        showToast(`Export failed: ${res.error || 'Unknown error'}`)
+        showToast(`Export failed: ${streamRes.error || 'Unknown error'}`)
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Unknown error'
@@ -126,7 +131,7 @@ export default function MaintenanceLedgerTable({
     <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-xs overflow-hidden font-sans relative">
       {/* Toast */}
       {toastMsg && (
-        <div className="fixed top-5 right-5 z-50 bg-zinc-950 text-white dark:bg-white dark:text-zinc-950 px-4 py-2.5 rounded-xl shadow-2xl text-xs font-mono font-medium flex items-center gap-2 border border-zinc-700 animate-in slide-in-from-top-2 duration-150">
+        <div className="fixed top-5 right-5 z-[100] bg-zinc-950 text-white dark:bg-white dark:text-zinc-950 px-4 py-2.5 rounded-xl shadow-2xl text-xs font-mono font-medium flex items-center gap-2 border border-zinc-700 animate-in slide-in-from-top-2 duration-150">
           <Sparkles className="h-4 w-4 text-emerald-400" />
           <span>{toastMsg}</span>
         </div>

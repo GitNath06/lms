@@ -14,8 +14,14 @@ import {
   Eye,
   EyeOff,
   Filter,
+  Loader2,
 } from 'lucide-react'
 import { IncidentCategoryItem, LabFacilityItem } from '@/hooks/use-infrastructure-state'
+import {
+  getIssueCategories,
+  manageIssueCategory,
+} from '@/app/actions/workstations'
+import type { IssueCategoryRow } from '@/types/database'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
@@ -23,20 +29,20 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { recordClientAuditEvent } from '@/app/actions/audit'
 
 interface IncidentCategoriesManagerProps {
-  categories: IncidentCategoryItem[]
+  categories?: IncidentCategoryItem[]
   isEditModeUnlocked: boolean
-  onAddCategory: (cat: IncidentCategoryItem) => void
-  onUpdateCategory: (id: string, updates: Partial<IncidentCategoryItem>) => void
-  onDeleteCategory: (id: string) => void
-  onDeactivateCategory: (id: string) => void
-  onResetCategories: () => void
+  onAddCategory?: (cat: IncidentCategoryItem) => void
+  onUpdateCategory?: (id: string, updates: Partial<IncidentCategoryItem>) => void
+  onDeleteCategory?: (id: string) => void
+  onDeactivateCategory?: (id: string) => void
+  onResetCategories?: () => void
   labs: LabFacilityItem[]
   historicalIncidents?: Array<{ id: string; incident_type?: string; title?: string }>
   triggerToast: (msg: string) => void
 }
 
 export function IncidentCategoriesManager({
-  categories,
+  categories = [],
   isEditModeUnlocked,
   onAddCategory,
   onUpdateCategory,
@@ -47,6 +53,46 @@ export function IncidentCategoriesManager({
   historicalIncidents = [],
   triggerToast,
 }: IncidentCategoriesManagerProps) {
+  const [dbCategories, setDbCategories] = useState<IssueCategoryRow[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+
+  const loadCategories = React.useCallback(async () => {
+    setIsLoading(true)
+    try {
+      const res = await getIssueCategories({ activeOnly: false })
+      if (res.success && res.data) {
+        setDbCategories(res.data)
+      }
+    } catch (e) {
+      console.error('Failed to load issue categories from PostgreSQL:', e)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  React.useEffect(() => {
+    loadCategories()
+  }, [loadCategories])
+
+  const effectiveCategories: IncidentCategoryItem[] = useMemo(() => {
+    if (dbCategories.length > 0) {
+      return dbCategories.map((row) => ({
+        id: row.id,
+        name: row.name,
+        code: row.id,
+        severity: (row.default_severity === 'critical'
+          ? 'major_critical'
+          : row.default_severity === 'high' || row.default_severity === 'medium'
+          ? 'moderate'
+          : 'minor') as 'minor' | 'moderate' | 'major_critical',
+        targetLab: 'all' as any,
+        description: `Taxonomy: ${row.type?.toUpperCase()} • Default Urgency: ${row.default_severity?.toUpperCase()} • Color: ${row.color}`,
+        is_active: row.is_active,
+      }))
+    }
+    return categories
+  }, [dbCategories, categories])
+
   const [searchQuery, setSearchQuery] = useState('')
   const [labFilter, setLabFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'archived'>('all')
@@ -59,6 +105,8 @@ export function IncidentCategoriesManager({
   const [formSeverity, setFormSeverity] = useState<'minor' | 'moderate' | 'major_critical'>('moderate')
   const [formTargetLab, setFormTargetLab] = useState<string>('all')
   const [formDescription, setFormDescription] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [modalError, setModalError] = useState<string | null>(null)
 
   // Confirmation / Safety Dialog State
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -76,10 +124,20 @@ export function IncidentCategoriesManager({
     referenceCount: 0,
     onConfirm: () => {},
   })
+  const [isConfirming, setIsConfirming] = useState(false)
+
+  const handleConfirmAction = async () => {
+    setIsConfirming(true)
+    try {
+      await confirmDialog.onConfirm()
+    } finally {
+      setIsConfirming(false)
+    }
+  }
 
   // Filtered categories
   const filteredCategories = useMemo(() => {
-    return categories.filter((cat) => {
+    return effectiveCategories.filter((cat) => {
       // Search
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase()
@@ -103,7 +161,7 @@ export function IncidentCategoriesManager({
 
       return true
     })
-  }, [categories, searchQuery, labFilter, statusFilter])
+  }, [effectiveCategories, searchQuery, labFilter, statusFilter])
 
   // Open modal for new category
   const handleOpenAdd = () => {
@@ -128,54 +186,99 @@ export function IncidentCategoriesManager({
   }
 
   // Save (create or update)
-  // Save (create or update)
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!isEditModeUnlocked) return
 
     const sanitizedCode = formCode.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_')
+    const mappedSeverity = formSeverity === 'major_critical' ? 'critical' : formSeverity === 'moderate' ? 'medium' : 'low'
 
-    if (editingCategory) {
-      const updatedFields = {
-        name: formName.trim(),
-        code: sanitizedCode || editingCategory.code,
-        severity: formSeverity,
-        targetLab: formTargetLab as any,
-        description: formDescription.trim(),
+    setIsSubmitting(true)
+    setModalError(null)
+
+    try {
+      if (editingCategory) {
+        const updatedFields = {
+          name: formName.trim(),
+          code: sanitizedCode || editingCategory.code,
+          severity: formSeverity,
+          targetLab: formTargetLab as any,
+          description: formDescription.trim(),
+        }
+        onUpdateCategory?.(editingCategory.id, updatedFields)
+
+        const res = await manageIssueCategory('update', {
+          id: editingCategory.id,
+          name: formName.trim(),
+          type: formSeverity === 'major_critical' ? 'other' : 'hardware',
+          default_severity: mappedSeverity,
+        })
+
+        if (res && res.error) {
+          setModalError(res.error)
+          return
+        }
+
+        await loadCategories()
+
+        recordClientAuditEvent({
+          action: 'UPDATE',
+          entityType: 'incident_category',
+          entityId: editingCategory.id,
+          entityLabel: formName.trim(),
+          before: editingCategory,
+          after: { ...editingCategory, ...updatedFields },
+        }).catch(() => {})
+
+        setIsModalOpen(false)
+        setEditingCategory(null)
+        triggerToast(`Classification "${formName.trim()}" updated.`)
+      } else {
+        const newCat: IncidentCategoryItem = {
+          id: `cat-${Date.now()}`,
+          name: formName.trim(),
+          code: sanitizedCode || `cat_${Date.now()}`,
+          severity: formSeverity,
+          targetLab: formTargetLab as any,
+          description: formDescription.trim(),
+          is_active: true,
+        }
+        onAddCategory?.(newCat)
+
+        const res = await manageIssueCategory('create', {
+          name: formName.trim(),
+          type: formSeverity === 'major_critical' ? 'other' : 'hardware',
+          default_severity: mappedSeverity,
+          color: formSeverity === 'major_critical' ? '#EF4444' : formSeverity === 'moderate' ? '#F59E0B' : '#6366F1',
+          icon: 'AlertTriangle',
+          is_active: true,
+        })
+
+        if (res && res.error) {
+          setModalError(res.error)
+          return
+        }
+
+        await loadCategories()
+
+        recordClientAuditEvent({
+          action: 'CREATE',
+          entityType: 'incident_category',
+          entityId: newCat.id,
+          entityLabel: newCat.name,
+          after: newCat,
+        }).catch(() => {})
+
+        setIsModalOpen(false)
+        setEditingCategory(null)
+        triggerToast(`New incident classification "${formName.trim()}" registered.`)
       }
-      onUpdateCategory(editingCategory.id, updatedFields)
-      recordClientAuditEvent({
-        action: 'UPDATE',
-        entityType: 'incident_category',
-        entityId: editingCategory.id,
-        entityLabel: formName.trim(),
-        before: editingCategory,
-        after: { ...editingCategory, ...updatedFields },
-      }).catch(() => {})
-      triggerToast(`Classification "${formName.trim()}" updated.`)
-    } else {
-      const newCat: IncidentCategoryItem = {
-        id: `cat-${Date.now()}`,
-        name: formName.trim(),
-        code: sanitizedCode || `cat_${Date.now()}`,
-        severity: formSeverity,
-        targetLab: formTargetLab as any,
-        description: formDescription.trim(),
-        is_active: true,
-      }
-      onAddCategory(newCat)
-      recordClientAuditEvent({
-        action: 'CREATE',
-        entityType: 'incident_category',
-        entityId: newCat.id,
-        entityLabel: newCat.name,
-        after: newCat,
-      }).catch(() => {})
-      triggerToast(`New incident classification "${formName.trim()}" registered.`)
+    } catch (err: any) {
+      console.error('Failed to save category:', err)
+      setModalError(err.message || 'Failed to save classification')
+    } finally {
+      setIsSubmitting(false)
     }
-
-    setIsModalOpen(false)
-    setEditingCategory(null)
   }
 
   // Safe delete with referential integrity protection
@@ -184,7 +287,7 @@ export function IncidentCategoriesManager({
 
     // Check if category is referenced in historical incidents
     const references = historicalIncidents.filter(
-      (inc) => inc.incident_type === cat.code || inc.incident_type === cat.id
+      (inc) => inc.incident_type === cat.code || inc.incident_type === cat.id || inc.incident_type === cat.name
     )
 
     if (references.length > 0) {
@@ -195,8 +298,14 @@ export function IncidentCategoriesManager({
         description: `This classification is linked to ${references.length} historical incident audit record(s). To protect historical records and reporting integrity, this classification will be Archived (soft-deleted). It will not appear in future reporting forms, but past logs will retain their original classification.`,
         isReferenced: true,
         referenceCount: references.length,
-        onConfirm: () => {
-          onDeactivateCategory(cat.id)
+        onConfirm: async () => {
+          onDeactivateCategory?.(cat.id)
+          try {
+            await manageIssueCategory('delete', { id: cat.id })
+            await loadCategories()
+          } catch (e) {
+            console.error('Failed to archive category:', e)
+          }
           recordClientAuditEvent({
             action: 'UPDATE',
             entityType: 'incident_category',
@@ -217,8 +326,14 @@ export function IncidentCategoriesManager({
         description: `Are you sure you want to permanently delete "${cat.name}"? This classification has 0 active references in past incident records.`,
         isReferenced: false,
         referenceCount: 0,
-        onConfirm: () => {
-          onDeleteCategory(cat.id)
+        onConfirm: async () => {
+          onDeleteCategory?.(cat.id)
+          try {
+            await manageIssueCategory('delete', { id: cat.id })
+            await loadCategories()
+          } catch (e) {
+            console.error('Failed to delete category:', e)
+          }
           recordClientAuditEvent({
             action: 'DELETE',
             entityType: 'incident_category',
@@ -234,10 +349,16 @@ export function IncidentCategoriesManager({
   }
 
   // Toggle active/inactive state
-  const handleToggleActive = (cat: IncidentCategoryItem) => {
+  const handleToggleActive = async (cat: IncidentCategoryItem) => {
     if (!isEditModeUnlocked) return
     const newStatus = cat.is_active === false ? true : false
-    onUpdateCategory(cat.id, { is_active: newStatus })
+    onUpdateCategory?.(cat.id, { is_active: newStatus })
+    try {
+      await manageIssueCategory('update', { id: cat.id, is_active: newStatus })
+      await loadCategories()
+    } catch (e) {
+      console.error('Failed to toggle category active status:', e)
+    }
     recordClientAuditEvent({
       action: 'UPDATE',
       entityType: 'incident_category',
@@ -272,7 +393,7 @@ export function IncidentCategoriesManager({
             disabled={!isEditModeUnlocked}
             onClick={() => {
               if (window.confirm('Reset all classifications to official institutional safety defaults?')) {
-                onResetCategories()
+                onResetCategories?.()
                 triggerToast('Incident classifications reset to official institutional defaults.')
               }
             }}
@@ -353,7 +474,16 @@ export function IncidentCategoriesManager({
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
-            {filteredCategories.length === 0 ? (
+            {isLoading ? (
+              <tr>
+                <td colSpan={6} className="py-8 text-center text-zinc-500 dark:text-zinc-400">
+                  <div className="flex items-center justify-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin text-indigo-500" />
+                    <span>Loading incident classifications...</span>
+                  </div>
+                </td>
+              </tr>
+            ) : filteredCategories.length === 0 ? (
               <tr>
                 <td colSpan={6} className="py-8 text-center text-zinc-500 dark:text-zinc-400">
                   No incident classifications found matching the current filters.
@@ -482,6 +612,13 @@ export function IncidentCategoriesManager({
             </div>
 
             <form onSubmit={handleSave} className="space-y-3 text-xs">
+              {modalError && (
+                <div className="p-2.5 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400 text-xs font-semibold flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  <span>{modalError}</span>
+                </div>
+              )}
+
               <div className="space-y-1">
                 <label className="font-bold text-zinc-700 dark:text-zinc-300">Category Name *</label>
                 <Input
@@ -573,9 +710,17 @@ export function IncidentCategoriesManager({
                 <Button
                   type="submit"
                   size="sm"
+                  disabled={isSubmitting}
                   className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs cursor-pointer"
                 >
-                  {editingCategory ? 'Update Classification' : 'Save Classification'}
+                  {isSubmitting ? (
+                    <span className="flex items-center gap-1.5">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      <span>Saving...</span>
+                    </span>
+                  ) : (
+                    <span>{editingCategory ? 'Update Classification' : 'Save Classification'}</span>
+                  )}
                 </Button>
               </div>
             </form>
@@ -618,14 +763,22 @@ export function IncidentCategoriesManager({
               <Button
                 type="button"
                 size="sm"
-                onClick={confirmDialog.onConfirm}
+                disabled={isConfirming}
+                onClick={handleConfirmAction}
                 className={`font-bold text-xs cursor-pointer ${
                   confirmDialog.isReferenced
                     ? 'bg-amber-600 hover:bg-amber-700 text-white'
                     : 'bg-rose-600 hover:bg-rose-700 text-white'
                 }`}
               >
-                {confirmDialog.isReferenced ? 'Archive Classification' : 'Delete Permanently'}
+                {isConfirming ? (
+                  <span className="flex items-center gap-1.5">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>{confirmDialog.isReferenced ? 'Archiving...' : 'Deleting...'}</span>
+                  </span>
+                ) : (
+                  <span>{confirmDialog.isReferenced ? 'Archive Classification' : 'Delete Permanently'}</span>
+                )}
               </Button>
             </div>
           </div>

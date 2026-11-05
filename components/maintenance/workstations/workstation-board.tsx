@@ -117,17 +117,17 @@ export function WorkstationBoard({ initialData }: WorkstationBoardProps) {
   return (
     <div className="space-y-4">
       {/* Top Header & Telemetry KPI Cards */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-white/[0.08] pb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-zinc-200 dark:border-white/[0.08] pb-4">
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="font-heading font-extrabold text-xl text-white tracking-tight">
+            <h2 className="font-heading font-extrabold text-xl text-zinc-900 dark:text-white tracking-tight">
               Computer Lab Management
             </h2>
-            <span className="rounded-full bg-indigo-500/10 border border-indigo-500/30 px-2.5 py-0.5 text-xs font-semibold text-indigo-400">
+            <span className="rounded-full bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/30 px-2.5 py-0.5 text-xs font-semibold text-indigo-700 dark:text-indigo-400">
               {boardData.lab_name}
             </span>
           </div>
-          <p className="text-xs text-slate-400 mt-0.5">
+          <p className="text-xs text-zinc-600 dark:text-slate-400 mt-0.5">
             Physical room floor map, student seat planning, hardware health diagnostics, and certified service history
           </p>
         </div>
@@ -135,7 +135,7 @@ export function WorkstationBoard({ initialData }: WorkstationBoardProps) {
         {/* Action Controls & Sub-Tab Switcher */}
         <div className="flex items-center gap-2 flex-wrap">
           {/* Sub-tab Pill Switcher */}
-          <div className="flex items-center gap-1 rounded-xl border border-white/[0.08] bg-[#151E32] p-1">
+          <div className="flex items-center gap-1 rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] p-1">
             <div className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold bg-indigo-600 text-white shadow-xs">
               <Monitor className="h-3.5 w-3.5" />
               <span>Floor Map</span>
@@ -146,7 +146,7 @@ export function WorkstationBoard({ initialData }: WorkstationBoardProps) {
             <button
               type="button"
               onClick={() => setIsCategoryModalOpen(true)}
-              className="flex items-center gap-1.5 rounded-xl border border-white/[0.08] bg-[#151E32] px-3 py-2 text-xs font-semibold text-slate-200 hover:border-indigo-500/40 hover:text-indigo-300 transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] px-3 py-2 text-xs font-semibold text-zinc-700 dark:text-slate-200 hover:border-indigo-400 dark:hover:border-indigo-500/40 hover:text-indigo-600 dark:hover:text-indigo-300 transition-colors cursor-pointer"
             >
               <Tag className="h-3.5 w-3.5" />
               <span>Issue Taxonomy</span>
@@ -157,7 +157,7 @@ export function WorkstationBoard({ initialData }: WorkstationBoardProps) {
             type="button"
             disabled={loading}
             onClick={refreshData}
-            className="flex items-center gap-1.5 rounded-xl border border-white/[0.08] bg-[#151E32] px-3 py-2 text-xs font-semibold text-slate-300 hover:text-white transition-colors disabled:opacity-50 cursor-pointer"
+            className="flex items-center gap-1.5 rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] px-3 py-2 text-xs font-semibold text-zinc-700 dark:text-slate-300 hover:text-zinc-900 dark:hover:text-white transition-colors disabled:opacity-50 cursor-pointer"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
             <span>Sync</span>
@@ -168,96 +168,96 @@ export function WorkstationBoard({ initialData }: WorkstationBoardProps) {
       {/* KPI Cards Row (High-Density, Zero Nested Containers) */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
         {/* Total Workstations */}
-        <div className="rounded-xl border border-white/[0.08] bg-[#101726] p-3 flex flex-col justify-between shadow-sm">
+        <div className="rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] p-3 flex flex-col justify-between shadow-sm">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5">
-              <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-400">
+              <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
                 <Monitor className="h-3.5 w-3.5" />
               </span>
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-slate-400">
                 Total Stations
               </span>
             </div>
           </div>
           <div className="mt-2 flex items-baseline justify-between">
-            <span className="font-heading text-xl sm:text-2xl font-extrabold text-white tabular-nums">
+            <span className="font-heading text-xl sm:text-2xl font-extrabold text-zinc-900 dark:text-white tabular-nums">
               {metrics.total}
             </span>
-            <span className="text-[10px] text-slate-500 font-mono">
+            <span className="text-[10px] text-zinc-500 dark:text-slate-500 font-mono">
               In {boardData.lab_name}
             </span>
           </div>
         </div>
 
         {/* Operational Ready */}
-        <div className="rounded-xl border border-white/[0.08] bg-[#101726] p-3 flex flex-col justify-between shadow-sm">
+        <div className="rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] p-3 flex flex-col justify-between shadow-sm">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5">
-              <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
+              <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
                 <CheckCircle2 className="h-3.5 w-3.5" />
               </span>
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-slate-400">
                 Operational
               </span>
             </div>
-            <span className="rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-bold text-emerald-400">
+            <span className="rounded-md bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400 px-1.5 py-0.5 text-[10px] font-bold border border-emerald-200 dark:border-emerald-500/20">
               Ready
             </span>
           </div>
           <div className="mt-2 flex items-baseline justify-between">
-            <span className="font-heading text-xl sm:text-2xl font-extrabold text-emerald-400 tabular-nums">
+            <span className="font-heading text-xl sm:text-2xl font-extrabold text-emerald-600 dark:text-emerald-400 tabular-nums">
               {metrics.operational}
             </span>
-            <span className="text-[10px] text-slate-500">
+            <span className="text-[10px] text-zinc-500 dark:text-slate-500">
               {metrics.total > 0 ? `${Math.round((metrics.operational / metrics.total) * 100)}% Health` : '0%'}
             </span>
           </div>
         </div>
 
         {/* Flagged / Open Issues */}
-        <div className="rounded-xl border border-white/[0.08] bg-[#101726] p-3 flex flex-col justify-between shadow-sm">
+        <div className="rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] p-3 flex flex-col justify-between shadow-sm">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5">
-              <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-rose-500/10 text-rose-400">
+              <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400">
                 <ShieldAlert className="h-3.5 w-3.5" />
               </span>
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-slate-400">
                 Flagged Faults
               </span>
             </div>
             {metrics.flagged > 0 && (
-              <span className="rounded-md bg-rose-500/10 px-1.5 py-0.5 text-[10px] font-bold text-rose-400 animate-pulse">
+              <span className="rounded-md bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400 px-1.5 py-0.5 text-[10px] font-bold border border-rose-200 dark:border-rose-500/20 animate-pulse">
                 Action Req.
               </span>
             )}
           </div>
           <div className="mt-2 flex items-baseline justify-between">
-            <span className="font-heading text-xl sm:text-2xl font-extrabold text-rose-400 tabular-nums">
+            <span className="font-heading text-xl sm:text-2xl font-extrabold text-rose-600 dark:text-rose-400 tabular-nums">
               {metrics.flagged}
             </span>
-            <span className="text-[10px] text-slate-500">
+            <span className="text-[10px] text-zinc-500 dark:text-slate-500">
               {metrics.open_issues_count} Ticket{metrics.open_issues_count !== 1 ? 's' : ''}
             </span>
           </div>
         </div>
 
         {/* Under Repair */}
-        <div className="rounded-xl border border-white/[0.08] bg-[#101726] p-3 flex flex-col justify-between shadow-sm">
+        <div className="rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] p-3 flex flex-col justify-between shadow-sm">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5">
-              <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-blue-500/10 text-blue-400">
+              <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400">
                 <Wrench className="h-3.5 w-3.5" />
               </span>
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-slate-400">
                 Under Repair
               </span>
             </div>
           </div>
           <div className="mt-2 flex items-baseline justify-between">
-            <span className="font-heading text-xl sm:text-2xl font-extrabold text-blue-400 tabular-nums">
+            <span className="font-heading text-xl sm:text-2xl font-extrabold text-blue-600 dark:text-blue-400 tabular-nums">
               {metrics.under_repair}
             </span>
-            <span className="text-[10px] text-slate-500">
+            <span className="text-[10px] text-zinc-500 dark:text-slate-500">
               In Service
             </span>
           </div>
@@ -288,7 +288,7 @@ export function WorkstationBoard({ initialData }: WorkstationBoardProps) {
                   <button
                     type="button"
                     onClick={() => setMobileCanvasActive(false)}
-                    className="flex items-center gap-1.5 rounded-xl border border-white/[0.08] bg-[#151E32] px-3 py-1.5 text-xs font-semibold text-slate-300"
+                    className="flex items-center gap-1.5 rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] px-3 py-1.5 text-xs font-semibold text-zinc-700 dark:text-slate-300 hover:text-zinc-900 dark:hover:text-white cursor-pointer"
                   >
                     <Layers className="h-3.5 w-3.5" />
                     <span>Switch to Compact Grid</span>

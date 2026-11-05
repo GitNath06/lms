@@ -85,14 +85,24 @@ export async function compressImage(
   ctx.drawImage(bitmap, 0, 0, targetWidth, targetHeight)
   bitmap.close()
 
-  // 4. Export as compressed JPEG blob
-  const blob = await new Promise<Blob | null>((resolve) => {
+  // 4. Export as compressed WebP blob (with fallback to JPEG if WebP is unsupported)
+  let blob = await new Promise<Blob | null>((resolve) => {
     canvas.toBlob(
       (b) => resolve(b),
-      'image/jpeg',
+      'image/webp',
       opts.quality
     )
   })
+
+  if (!blob) {
+    blob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(
+        (b) => resolve(b),
+        'image/jpeg',
+        opts.quality
+      )
+    })
+  }
 
   if (!blob) {
     throw new Error('Failed to generate compressed image blob.')
@@ -108,12 +118,14 @@ export async function compressImage(
     )
   }
 
-  // 5. Generate secure, clean file name
+  // 5. Generate secure, clean file name with matching extension
+  const mimeType = blob.type || 'image/webp'
+  const ext = mimeType.includes('webp') ? 'webp' : 'jpg'
   const originalBaseName = file.name.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_')
-  const compressedFileName = `${originalBaseName || 'photo'}_compressed.jpg`
+  const compressedFileName = `${originalBaseName || 'photo'}_compressed.${ext}`
 
   const compressedFile = new File([blob], compressedFileName, {
-    type: 'image/jpeg',
+    type: mimeType,
     lastModified: Date.now(),
   })
 

@@ -8,7 +8,6 @@ import { isSupabaseConfigured } from '@/lib/supabase/config'
 import { DEFAULT_HOLIDAYS, isDateWithinHoliday } from '@/lib/master-data'
 import { checkServerDateSuspension } from '@/lib/calendar-policy'
 import { getServerUserScope } from '@/lib/context/server-user-scope'
-import { getTeacherAssignments } from '@/lib/context/institutional-relationships'
 import { dispatchSkippedSessionNotification } from '@/app/actions/notifications'
 import { getPgPool } from '@/lib/db'
 
@@ -20,79 +19,31 @@ declare global {
   var __PRACTICAL_LOGS_STORE__: any[] | undefined
 }
 
-const SEED_PRACTICAL_LOGS = [
-  {
-    id: 'log-seed-1',
-    schedule_id: 'mon-1',
-    lab_id: 'comp',
-    teacher_id: 't1',
-    date: new Date().toISOString().split('T')[0],
-    period_label: 'Period 1 & 2 (10:10 - 11:45)',
-    subject_name: 'COMP-12 - Data Structures & Algorithms Lab',
-    batch_group: '12 Eng',
-    practical_title: 'Implementation of Binary Search Trees in C++',
-    total_students: 38,
-    present_students: 36,
-    absent_students: 2,
-    remarks: 'All 38 workstations functioning properly. Students completed traversal exercises.',
-    status: 'conducted',
-    skip_reason: null,
-    topic_learned: 'Binary Search Trees & Traversal',
-    logged_by: 'local-admin',
-    created_at: new Date(Date.now() - 3600000 * 3).toISOString(),
-    labs: { id: 'comp', name: 'Computer Engineering Lab 01', type: 'computer_lab' },
-    profiles: { id: 't1', full_name: 'Dr. Rajesh Sharma' },
-  },
-  {
-    id: 'log-seed-2',
-    schedule_id: 'mon-2',
-    lab_id: 'phys',
-    teacher_id: 't2',
-    date: new Date().toISOString().split('T')[0],
-    period_label: 'Period 3 & 4 (11:45 - 01:15)',
-    subject_name: 'PHY-11 - Optics & Wave Mechanics',
-    batch_group: '11 Eng',
-    practical_title: 'Verification of Hooke’s Law and Spring Constant Calculation',
-    total_students: 40,
-    present_students: 38,
-    absent_students: 2,
-    remarks: 'Weights and spring sets verified. High student engagement.',
-    status: 'conducted',
-    skip_reason: null,
-    topic_learned: 'Hooke’s Law & Spring Oscillations',
-    logged_by: 'local-admin',
-    created_at: new Date(Date.now() - 3600000 * 1.5).toISOString(),
-    labs: { id: 'phys', name: 'Physics Laboratory', type: 'physics_lab' },
-    profiles: { id: 't2', full_name: 'Dr. Prakash Adhikari' },
-  },
-]
-
 function getStore(): any[] {
   if (!globalThis.__PRACTICAL_LOGS_STORE__) {
-    globalThis.__PRACTICAL_LOGS_STORE__ = [...SEED_PRACTICAL_LOGS]
+    globalThis.__PRACTICAL_LOGS_STORE__ = []
   }
   return globalThis.__PRACTICAL_LOGS_STORE__
 }
 
 const LAB_NAME_MAP: Record<string, { id: string; name: string; type: string }> = {
-  comp: { id: 'comp', name: 'Computer Engineering Lab 01', type: 'computer_lab' },
-  phys: { id: 'phys', name: 'Physics Laboratory', type: 'physics_lab' },
-  chem: { id: 'chem', name: 'Chemistry Laboratory', type: 'chemistry_lab' },
-  bio: { id: 'bio', name: 'Biology & Life Sciences Lab', type: 'biology_lab' },
-  elec: { id: 'elec', name: 'Electronics & Hardware Lab', type: 'electronics_lab' },
-}
-
-const TEACHER_NAME_MAP: Record<string, string> = {
-  t1: 'Dr. Rajesh Sharma',
-  t2: 'Dr. Prakash Adhikari',
-  t3: 'Ms. Sunita Thapa',
-  t4: 'Er. Anish Karki',
-  t5: 'Dr. Nirmala Poudel',
+  comp: { id: 'comp', name: 'Computer Lab', type: 'computer_lab' },
+  phys: { id: 'phys', name: 'Physics Lab', type: 'physics_lab' },
+  chem: { id: 'chem', name: 'Chemistry Lab', type: 'chemistry_lab' },
 }
 
 export async function createPracticalLog(
   data: FormData | any
 ): Promise<{ success: boolean; log?: any; error?: string; duplicateId?: string }> {
+  // Reject mutations for pending accounts
+  const userScope = await getServerUserScope()
+  if (userScope.isPending || userScope.approvalStatus !== 'approved') {
+    return {
+      success: false,
+      error: 'Permission denied: Your account is pending verification and cannot record practical sessions until approved by an administrator.',
+    }
+  }
+
   let logPayload: any
 
   if (data instanceof FormData) {
@@ -106,11 +57,11 @@ export async function createPracticalLog(
       schedule_id: (data.get('schedule_id') as string) || (data.get('sessionId') as string) || null,
       class_subject_id: (data.get('class_subject_id') as string) || null,
       lab_id: (data.get('lab_id') as string) || 'comp',
-      teacher_id: (data.get('teacher_id') as string) || 't1',
+      teacher_id: (data.get('teacher_id') as string) || null,
       date: (data.get('date') as string) || new Date().toISOString().split('T')[0],
-      period_label: (data.get('period_label') as string) || 'Period 1 (10:10 - 11:00)',
+      period_label: (data.get('period_label') as string) || '',
       subject_name: (data.get('subject_name') as string) || 'Practical Session',
-      batch_group: (data.get('batch_group') as string) || '12 Eng',
+      batch_group: (data.get('batch_group') as string) || '',
       practical_title: (data.get('practical_title') as string) || 'Experiment Entry',
       total_students: total,
       present_students: present,
@@ -140,11 +91,11 @@ export async function createPracticalLog(
       schedule_id: data.schedule_id || data.sessionId || null,
       class_subject_id: data.class_subject_id || data.classSubjectId || null,
       lab_id: data.lab_id || data.labKey || data.lab || 'comp',
-      teacher_id: data.teacher_id || 't1',
+      teacher_id: data.teacher_id || null,
       date: data.date || new Date().toISOString().split('T')[0],
-      period_label: data.period_label || data.timeSlot || 'Period 1',
+      period_label: data.period_label || data.timeSlot || '',
       subject_name: subjectName,
-      batch_group: data.batch_group || data.grade || '12 Eng',
+      batch_group: data.batch_group || data.grade || '',
       practical_title: data.practical_title || data.topicLearned || 'Laboratory Practical Experiment',
       total_students: total,
       present_students: present,
@@ -215,7 +166,7 @@ export async function createPracticalLog(
   }
 
   // ==========================================================================
-  // 1. LOGICAL DUPLICATE CHECK: date + lab_id + period_label + batch_group + subject_name
+  // 1. LOGICAL DUPLICATE CHECK & IDEMPOTENT SESSION RE-USE
   // ==========================================================================
   const norm = (s?: string | null) => (s ? s.trim().toLowerCase() : '')
   const checkDate = logPayload.date
@@ -223,33 +174,75 @@ export async function createPracticalLog(
   const checkPeriod = norm(logPayload.period_label)
   const checkBatch = norm(logPayload.batch_group)
   const checkSubject = norm(logPayload.subject_name)
-  const isExplicitEdit = Boolean(data.id || (data.isEdit && data.existingLogId))
-  const targetEditId = data.id || data.existingLogId
+  const idempotencyKey =
+    (data instanceof FormData
+      ? (data.get('idempotency_key') as string) || (data.get('idempotencyKey') as string)
+      : data?.idempotency_key || data?.idempotencyKey) || null
+  let targetEditId = data.id || data.existingLogId || null
 
-  // Check Supabase DB for duplicates under RLS
+  // Check database for idempotency key replay
+  if (idempotencyKey && isSupabaseConfigured()) {
+    try {
+      const pool = getPgPool()
+      const { rows } = await pool.query(
+        'SELECT id FROM public.practical_logs WHERE idempotency_key = $1 LIMIT 1',
+        [idempotencyKey]
+      )
+      if (rows && rows.length > 0) {
+        targetEditId = rows[0].id
+      }
+    } catch (idemErr) {
+      console.warn('Idempotency key lookup warning:', idemErr)
+    }
+  }
+
+  // Check Supabase DB for existing schedule or logical duplicates
   if (isSupabaseConfigured()) {
     try {
       const supabase = await createClient()
+
+      // A. Exact Schedule + Date Collision: If a log already exists for this timetable schedule on this date, update in-place
+      if (!targetEditId && logPayload.schedule_id) {
+        const { data: schedMatch } = await (supabase.from('practical_logs') as any)
+          .select('id')
+          .eq('schedule_id', logPayload.schedule_id)
+          .eq('date', checkDate)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+
+        if (schedMatch?.id) {
+          targetEditId = schedMatch.id
+        }
+      }
+
+      // B. Facility + Period Collision check
       const { data: existingDbRows, error: dupErr } = await (supabase.from('practical_logs') as any)
-        .select('id, date, lab_id, period_label, batch_group, subject_name')
+        .select('id, schedule_id, date, lab_id, period_label, batch_group, subject_name')
         .eq('lab_id', checkLab)
+        .eq('date', checkDate)
 
       if (!dupErr && existingDbRows && existingDbRows.length > 0) {
         const dbMatch = existingDbRows.find((r: any) => {
-          if (isExplicitEdit && r.id === targetEditId) return false
-          return (
-            r.date === checkDate &&
+          if (targetEditId && r.id === targetEditId) return false
+          const sameSchedule = Boolean(logPayload.schedule_id && r.schedule_id === logPayload.schedule_id)
+          const sameSlot =
             norm(r.period_label) === checkPeriod &&
             norm(r.batch_group) === checkBatch &&
             norm(r.subject_name) === checkSubject
-          )
+          return sameSchedule || sameSlot
         })
 
         if (dbMatch) {
-          return {
-            success: false,
-            error: `A practical log already exists for ${logPayload.batch_group} · ${logPayload.subject_name} · ${logPayload.period_label} on ${logPayload.date}. Edit the existing entry instead of creating a duplicate.`,
-            duplicateId: dbMatch.id,
+          if (!targetEditId) {
+            // Auto-heal duplicate: reuse existing matching log ID so operation performs in-place update
+            targetEditId = dbMatch.id
+          } else if (dbMatch.id !== targetEditId) {
+            return {
+              success: false,
+              error: `A practical log already exists for ${logPayload.batch_group} · ${logPayload.subject_name} · ${logPayload.period_label} on ${logPayload.date}. Edit the existing entry instead of creating a duplicate.`,
+              duplicateId: dbMatch.id,
+            }
           }
         }
       }
@@ -258,43 +251,10 @@ export async function createPracticalLog(
     }
   }
 
-  // Check Supabase if configured
-  if (isSupabaseConfigured()) {
-    try {
-      const supabase = await createClient()
-      const { data: existingDbRows } = await supabase
-        .from('practical_logs')
-        .select('id, date, lab_id, period_label, batch_group, subject_name')
-        .eq('date', checkDate)
-        .eq('lab_id', checkLab)
-
-      if (existingDbRows && existingDbRows.length > 0) {
-        const dbMatch = (existingDbRows as any[]).find((r) => {
-          if (isExplicitEdit && r.id === targetEditId) return false
-          return (
-            norm(r.period_label) === checkPeriod &&
-            norm(r.batch_group) === checkBatch &&
-            norm(r.subject_name) === checkSubject
-          )
-        })
-
-        if (dbMatch) {
-          return {
-            success: false,
-            error: `A practical log already exists for ${logPayload.batch_group} · ${logPayload.subject_name} · ${logPayload.period_label} on ${logPayload.date}. Edit the existing entry instead of creating a duplicate.`,
-            duplicateId: dbMatch.id,
-          }
-        }
-      }
-    } catch (err) {
-      console.warn('Error querying DB for duplicates:', err)
-    }
-  }
-
   // Check persistent memory store
   const store = getStore()
   const storeMatch = store.find((l) => {
-    if (isExplicitEdit && l.id === targetEditId) return false
+    if (targetEditId && l.id === targetEditId) return false
     return (
       l.date === checkDate &&
       l.lab_id === checkLab &&
@@ -320,7 +280,7 @@ export async function createPracticalLog(
 
   let safeTeacherId = isUUID(logPayload.teacher_id) ? logPayload.teacher_id : null
   let teacherName =
-    TEACHER_NAME_MAP[logPayload.teacher_id] || (data.teacher as string) || 'Assigned Subject Teacher'
+    (data.teacher as string) || (data.teacher_name as string) || 'Assigned Subject Teacher'
 
   // If teacher_id is not already a UUID, resolve from profiles table by teacherName
   if (!safeTeacherId && isSupabaseConfigured()) {
@@ -356,7 +316,7 @@ export async function createPracticalLog(
     absent_rolls: safeAbsentRolls,
     created_at: new Date().toISOString(),
     labs: labInfo,
-    profiles: { id: safeTeacherId || 't1', full_name: teacherName },
+    profiles: { id: safeTeacherId || '', full_name: teacherName },
   }
 
   // Prepend to persistent memory store
@@ -394,6 +354,15 @@ export async function createPracticalLog(
         }
       }
 
+      if (!effectiveYearId) {
+        const { data: currYear } = await supabase
+          .from('academic_years')
+          .select('id')
+          .eq('is_current', true)
+          .maybeSingle()
+        effectiveYearId = currYear?.id || null
+      }
+
       if (resolvedClassSubjectId) {
         const { data: cs } = await supabase
           .from('class_subjects')
@@ -420,23 +389,45 @@ export async function createPracticalLog(
       } else {
         // Look up candidate class_subjects matching batch and subject
         const norm = (s?: string | null) => (s ? s.trim().toLowerCase() : '')
-        const { data: csList } = await supabase
-          .from('class_subjects')
+        let csQuery = (supabase.from('class_subjects') as any)
           .select(`
             id, class_id, subject_id, teacher_id, academic_year_id,
             classes:class_id ( id, name, grade ),
             subjects:subject_id ( id, code, name )
           `)
 
+        if (effectiveYearId) {
+          csQuery = csQuery.eq('academic_year_id', effectiveYearId)
+        }
+
+        const { data: csList } = await csQuery
+
         if (csList && csList.length > 0) {
           const normBatch = norm(logPayload.batch_group)
           const normSub = norm(logPayload.subject_name)
+          const cleanBatch = normBatch.replace(/[^a-z0-9]/g, '')
+          const cleanSub = normSub.replace(/[^a-z0-9]/g, '')
+
           const matched = (csList as any[]).find((cs) => {
             const clsName = norm(cs.classes?.name)
             const clsId = norm(cs.class_id)
             const subCode = norm(cs.subjects?.code)
-            const classMatch = normBatch === clsName || normBatch === clsId || normBatch.includes(clsName) || (cs.classes?.grade && normBatch.includes(String(cs.classes.grade)))
-            const subjectMatch = subCode && normSub.includes(subCode)
+            const subName = norm(cs.subjects?.name)
+            const cleanClsName = clsName.replace(/[^a-z0-9]/g, '')
+            const cleanClsId = clsId.replace(/[^a-z0-9]/g, '')
+            const cleanSubCode = subCode.replace(/[^a-z0-9]/g, '')
+
+            const classMatch =
+              normBatch === clsName ||
+              normBatch === clsId ||
+              (cleanBatch.length > 0 && cleanBatch === cleanClsName) ||
+              (cleanBatch.length > 0 && cleanBatch === cleanClsId) ||
+              (cleanClsName.length > 1 && cleanBatch.startsWith(cleanClsName))
+
+            const subjectMatch =
+              (cleanSubCode.length > 0 && cleanSub.includes(cleanSubCode)) ||
+              (subName.length > 0 && normSub.includes(subName))
+
             return classMatch && subjectMatch
           })
 
@@ -453,29 +444,21 @@ export async function createPracticalLog(
               logPayload.batch_group = cls.name
             }
           } else {
-            // Fallback match by class or first available curriculum record to preserve not-null constraint
-            const fallbackByClass = (csList as any[]).find((cs) => {
-              const clsName = norm(cs.classes?.name)
-              const clsId = norm(cs.class_id)
-              return normBatch === clsName || normBatch === clsId || normBatch.includes(clsName)
-            })
-            const fallback = fallbackByClass || csList[0]
-            if (fallback) {
-              resolvedClassSubjectId = fallback.id
-              targetClassId = fallback.class_id
-              effectiveYearId = fallback.academic_year_id || effectiveYearId
+            // NEVER cross-attach or guess an unrelated subject within the class cohort
+            resolvedClassSubjectId = null
+            // Resolve targetClassId directly from classes table for seating snapshot lookups
+            const { data: clsMatch } = await supabase
+              .from('classes')
+              .select('id, name')
+              .or(`id.ilike.${logPayload.batch_group},name.ilike.${logPayload.batch_group}`)
+              .limit(1)
+              .maybeSingle()
+            if (clsMatch) {
+              targetClassId = clsMatch.id
+              logPayload.batch_group = clsMatch.name
             }
           }
         }
-      }
-
-      if (!effectiveYearId) {
-        const { data: currYear } = await supabase
-          .from('academic_years')
-          .select('id')
-          .eq('is_current', true)
-          .maybeSingle()
-        effectiveYearId = currYear?.id || null
       }
 
       // -------------------------------------------------------------
@@ -640,6 +623,7 @@ export async function createPracticalLog(
         skip_reason: logPayload.skip_reason || null,
         topic_learned: logPayload.topic_learned || null,
         logged_by: loggedBy,
+        idempotency_key: idempotencyKey,
       }
 
       if (resolvedSeatingSnapshot && Array.isArray(resolvedSeatingSnapshot) && resolvedSeatingSnapshot.length > 0) {
@@ -663,8 +647,8 @@ export async function createPracticalLog(
                   id, schedule_id, class_subject_id, lab_id, teacher_id, academic_year_id,
                   date, period_label, subject_name, batch_group, practical_title,
                   total_students, present_students, absent_students, absent_rolls,
-                  remarks, status, skip_reason, topic_learned, logged_by, seating_snapshot
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+                  remarks, status, skip_reason, topic_learned, logged_by, seating_snapshot, idempotency_key
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
                 ON CONFLICT (id) DO UPDATE SET
                   schedule_id = EXCLUDED.schedule_id,
                   class_subject_id = EXCLUDED.class_subject_id,
@@ -685,7 +669,8 @@ export async function createPracticalLog(
                   skip_reason = EXCLUDED.skip_reason,
                   topic_learned = EXCLUDED.topic_learned,
                   logged_by = EXCLUDED.logged_by,
-                  seating_snapshot = COALESCE(EXCLUDED.seating_snapshot, practical_logs.seating_snapshot)`,
+                  seating_snapshot = COALESCE(EXCLUDED.seating_snapshot, practical_logs.seating_snapshot),
+                  idempotency_key = COALESCE(EXCLUDED.idempotency_key, practical_logs.idempotency_key)`,
                 [
                   upsertData.id,
                   upsertData.schedule_id,
@@ -708,6 +693,7 @@ export async function createPracticalLog(
                   upsertData.topic_learned,
                   upsertData.logged_by,
                   upsertData.seating_snapshot ? JSON.stringify(upsertData.seating_snapshot) : null,
+                  upsertData.idempotency_key || null,
                 ]
               )
             }
@@ -723,26 +709,20 @@ export async function createPracticalLog(
       // Post-insert: bridge attendance records with enrollment_id AND student_id via canonical relationship
       if (effectiveYearId && targetClassId) {
         try {
-          const { data: enrollments } = await supabase
-            .from('student_enrollments')
-            .select('id, student_id, roll_number')
-            .eq('academic_year_id', effectiveYearId)
-            .eq('class_id', targetClassId)
-            .eq('status', 'active')
-
-          if (enrollments && enrollments.length > 0) {
-            for (const enr of enrollments) {
-              await supabase
-                .from('log_attendance')
-                .update({
-                  enrollment_id: enr.id,
-                  student_id: enr.student_id,
-                })
-                .eq('log_id', recordId)
-                .eq('roll_number', enr.roll_number)
-                .is('enrollment_id', null)
-            }
-          }
+          const pool = getPgPool()
+          await pool.query(
+            `UPDATE public.log_attendance la
+             SET enrollment_id = se.id,
+                 student_id = se.student_id
+             FROM public.student_enrollments se
+             WHERE la.log_id = $1
+               AND la.enrollment_id IS NULL
+               AND se.academic_year_id = $2
+               AND se.class_id = $3
+               AND se.status = 'active'
+               AND la.roll_number = se.roll_number;`,
+            [recordId, effectiveYearId, targetClassId]
+          )
         } catch (attErr) {
           console.warn('Attendance relational bridge non-blocking notice:', attErr)
         }
@@ -796,37 +776,79 @@ function safeRevalidatePaths(paths: string[]) {
 
 export async function updatePracticalLog(id: string, data: Partial<PracticalLogUpdate>) {
   const userScope = await getServerUserScope()
+  if (userScope.isPending || userScope.approvalStatus !== 'approved') {
+    return { success: false, error: 'Permission denied: Your account is pending verification and cannot modify records.' }
+  }
   const isPrivileged = userScope.isPrivileged
 
-  const store = getStore()
-  const idx = store.findIndex((l) => l.id === id)
-  const existingRecord = idx !== -1 ? store[idx] : null
+  const pool = getPgPool()
 
-  if (!isPrivileged && existingRecord) {
+  // 1. Authoritative ownership & existence check against live PostgreSQL
+  const existingRes = await pool.query(
+    `SELECT id, teacher_id, logged_by, remarks FROM public.practical_logs WHERE id = $1 LIMIT 1;`,
+    [id]
+  )
+  if (existingRes.rows.length === 0) {
+    return { success: false, error: 'Practical log record not found.' }
+  }
+  const existing = existingRes.rows[0]
+
+  // 2. Ownership & sign-off role guards
+  if (!isPrivileged) {
     const isOwner =
-      (userScope.userId && (existingRecord.teacher_id === userScope.userId || existingRecord.logged_by === userScope.userId)) ||
-      (existingRecord.teacher && userScope.fullName && existingRecord.teacher.toLowerCase().includes(userScope.fullName.toLowerCase())) ||
-      (existingRecord.profiles?.full_name && userScope.fullName && existingRecord.profiles.full_name.toLowerCase().includes(userScope.fullName.toLowerCase()))
-
+      Boolean(userScope.userId) &&
+      (existing.teacher_id === userScope.userId || existing.logged_by === userScope.userId)
     if (!isOwner) {
       return { success: false, error: 'Permission denied: You can only modify your own practical session records.' }
     }
+
+    // Guard: Only privileged roles (super_admin, lab_incharge, hod) can certify/verify sign-offs
+    if (data.remarks && /verified|audit.*signed|sign-off|in-charge.*stamp/i.test(data.remarks)) {
+      return {
+        success: false,
+        error: 'Permission denied: Only administrative faculty and Lab In-Charges can certify or apply digital verification sign-offs.',
+      }
+    }
   }
 
+  // 3. Update in persistent memory store if present
+  const store = getStore()
+  const idx = store.findIndex((l) => l.id === id)
   if (idx !== -1) {
     store[idx] = { ...store[idx], ...data, updated_at: new Date().toISOString() }
   }
 
+  // 4. Authoritative PostgreSQL write with SQL-level ownership guard
+  try {
+    const updates: string[] = []
+    const vals: any[] = [id]
+    for (const [k, v] of Object.entries(data)) {
+      vals.push(v)
+      updates.push(`${k} = $${vals.length}`)
+    }
+    if (updates.length > 0) {
+      let updateSql = `UPDATE public.practical_logs SET ${updates.join(', ')} WHERE id = $1`
+      if (!isPrivileged && userScope.userId) {
+        vals.push(userScope.userId)
+        updateSql += ` AND (teacher_id = $${vals.length} OR logged_by = $${vals.length})`
+      }
+      const pgRes = await pool.query(updateSql, vals)
+      if (pgRes.rowCount === 0) {
+        return { success: false, error: 'Record update rejected: unauthorized or non-existent record.' }
+      }
+    }
+  } catch (pgErr: any) {
+    console.error('Error updating practical log via pg pool:', pgErr)
+    return { success: false, error: pgErr.message || 'Database update failed.' }
+  }
 
+  // 5. Opportunistic Supabase sync if configured
   if (isSupabaseConfigured()) {
     try {
       const supabase = await createClient()
-      const { error } = await (supabase.from('practical_logs') as any).update(data).eq('id', id)
-      if (error) {
-        console.error('❌ Supabase log update error:', error)
-      }
+      await (supabase.from('practical_logs') as any).update(data).eq('id', id)
     } catch (e: any) {
-      console.warn('⚠️ Supabase update error:', e.message)
+      // Background client sync warning
     }
   }
 
@@ -835,16 +857,197 @@ export async function updatePracticalLog(id: string, data: Partial<PracticalLogU
   return { success: true }
 }
 
-export async function getPracticalLogs(filters?: {
+export interface PracticalLogFilters {
   search?: string
   lab_id?: string
   date?: string
+  effectiveDate?: string
   teacher_id?: string
   view_mode?: 'my_data' | 'all'
-}) {
+  limit?: number
+  offset?: number
+}
+
+// Helper to guarantee clean string dates from direct PostgreSQL driver queries
+function normalizePracticalLogRow(row: any) {
+  if (!row) return row
+  let dateStr = ''
+  if (row.date instanceof Date) {
+    const y = row.date.getFullYear()
+    const m = String(row.date.getMonth() + 1).padStart(2, '0')
+    const d = String(row.date.getDate()).padStart(2, '0')
+    dateStr = `${y}-${m}-${d}`
+  } else if (typeof row.date === 'string') {
+    dateStr = row.date.includes('T') ? row.date.split('T')[0] : row.date
+  } else if (row.date) {
+    dateStr = String(row.date)
+  }
+
+  let createdAtStr = ''
+  if (row.created_at instanceof Date) {
+    createdAtStr = row.created_at.toISOString()
+  } else if (row.created_at) {
+    createdAtStr = String(row.created_at)
+  }
+
+  return {
+    ...row,
+    date: dateStr,
+    created_at: createdAtStr,
+  }
+}
+
+export async function getPracticalLogs(filters?: PracticalLogFilters) {
   const userScope = await getServerUserScope()
+  if (userScope.isPending || userScope.approvalStatus !== 'approved') {
+    return []
+  }
   const isPrivileged = userScope.isPrivileged
   const shouldScopeToMyData = !isPrivileged || filters?.view_mode === 'my_data'
+
+  // Attempt direct PostgreSQL execution via pg pool on port 6543
+  try {
+    const pool = getPgPool()
+    const activeDate = filters?.date || filters?.effectiveDate || new Date().toISOString().split('T')[0]
+    const limit = filters?.limit ?? 50
+    const offset = filters?.offset ?? 0
+
+    // Build WHERE clauses
+    const whereClauses: string[] = []
+    const params: any[] = []
+
+    if (filters?.lab_id && filters.lab_id !== 'all') {
+      params.push(filters.lab_id)
+      whereClauses.push(`pl.lab_id = $${params.length}`)
+    }
+
+    if (filters?.search && filters.search.trim().length > 0) {
+      params.push(`%${filters.search.trim()}%`)
+      whereClauses.push(`(pl.subject_name ILIKE $${params.length} OR pl.practical_title ILIKE $${params.length} OR pl.batch_group ILIKE $${params.length})`)
+    }
+
+    if (shouldScopeToMyData && userScope.userId) {
+      params.push(userScope.userId)
+      whereClauses.push(`(pl.teacher_id = $${params.length} OR pl.logged_by = $${params.length})`)
+    } else if (filters?.teacher_id && filters.teacher_id !== 'all') {
+      params.push(filters.teacher_id)
+      whereClauses.push(`pl.teacher_id = $${params.length}`)
+    }
+
+    const baseWhere = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : ''
+
+    // Fast SQL COUNT aggregations
+    const countSql = `
+      SELECT 
+        COUNT(*)::int as total_count,
+        COUNT(*) FILTER (WHERE status != 'skipped')::int as conducted_count,
+        COUNT(*) FILTER (WHERE status = 'skipped')::int as skipped_count
+      FROM public.practical_logs pl
+      ${baseWhere}
+    `
+    const countRes = await pool.query(countSql, params)
+    const counts = countRes.rows[0] || { total_count: 0, conducted_count: 0, skipped_count: 0 }
+
+    // If specific date requested, fetch exactly that date
+    if (filters?.date) {
+      const dateParams = [...params, filters.date]
+      const dateWhere = whereClauses.length > 0
+        ? `WHERE ${whereClauses.join(' AND ')} AND pl.date = $${dateParams.length}`
+        : `WHERE pl.date = $${dateParams.length}`
+
+      const dateQuery = `
+        SELECT 
+          pl.*,
+          pl.date::text as date,
+          pl.created_at::text as created_at,
+          row_to_json(l.*) as labs,
+          json_build_object('id', p.id, 'full_name', p.full_name) as profiles
+        FROM public.practical_logs pl
+        LEFT JOIN public.labs l ON pl.lab_id = l.id
+        LEFT JOIN public.profiles p ON pl.teacher_id = p.id
+        ${dateWhere}
+        ORDER BY pl.created_at DESC
+      `
+      const dateRes = await pool.query(dateQuery, dateParams)
+      const list: any = (dateRes.rows || []).map(normalizePracticalLogRow)
+      list.totalCount = counts.total_count
+      list.conductedCount = counts.conducted_count
+      list.skippedCount = counts.skipped_count
+      list.logs = list
+      return list
+    }
+
+    // Two-Phase Query: Date-locked logs for activeDate + windowed historical logs
+    const todayParams = [...params, activeDate]
+    const todayWhere = whereClauses.length > 0
+      ? `WHERE ${whereClauses.join(' AND ')} AND pl.date = $${todayParams.length}`
+      : `WHERE pl.date = $${todayParams.length}`
+
+    const todayQuery = `
+      SELECT 
+        pl.*,
+        pl.date::text as date,
+        pl.created_at::text as created_at,
+        row_to_json(l.*) as labs,
+        json_build_object('id', p.id, 'full_name', p.full_name) as profiles
+      FROM public.practical_logs pl
+      LEFT JOIN public.labs l ON pl.lab_id = l.id
+      LEFT JOIN public.profiles p ON pl.teacher_id = p.id
+      ${todayWhere}
+      ORDER BY pl.created_at DESC
+    `
+
+    const histParams = [...params, limit, offset]
+    const histLimitParam = `$${histParams.length - 1}`
+    const histOffsetParam = `$${histParams.length}`
+
+    const histQuery = `
+      SELECT 
+        pl.*,
+        pl.date::text as date,
+        pl.created_at::text as created_at,
+        row_to_json(l.*) as labs,
+        json_build_object('id', p.id, 'full_name', p.full_name) as profiles
+      FROM public.practical_logs pl
+      LEFT JOIN public.labs l ON pl.lab_id = l.id
+      LEFT JOIN public.profiles p ON pl.teacher_id = p.id
+      ${baseWhere}
+      ORDER BY pl.date DESC, pl.created_at DESC
+      LIMIT ${histLimitParam} OFFSET ${histOffsetParam}
+    `
+
+    const [todayRes, histRes] = await Promise.all([
+      pool.query(todayQuery, todayParams),
+      pool.query(histQuery, histParams),
+    ])
+
+    // Merge and deduplicate by ID, keeping today's rows at the top
+    const seenIds = new Set<string>()
+    const mergedList: any[] = []
+
+    for (const row of todayRes.rows || []) {
+      if (!seenIds.has(row.id)) {
+        seenIds.add(row.id)
+        mergedList.push(normalizePracticalLogRow(row))
+      }
+    }
+
+    for (const row of histRes.rows || []) {
+      if (!seenIds.has(row.id)) {
+        seenIds.add(row.id)
+        mergedList.push(normalizePracticalLogRow(row))
+      }
+    }
+
+    const returnResult: any = mergedList
+    returnResult.totalCount = counts.total_count
+    returnResult.conductedCount = counts.conducted_count
+    returnResult.skippedCount = counts.skipped_count
+    returnResult.logs = mergedList
+    return returnResult
+  } catch (pgErr) {
+    console.warn('[getPracticalLogs] PG pool fast-path failed, falling back to Supabase SDK:', pgErr)
+  }
 
   const store = getStore()
   let list = [...store]
@@ -880,7 +1083,7 @@ export async function getPracticalLogs(filters?: {
       }
 
       const { data, error } = await query
-      if (!error && data && data.length > 0) {
+      if (!error && data) {
         return data as any[]
       }
     } catch (e) {}
@@ -934,6 +1137,16 @@ export async function getPracticalLogs(filters?: {
 
 export async function getTodayLogStats(dateStr?: string, viewMode?: 'my_data' | 'all') {
   const userScope = await getServerUserScope()
+  if (userScope.isPending || userScope.approvalStatus !== 'approved') {
+    return {
+      totalLogsToday: 0,
+      totalStudentsAttended: 0,
+      conductedCount: 0,
+      skippedCount: 0,
+      logs: [],
+      userScope,
+    }
+  }
   const isPrivileged = userScope.isPrivileged
   const shouldScopeToMyData = !isPrivileged || viewMode === 'my_data'
 
@@ -979,103 +1192,173 @@ export async function getScopedLogFormOptions() {
     assignedSubjects: scope.assignedSubjects,
     assignedLabIds: scope.assignedLabIds,
     teacher: {
-      id: scope.userId || scope.teacherProfile?.teacherId || 't1',
+      id: scope.userId || scope.teacherProfile?.teacherId || '',
       name: scope.fullName || scope.teacherProfile?.name || 'Assigned Subject Teacher',
       email: scope.email,
     },
   }
 }
 
-export async function deletePracticalLog(id: string) {
+export async function deletePracticalLog(id: string): Promise<{ success: boolean; error?: string }> {
   const userScope = await getServerUserScope()
+  if (userScope.isPending || userScope.approvalStatus !== 'approved') {
+    return { success: false, error: 'Permission denied: Your account is pending verification and cannot delete records.' }
+  }
   const isPrivileged = userScope.isPrivileged
 
-  const store = getStore()
-  const existingRecord = store.find((l) => l.id === id)
+  const pool = getPgPool()
+  const client = await pool.connect()
 
-  if (!isPrivileged && existingRecord) {
-    const isOwner =
-      (userScope.userId && (existingRecord.teacher_id === userScope.userId || existingRecord.logged_by === userScope.userId)) ||
-      (existingRecord.teacher && userScope.fullName && existingRecord.teacher.toLowerCase().includes(userScope.fullName.toLowerCase())) ||
-      (existingRecord.profiles?.full_name && userScope.fullName && existingRecord.profiles.full_name.toLowerCase().includes(userScope.fullName.toLowerCase()))
+  try {
+    await client.query('BEGIN')
 
-    if (!isOwner) {
-      return { success: false, error: 'Permission denied: You can only delete your own practical session records.' }
+    // 1. Fetch practical log record from PostgreSQL
+    const logRes = await client.query(`
+      SELECT pl.id, pl.teacher_id, pl.logged_by, pl.remarks, pl.status, pl.subject_name, pl.practical_title
+      FROM public.practical_logs pl
+      WHERE pl.id = $1;
+    `, [id])
+
+    const existingRecord = logRes.rows[0]
+
+    if (existingRecord) {
+      if (!isPrivileged) {
+        const isOwner =
+          Boolean(userScope.userId && (existingRecord.teacher_id === userScope.userId || existingRecord.logged_by === userScope.userId))
+
+        if (!isOwner) {
+          await client.query('ROLLBACK')
+          return { success: false, error: 'Permission denied: You can only delete your own practical session records.' }
+        }
+
+        // Verification safety guard: prevent non-admins from deleting verified/signed-off logs
+        const isVerified = (existingRecord.remarks && existingRecord.remarks.toLowerCase().includes('verified')) || existingRecord.status === 'verified'
+        if (isVerified) {
+          await client.query('ROLLBACK')
+          return { success: false, error: 'Cannot delete practical session: Session has already received administrative verification sign-off.' }
+        }
+      }
+
+      // 2. Unlink any seat overrides associated with this practical log
+      await client.query(`
+        UPDATE public.session_seat_overrides 
+        SET practical_log_id = NULL 
+        WHERE practical_log_id = $1;
+      `, [id])
+
+      // 3. Delete attendance logs
+      await client.query(`
+        DELETE FROM public.log_attendance 
+        WHERE log_id = $1;
+      `, [id])
+
+      // 4. Delete practical log
+      await client.query(`
+        DELETE FROM public.practical_logs 
+        WHERE id = $1;
+      `, [id])
     }
+
+    await client.query('COMMIT')
+
+    // Clean in-memory store
+    const store = getStore()
+    globalThis.__PRACTICAL_LOGS_STORE__ = store.filter((l) => l.id !== id)
+
+    // Sync with Supabase client if configured
+    if (isSupabaseConfigured()) {
+      try {
+        const supabase = await createClient()
+        await supabase.from('practical_logs').delete().eq('id', id)
+      } catch (e) {}
+    }
+
+    safeRevalidatePaths(['/records', '/records/new', '/print/records', '/print/daily-log', '/', '/schedules', '/computer-lab'])
+    return { success: true }
+  } catch (err: unknown) {
+    await client.query('ROLLBACK').catch(() => {})
+    const msg = err instanceof Error ? err.message : 'Unknown deletion error'
+    console.error('deletePracticalLog failed:', msg)
+    return { success: false, error: msg }
+  } finally {
+    client.release()
   }
-
-  globalThis.__PRACTICAL_LOGS_STORE__ = store.filter((l) => l.id !== id)
-
-
-  if (isSupabaseConfigured()) {
-    try {
-      const supabase = await createClient()
-      await supabase.from('practical_logs').delete().eq('id', id)
-    } catch (e) {}
-  }
-
-  safeRevalidatePaths(['/records', '/records/new', '/print/records', '/print/daily-log', '/'])
-
-  return { success: true }
 }
 
 export async function getActiveLabs(): Promise<LabRow[]> {
-  const defaultLabs: LabRow[] = [
-    { id: 'comp', name: 'Computer Engineering Lab 01', type: 'computer_lab', capacity: 40, status: 'Operational', is_active: true },
-    { id: 'phys', name: 'Physics Laboratory', type: 'physics_lab', capacity: 38, status: 'Operational', is_active: true },
-    { id: 'chem', name: 'Chemistry Laboratory', type: 'chemistry_lab', capacity: 40, status: 'Operational', is_active: true },
-    { id: 'bio', name: 'Biology & Life Sciences Lab', type: 'biology_lab', capacity: 35, status: 'Operational', is_active: true },
-    { id: 'elec', name: 'Electronics & Hardware Lab', type: 'electronics_lab', capacity: 30, status: 'Operational', is_active: true },
-  ]
-
-  if (!isSupabaseConfigured()) {
-    return defaultLabs
-  }
-
   try {
-    const supabase = await createClient()
-    const { data, error } = await supabase
-      .from('labs')
-      .select('*')
-      .eq('is_active', true)
-      .order('name')
+    const pool = getPgPool()
+    const res = await pool.query(`
+      SELECT id, name, code, capacity, type, status, is_active
+      FROM public.labs
+      WHERE is_active = true
+      ORDER BY name ASC;
+    `)
 
-    if (error || !data || data.length === 0) {
-      return defaultLabs
+    if (res.rows) {
+      return res.rows as LabRow[]
     }
 
-    return data as LabRow[]
+    if (isSupabaseConfigured()) {
+      const supabase = await createClient()
+      const { data, error } = await supabase
+        .from('labs')
+        .select('*')
+        .eq('is_active', true)
+        .order('name')
+
+      if (!error && data) {
+        return data as LabRow[]
+      }
+    }
+
+    return []
   } catch (e) {
-    return defaultLabs
+    console.error('Failed to get active labs:', e)
+    return []
   }
 }
 
 export async function getTeachers() {
-  const defaultTeachers = [
-    { id: 't1', full_name: 'Dr. Rajesh Sharma (Computer Science)' },
-    { id: 't2', full_name: 'Dr. Prakash Adhikari (Physics)' },
-    { id: 't3', full_name: 'Ms. Sunita Thapa (Chemistry)' },
-    { id: 't4', full_name: 'Er. Anish Karki (Electronics)' },
-    { id: 't5', full_name: 'Dr. Nirmala Poudel (Biology)' },
-  ]
-
-  if (!isSupabaseConfigured()) {
-    return defaultTeachers
-  }
-
   try {
-    const supabase = await createClient()
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('id, full_name')
-      .order('full_name')
+    const pool = getPgPool()
+    const res = await pool.query(`
+      SELECT id, full_name, email, role
+      FROM public.profiles
+      WHERE approval_status = 'approved'
+        AND is_active = true
+        AND role IN ('teacher', 'lab_incharge')
+      ORDER BY full_name ASC;
+    `)
 
-    if (error || !data || data.length === 0) {
-      return defaultTeachers
+    if (res.rows) {
+      return res.rows.map((r: any) => ({
+        id: String(r.id),
+        full_name: String(r.full_name),
+        email: r.email ? String(r.email) : undefined,
+        role: String(r.role),
+      }))
     }
 
-    return (data as any[]) || defaultTeachers
+    // Fallback to Supabase client if direct pool returned no rows
+    if (isSupabaseConfigured()) {
+      const supabase = await createClient()
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, full_name, email, role')
+        .eq('approval_status', 'approved')
+        .eq('is_active', true)
+        .in('role', ['teacher', 'lab_incharge'])
+        .order('full_name')
+
+      if (!error && data) {
+        return data as any[]
+      }
+    }
+
+    return []
   } catch (e) {
-    return defaultTeachers
+    console.error('Failed to get teachers:', e)
+    return []
   }
 }

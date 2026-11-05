@@ -377,13 +377,15 @@ async function run() {
     console.log('\n--- Step 3: Seeding Classes, Curriculum & Master Timetable ---')
     const masterDataContent = fs.readFileSync(path.resolve(process.cwd(), 'lib/master-data.ts'), 'utf8')
 
-    // Extract MASTER_ROUTINE
-    const routineStart = masterDataContent.indexOf('export const MASTER_ROUTINE: MasterRoutineItem[] = [')
+    // Extract BASELINE_ROUTINE_ITEMS
+    let routineFile = ''
+    try {
+      routineFile = fs.readFileSync(path.resolve(process.cwd(), 'lib/baseline-routines.ts'), 'utf8')
+    } catch {}
+    const routineStart = routineFile.indexOf('export const BASELINE_ROUTINE_ITEMS: MasterRoutineItem[] = [')
     if (routineStart !== -1) {
-      const routineCode = masterDataContent.substring(routineStart + 'export const MASTER_ROUTINE: MasterRoutineItem[] = ['.length - 1)
-      const nextExport = routineCode.indexOf('export const DEFAULT_CLASSES')
-      const arrayCode = nextExport !== -1 ? routineCode.substring(0, nextExport).trim().replace(/;$/, '') : routineCode
-      const evalFn = new Function(`return ${arrayCode};`)
+      const routineCode = routineFile.substring(routineStart + 'export const BASELINE_ROUTINE_ITEMS: MasterRoutineItem[] = ['.length - 1)
+      const evalFn = new Function(`return ${routineCode};`)
       const masterRoutine = evalFn()
 
       let insertedCount = 0

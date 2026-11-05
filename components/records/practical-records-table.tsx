@@ -19,6 +19,8 @@ import {
 } from '@/types/records'
 import { filtersToSearchParams } from '@/lib/report-spec/filter-codec'
 import { exportPracticalRecordsAction, createPrintSelectionSessionAction } from '@/app/actions/records'
+import { downloadExportStream } from '@/lib/exports/browser-downloader'
+import { formatToNepaliMiti } from '@/lib/nepali-date'
 import {
   FileSpreadsheet,
   FileText,
@@ -289,18 +291,38 @@ export default function PracticalRecordsTable({
         : `Generating complete ${format.toUpperCase()} practical export...`
       showToast(toastText)
 
-      const res = await exportPracticalRecordsAction(filters, groupBy, format, {
-        visibleColumns: activeCols,
-        selectedIds: isAllMatchingSelected ? undefined : (selectedIds.size > 0 ? Array.from(selectedIds) : undefined),
-        isAllMatchingSelected,
-        sortKey: filters.sortKey,
-        sortDirection: filters.sortDirection,
+      const searchParams = new URLSearchParams()
+      searchParams.set('format', format)
+      if (filters.lab_id && filters.lab_id !== 'all') searchParams.set('lab_id', filters.lab_id)
+      if (filters.academic_year_id && filters.academic_year_id !== 'all') searchParams.set('academic_year_id', filters.academic_year_id)
+      if (filters.date_from) searchParams.set('date_from', filters.date_from)
+      if (filters.date_to) searchParams.set('date_to', filters.date_to)
+      if (filters.search) searchParams.set('search', filters.search)
+      if (filters.status && filters.status !== 'all') searchParams.set('status', filters.status)
+      if (filters.batch_group && filters.batch_group !== 'all') searchParams.set('batch_group', filters.batch_group)
+      if (groupBy !== 'none') searchParams.set('groupBy', groupBy)
+      if (activeCols.length > 0) searchParams.set('cols', activeCols.join(','))
+      if (!isAllMatchingSelected && selectedIds.size > 0) {
+        searchParams.set('selected_ids', Array.from(selectedIds).join(','))
+      }
+
+      const streamUrl = `/api/export/practical-records?${searchParams.toString()}`
+
+      const streamRes = await downloadExportStream(streamUrl, {
+        fallbackAction: () =>
+          exportPracticalRecordsAction(filters, groupBy, format, {
+            visibleColumns: activeCols,
+            selectedIds: isAllMatchingSelected ? undefined : (selectedIds.size > 0 ? Array.from(selectedIds) : undefined),
+            isAllMatchingSelected,
+            sortKey: filters.sortKey,
+            sortDirection: filters.sortDirection,
+          }),
       })
-      if (res.success && res.base64 && res.filename && res.contentType) {
-        downloadFile(res.base64, res.filename, res.contentType)
-        showToast(`Downloaded full report: ${res.filename}`)
+
+      if (streamRes.success) {
+        showToast(`Downloaded full report: ${streamRes.filename}`)
       } else {
-        showToast(`Export failed: ${res.error || 'Unknown error'}`)
+        showToast(`Export failed: ${streamRes.error || 'Unknown error'}`)
       }
     } catch (e: any) {
       showToast(`Export failed: ${e.message}`)
@@ -417,7 +439,7 @@ export default function PracticalRecordsTable({
     <div className="space-y-3 font-sans">
       {/* Toast Notification */}
       {toastMsg && (
-        <div className="fixed top-5 right-5 z-50 bg-zinc-950 text-white dark:bg-white dark:text-zinc-950 px-4 py-2.5 rounded-xl shadow-2xl text-xs font-mono font-medium flex items-center gap-2 border border-zinc-700 animate-in slide-in-from-top-2 duration-150">
+        <div className="fixed top-5 right-5 z-[100] bg-zinc-950 text-white dark:bg-white dark:text-zinc-950 px-4 py-2.5 rounded-xl shadow-2xl text-xs font-mono font-medium flex items-center gap-2 border border-zinc-700 animate-in slide-in-from-top-2 duration-150">
           <Sparkles className="h-4 w-4 text-emerald-400" />
           <span>{toastMsg}</span>
         </div>
@@ -427,8 +449,8 @@ export default function PracticalRecordsTable({
       {/* DATATABLES ACTION STRIP (Show entries, Search, ColVis, Full-Export) */}
       {/* ==================================================================== */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5 rounded-2xl shadow-xs">
-        {/* Left: Page Size Selector + Grouping Badge */}
-        <div className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+        {/* Left: Page Size Selector + Grouping Badge (Hidden on Mobile) */}
+        <div className="hidden md:flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
           <span>Show</span>
           <select
             value={pageSize >= 1000 ? 1000 : pageSize}
@@ -450,15 +472,15 @@ export default function PracticalRecordsTable({
         </div>
 
         {/* Right: Instant Search + Column Vis + Export Toolbar */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center justify-between sm:justify-end gap-2 w-full md:w-auto">
           {/* Instant Global Search Box */}
-          <div className="relative min-w-[200px] sm:w-64">
+          <div className="relative w-full md:w-64 min-w-0 md:min-w-[200px]">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-400" />
             <Input
               value={localSearch}
               onChange={(e) => setLocalSearch(e.target.value)}
               placeholder="Search experiments, remarks..."
-              className="h-8 pl-8 pr-7 text-xs bg-zinc-50 dark:bg-zinc-950 border-zinc-300 dark:border-zinc-800 rounded-xl"
+              className="h-8 pl-8 pr-7 text-xs bg-zinc-50 dark:bg-zinc-950 border-zinc-300 dark:border-zinc-800 rounded-xl w-full"
             />
             {localSearch && (
               <button
@@ -471,8 +493,8 @@ export default function PracticalRecordsTable({
             )}
           </div>
 
-          {/* Column Visibility Dropdown */}
-          <div className="relative">
+          {/* Column Visibility Dropdown (Hidden on Mobile) */}
+          <div className="relative hidden md:block">
             <Button
               type="button"
               variant="outline"
@@ -519,9 +541,9 @@ export default function PracticalRecordsTable({
             )}
           </div>
 
-          {/* Export Toolbar with Full-Dataset Tooltip */}
+          {/* Export Toolbar with Full-Dataset Tooltip (Hidden on Mobile) */}
           <div
-            className="flex items-center rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 p-0.5 gap-0.5"
+            className="hidden md:flex items-center rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 p-0.5 gap-0.5"
             title="Exports include all matching records, not just this page"
           >
             <Button
@@ -657,7 +679,124 @@ export default function PracticalRecordsTable({
       {/* TABLE DATA GRID WITH SORT HEADERS */}
       {/* ==================================================================== */}
       <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 overflow-hidden shadow-xs">
-        <div className="overflow-x-auto">
+        {/* ==================================================================== */}
+        {/* RESPONSIVE MOBILE CARD STACK (md:hidden)                              */}
+        {/* ==================================================================== */}
+        <div className="block md:hidden divide-y divide-zinc-200/80 dark:divide-zinc-800/80">
+          {isLoading ? (
+            <div className="p-8 text-center text-xs text-zinc-500 space-y-2">
+              <div className="h-6 w-6 rounded-full border-2 border-emerald-500/30 border-t-emerald-600 animate-spin mx-auto" />
+              <p className="font-mono">Loading practical records...</p>
+            </div>
+          ) : sections.length === 0 || sections.every((s) => s.records.length === 0) ? (
+            <div className="p-8 text-center text-xs text-zinc-500 dark:text-slate-400">
+              No practical session records found matching your filters.
+            </div>
+          ) : (
+            sections.flatMap((sec) => sec.records).map((rec) => {
+              const isSelected = selectedIds.has(rec.id)
+              const miti = formatToNepaliMiti(rec.date)
+              const total = rec.total_students || 0
+              const present = rec.present_students || 0
+              const pct = total > 0 ? Math.round((present / total) * 100) : 0
+              const isLowRate = pct < 75
+              const isOptimal = pct >= 85
+
+              return (
+                <div
+                  key={rec.id}
+                  onClick={() => handleOpenDetail(rec)}
+                  className={`p-3.5 space-y-2.5 transition-colors cursor-pointer active:scale-[0.99] ${
+                    isSelected
+                      ? 'bg-emerald-50/50 dark:bg-emerald-950/25'
+                      : 'hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40'
+                  }`}
+                >
+                  {/* Row 1: Checkbox + Date/Miti + Period Pill */}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => toggleRowSelect(rec.id, e as any)}
+                        className="rounded border-zinc-300 dark:border-zinc-700 text-emerald-600 focus:ring-emerald-500 cursor-pointer h-4 w-4"
+                        aria-label={`Select practical record on ${rec.date}`}
+                      />
+                      <div className="text-xs font-mono">
+                        <span className="font-heading font-extrabold text-zinc-900 dark:text-white">
+                          {miti ? miti.bsFormattedNp : rec.date}
+                        </span>
+                        <span className="text-[10px] text-zinc-500 dark:text-slate-400 ml-1.5">
+                          ({rec.date})
+                        </span>
+                      </div>
+                    </div>
+
+                    <span className="text-[11px] font-mono font-medium px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700">
+                      {rec.period_label}
+                    </span>
+                  </div>
+
+                  {/* Row 2: Subject & Class Batch & Lab */}
+                  <div>
+                    <h4 className="font-heading font-extrabold text-sm text-zinc-900 dark:text-white leading-snug">
+                      {rec.subject_name}
+                    </h4>
+                    {rec.practical_title && (
+                      <p className="text-xs text-zinc-600 dark:text-zinc-300 line-clamp-1 mt-0.5">
+                        {rec.practical_title}
+                      </p>
+                    )}
+                    <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                      <span className="text-[10px] font-heading font-bold px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-500/20">
+                        {rec.batch_group || 'General'}
+                      </span>
+                      <span className="text-[10px] font-sans px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700">
+                        {rec.labs?.name || rec.lab_id}
+                      </span>
+                      {rec.status === 'skipped' ? (
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-600 border border-rose-500/20">
+                          Skipped
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  {/* Row 3: Teacher & Attendance Pill */}
+                  <div className="flex items-center justify-between pt-1 text-xs">
+                    <span className="text-zinc-600 dark:text-zinc-400 font-medium truncate max-w-[160px]">
+                      {rec.profiles?.full_name || 'Assigned Subject Teacher'}
+                    </span>
+
+                    {/* Attendance Pill with 3-tier semantic badge */}
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-mono text-zinc-500 dark:text-slate-400 text-[11px] tabular-nums">
+                        {present}/{total}
+                      </span>
+                      <span
+                        className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-md border tabular-nums ${
+                          isOptimal
+                            ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
+                            : isLowRate
+                            ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30'
+                            : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-slate-200 border-zinc-200 dark:border-zinc-700'
+                        }`}
+                      >
+                        {pct}% {isOptimal ? 'Optimal' : isLowRate ? 'Low Rate' : 'Normal'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </div>
+
+        {/* ==================================================================== */}
+        {/* DESKTOP TABLE DATA GRID (hidden md:block)                             */}
+        {/* ==================================================================== */}
+        <div className="hidden md:block overflow-x-auto">
           <Table className="[&_th]:px-3.5 [&_th]:py-2.5 [&_td]:px-3.5 [&_td]:py-2.5">
             <TableHeader className="bg-zinc-50/80 dark:bg-zinc-900/80 border-b border-zinc-200 dark:border-zinc-800 admin-type-table-header text-zinc-600 dark:text-slate-300">
               <TableRow className="hover:bg-transparent">
@@ -675,10 +814,10 @@ export default function PracticalRecordsTable({
                 {visibleCols.date && (
                   <TableHead
                     onClick={() => handleSort('date')}
-                    className="w-24 font-bold text-zinc-600 dark:text-slate-300 cursor-pointer select-none hover:text-emerald-600 transition-colors"
+                    className="w-32 font-bold text-zinc-600 dark:text-slate-300 cursor-pointer select-none hover:text-emerald-600 transition-colors"
                   >
                     <div className="flex items-center gap-1">
-                      <span>Date</span>
+                      <span>Date / मिति</span>
                       {filters.sortKey === 'date' ? (
                         filters.sortDirection === 'asc' ? (
                           <ArrowUp className="h-3 w-3 text-emerald-600" />
@@ -970,16 +1109,26 @@ export default function PracticalRecordsTable({
                                 />
                               </TableCell>
 
-                              {/* 1. Date */}
-                              {visibleCols.date && (
-                                <TableCell className="font-mono text-xs text-zinc-600 dark:text-slate-300 whitespace-nowrap">
-                                  {(rec.date as unknown) instanceof Date
-                                    ? ((rec.date as unknown) as Date).toISOString().split('T')[0]
-                                    : typeof rec.date === 'string'
-                                    ? (rec.date.includes('T') ? rec.date.split('T')[0] : rec.date)
-                                    : String(rec.date || '—')}
-                                </TableCell>
-                              )}
+                               {/* 1. Date */}
+                              {visibleCols.date && (() => {
+                                const miti = formatToNepaliMiti(rec.date)
+                                return (
+                                  <TableCell className="font-mono text-xs whitespace-nowrap">
+                                    {miti ? (
+                                      <div className="flex flex-col">
+                                        <span className="font-bold text-zinc-900 dark:text-zinc-100 tabular-nums font-heading">
+                                          {miti.bsFormattedNp}
+                                        </span>
+                                        <span className="text-[10px] text-zinc-600 dark:text-zinc-400 font-mono">
+                                          {miti.adDateStr}
+                                        </span>
+                                      </div>
+                                    ) : (
+                                      <span className="text-zinc-600 dark:text-zinc-400">{String(rec.date || '—')}</span>
+                                    )}
+                                  </TableCell>
+                                )
+                              })()}
 
                               {/* 2. Period */}
                               {visibleCols.period && (

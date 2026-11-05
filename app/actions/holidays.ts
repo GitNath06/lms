@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { isSupabaseConfigured } from '@/lib/supabase/config'
+import { getServerUserScope } from '@/lib/context/server-user-scope'
 import { DEFAULT_HOLIDAYS, type HolidayItem } from '@/lib/master-data'
 
 let cachedHolidays: { data: HolidayItem[]; timestamp: number } | null = null
@@ -50,11 +51,16 @@ export async function getAcademicHolidays(): Promise<HolidayItem[]> {
 export async function addAcademicHoliday(
   holiday: HolidayItem
 ): Promise<{ success: boolean; holiday?: HolidayItem; error?: string }> {
-  if (!isSupabaseConfigured()) {
-    return { success: true, holiday }
-  }
-
   try {
+    const scope = await getServerUserScope()
+    if (!scope.isPrivileged || scope.approvalStatus !== 'approved') {
+      return { success: false, error: 'Unauthorized: Administrative role required to manage academic holidays.' }
+    }
+
+    if (!isSupabaseConfigured()) {
+      return { success: true, holiday }
+    }
+
     const supabase = await createClient()
     const { error } = await (supabase.from('academic_holidays') as any).upsert({
       id: holiday.id,
@@ -90,11 +96,16 @@ export async function updateAcademicHoliday(
   id: string,
   updates: Partial<HolidayItem>
 ): Promise<{ success: boolean; error?: string }> {
-  if (!isSupabaseConfigured()) {
-    return { success: true }
-  }
-
   try {
+    const scope = await getServerUserScope()
+    if (!scope.isPrivileged || scope.approvalStatus !== 'approved') {
+      return { success: false, error: 'Unauthorized: Administrative role required to manage academic holidays.' }
+    }
+
+    if (!isSupabaseConfigured()) {
+      return { success: true }
+    }
+
     const supabase = await createClient()
     const payload: any = {}
     if (updates.title) payload.title = updates.title
@@ -128,11 +139,16 @@ export async function updateAcademicHoliday(
 export async function deleteAcademicHoliday(
   id: string
 ): Promise<{ success: boolean; error?: string }> {
-  if (!isSupabaseConfigured()) {
-    return { success: true }
-  }
-
   try {
+    const scope = await getServerUserScope()
+    if (!scope.isPrivileged || scope.approvalStatus !== 'approved') {
+      return { success: false, error: 'Unauthorized: Administrative role required to manage academic holidays.' }
+    }
+
+    if (!isSupabaseConfigured()) {
+      return { success: true }
+    }
+
     const supabase = await createClient()
     const { error } = await supabase
       .from('academic_holidays')
@@ -153,3 +169,4 @@ export async function deleteAcademicHoliday(
     return { success: false, error: err.message }
   }
 }
+

@@ -2,10 +2,9 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
-  MASTER_ROUTINE,
-  MASTER_TIME_SLOTS,
   MasterRoutineItem,
-  computeCombinedTimeRange
+  computeCombinedTimeRange,
+  cleanSubjectTitle,
 } from '@/lib/master-data'
 import {
   getSchedules,
@@ -19,6 +18,9 @@ import {
 } from '@/app/actions/schedules'
 import { parseSlotTimeRange, sortSessionsChronologically } from '@/lib/utils'
 import { broadcastSync, subscribeToSync } from '@/lib/sync-bus'
+import { createClient } from '@/lib/supabase/client'
+import { isSupabaseConfigured } from '@/lib/supabase/config'
+import { fetchWithClientCache, invalidateCacheByPrefix } from '@/lib/cache/client-query-cache'
 
 const STORAGE_KEY = 'lab_master_routine_2083_v6'
 const ROUTINE_OUTBOX_KEY = 'lab_pending_schedules_outbox_v1'
@@ -77,8 +79,9 @@ function removeRoutineFromOutbox(id: string) {
 }
 
 export function useRoutineState() {
-  // Always initialize with MASTER_ROUTINE on initial SSR render to guarantee identical markup during hydration
-  const [routines, setRoutines] = useState<MasterRoutineItem[]>(MASTER_ROUTINE)
+  const [routines, setRoutines] = useState<MasterRoutineItem[]>([])
+  const [isLoading, setIsLoading] = useState<boolean>(true)
+  const [hasFetchedOnce, setHasFetchedOnce] = useState<boolean>(false)
   const [isLoaded, setIsLoaded] = useState(false)
   const isFlushingRef = useRef(false)
 
@@ -108,7 +111,9 @@ export function useRoutineState() {
     try {
       for (const item of pending) {
         const res = await createSchedule({
-          lab_id: item.labKey === 'comp' ? 'comp' : item.labKey === 'phys' ? 'phys' : item.labKey === 'chem' ? 'chem' : item.labKey === 'bio' ? 'bio' : 'elec',
+          id: item.id,
+          lab_id: item.labKey || 'comp',
+          teacher_id: item.teacherId || null,
           subject_name: formatRoutineSubject(item.subjectCode, item.subjectTitle),
           batch_name: item.grade,
           day_key: item.dayKey,
@@ -116,10 +121,14 @@ export function useRoutineState() {
           span: item.span || 1,
           start_time: parseSlotTimeRange(item.timeSlot).startTime,
           end_time: parseSlotTimeRange(item.timeSlot).endTime,
+          class_subject_id: item.classSubjectId || null,
+          academic_year_id: item.academicYearId || null,
+          status: 'scheduled',
           metadata: {
             teacher: item.teacher,
             labName: item.lab,
             studentsCount: item.defaultStudents,
+            status: item.status || 'confirmed',
           },
         })
 
@@ -143,6 +152,7 @@ export function useRoutineState() {
       const raw = typeof updater === 'function' ? updater(prev) : updater
       const updated = deduplicateRoutines(raw)
       try {
+        invalidateCacheByPrefix('schedules:')
         if (typeof window !== 'undefined') {
           localStorage.setItem(STORAGE_KEY, JSON.stringify(updated))
         }
@@ -162,108 +172,158 @@ export function useRoutineState() {
 
   // Load from Supabase with fallback to localStorage and pending outbox merge
   const loadRemoteSchedules = useCallback(async () => {
+    setIsLoading(true)
     try {
-      await flushRoutineOutbox()
+      try {
+        await flushRoutineOutbox()
 
-      const dbSchedules = await getSchedules()
-      if (dbSchedules && dbSchedules.length > 0) {
-        const DAY_NAME_MAP: Record<string, 'Sunday' | 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday'> = {
-          sun: 'Sunday',
-          mon: 'Monday',
-          tue: 'Tuesday',
-          wed: 'Wednesday',
-          thu: 'Thursday',
-          fri: 'Friday',
-          sat: 'Saturday',
-        }
+        const dbSchedules = await fetchWithClientCache('schedules:list', () => getSchedules(), { staleTimeMs: 60_000 })
+        if (Array.isArray(dbSchedules)) {
+          const DAY_NAME_MAP: Record<string, 'Sunday' | 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday'> = {
+            sun: 'Sunday',
+            mon: 'Monday',
+            tue: 'Tuesday',
+            wed: 'Wednesday',
+            thu: 'Thursday',
+            fri: 'Friday',
+            sat: 'Saturday',
+          }
 
-        const pending = getPendingRoutineOutbox()
-        const pendingIds = new Set(pending.map((p) => p.id))
+          const pending = getPendingRoutineOutbox()
+          const remoteMap = new Map<string, any>(dbSchedules.map((s: any) => [s.id, s]))
 
-        const mappedRemote: MasterRoutineItem[] = dbSchedules
-          .filter((s: any) => !pendingIds.has(s.id))
-          .map((s: any) => {
-            const labKey = s.lab_id || (s.labs?.type?.includes('comp') ? 'comp' : s.labs?.type?.includes('phys') ? 'phys' : s.labs?.type?.includes('chem') ? 'chem' : s.labs?.type?.includes('bio') ? 'bio' : 'elec')
-            const isComp = labKey === 'comp'
-            const isPhys = labKey === 'phys'
-            const isChem = labKey === 'chem'
-            const isBio = labKey === 'bio'
-
-            return {
-              id: s.id,
-              day: DAY_NAME_MAP[s.day_key] || 'Sunday',
-              dayKey: s.day_key || 'sun',
-              timeSlot:
-                (s.span && s.span > 1 && s.slot_id)
-                  ? computeCombinedTimeRange(s.slot_id, s.span)
-                  : `${s.start_time} - ${s.end_time}`,
-              slotId: s.slot_id || 't2',
-              span: s.span || 1,
-              subjectCode: s.subject_name.split(' ')[0] || 'PRAC',
-              subjectTitle: s.subject_name,
-              grade: s.batch_name || 'Class 12',
-              gradeKey: 'class-12',
-              teacher: s.metadata?.teacher || s.profiles?.full_name || 'Assigned Faculty',
-              lab: s.labs?.name || s.metadata?.labName || 'Laboratory',
-              labCode: s.labs?.code || s.metadata?.labCode,
-              labKey,
-              defaultStudents: s.metadata?.studentsCount || 36,
-              category: isComp ? 'Computer' : isPhys ? 'Physics' : isChem ? 'Chemistry' : isBio ? 'Biology' : 'General',
-              dotColor: isComp ? 'bg-indigo-500' : isPhys ? 'bg-amber-500' : isChem ? 'bg-emerald-500' : isBio ? 'bg-teal-500' : 'bg-cyan-500',
-              badgeColor: 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700',
-              accentColor: 'border-l-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/20 text-zinc-950 dark:text-zinc-50',
-              status: s.status || s.metadata?.status || 'confirmed',
-              isSkipped: s.metadata?.is_skipped || s.status === 'skipped' || false,
-              skippedReason: s.metadata?.skipped_reason || undefined,
-              skippedBy: s.metadata?.skipped_by || undefined,
-              requestedBy: s.metadata?.requested_by || undefined,
-              declineReason: s.metadata?.decline_reason || undefined,
-            }
+          // Automatically evict items from outbox if remote DB already has an updated authoritative status
+          const validPending = pending.filter((p) => {
+            const remoteItem = remoteMap.get(p.id)
+            if (!remoteItem) return true
+            const remoteStatus = remoteItem.metadata?.status || remoteItem.status
+            if (remoteStatus && remoteStatus !== 'requested') return false
+            return true
           })
-
-        // Remote database schedules ARE the authoritative source of truth.
-        // We initialize with mappedRemote (all active database rows) and layer any pending offline outbox modifications on top.
-        const scheduleMap = new Map<string, MasterRoutineItem>()
-        for (const remoteItem of mappedRemote) {
-          scheduleMap.set(remoteItem.id, remoteItem)
-        }
-        for (const pendingItem of pending) {
-          if ((pendingItem.status as any) === 'deleted') {
-            scheduleMap.delete(pendingItem.id)
-          } else {
-            scheduleMap.set(pendingItem.id, pendingItem)
+          if (validPending.length !== pending.length) {
+            savePendingRoutineOutbox(validPending)
           }
-        }
-        const merged = deduplicateRoutines(Array.from(scheduleMap.values()))
-        try {
-          if (typeof window !== 'undefined') {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(merged))
-          }
-        } catch {}
-        setRoutines(merged)
-        setIsLoaded(true)
-        return
-      }
-    } catch (e) {
-      console.warn('Using local routine storage:', e)
-    }
 
-    // Local fallback: read existing state or seed from MASTER_ROUTINE if completely empty
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY)
-      if (saved) {
-        const parsed = JSON.parse(saved)
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setRoutines(deduplicateRoutines(parsed))
+          const pendingIds = new Set(validPending.map((p) => p.id))
+
+          const mappedRemote: MasterRoutineItem[] = dbSchedules
+            .filter((s: any) => !pendingIds.has(s.id))
+            .map((s: any) => {
+              const labKey = s.lab_id || s.labs?.id || s.metadata?.labKey || 'comp'
+              const labType = (s.labs?.type || labKey || '').toLowerCase()
+              const isComp = labKey === 'comp' || labType.includes('comp')
+              const isPhys = labKey === 'phys' || labType.includes('phys')
+              const isChem = labKey === 'chem' || labType.includes('chem')
+
+              return {
+                id: s.id,
+                day: DAY_NAME_MAP[s.day_key] || 'Sunday',
+                dayKey: s.day_key || 'sun',
+                timeSlot:
+                  (s.span && s.span > 1 && s.slot_id)
+                    ? computeCombinedTimeRange(s.slot_id, s.span)
+                    : `${s.start_time} - ${s.end_time}`,
+                slotId: s.slot_id || 't2',
+                span: s.span || 1,
+                subjectCode: (() => {
+                  if (s.subject_code) return s.subject_code
+                  const raw = s.subject_name || ''
+                  const split = raw.match(/^([A-Za-z0-9_-]+)/)
+                  return split ? split[1] : 'PRAC'
+                })(),
+                subjectTitle: (() => {
+                  const raw = s.subject_name || 'Practical Session'
+                  const code = s.subject_code || raw.match(/^([A-Za-z0-9_-]+)/)?.[1] || ''
+                  return cleanSubjectTitle(code, raw) || raw
+                })(),
+                grade: s.batch_name || 'Class 12',
+                gradeKey: 'class-12',
+                teacher: s.teacher_name || s.profiles?.full_name || 'Unassigned Faculty',
+                teacherId: s.resolved_teacher_id || s.teacher_id || s.profiles?.id || null,
+                lab: s.labs?.name || 'Laboratory',
+                labCode: s.labs?.code || s.metadata?.labCode,
+                labKey,
+                secondaryLab: s.metadata?.secondary_lab_name || s.metadata?.secondaryLab || undefined,
+                secondaryLabKey: s.metadata?.secondary_lab_id || s.metadata?.secondaryLabKey || undefined,
+                isDualLab: Boolean(s.metadata?.is_multi_lab || s.metadata?.isDualLab || s.metadata?.secondary_lab_id),
+                coTeacher: s.metadata?.co_teacher || s.metadata?.coTeacher || undefined,
+                classSubjectId: s.class_subject_id || null,
+                academicYearId: s.academic_year_id || null,
+                specificDate: (function(val: any) {
+                  if (!val) return null
+                  if (typeof val === 'string') return val.split('T')[0]
+                  if (val instanceof Date) {
+                    const y = val.getFullYear()
+                    const m = String(val.getMonth() + 1).padStart(2, '0')
+                    const d = String(val.getDate()).padStart(2, '0')
+                    return `${y}-${m}-${d}`
+                  }
+                  return String(val).split('T')[0]
+                })(s.specific_date || s.metadata?.specific_date),
+                isAdHoc: Boolean(s.specific_date || s.metadata?.is_adhoc || s.id?.startsWith('adhoc-')),
+                defaultStudents: s.metadata?.studentsCount || 36,
+                category: isComp ? 'Computer' : isPhys ? 'Physics' : isChem ? 'Chemistry' : (s.labs?.name?.replace(/\s*Lab(oratory)?/i, '') || s.metadata?.category || 'General'),
+                dotColor: isComp ? 'bg-indigo-500' : isPhys ? 'bg-amber-500' : isChem ? 'bg-emerald-500' : 'bg-cyan-500',
+                badgeColor: 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700',
+                accentColor: 'border-l-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/20 text-zinc-950 dark:text-zinc-50',
+                status: (s.metadata?.status === 'requested' || (s.metadata as any)?.status === 'skipped')
+                  ? (s.metadata as any).status
+                  : (s.status === 'scheduled' ? 'confirmed' : (s.status || s.metadata?.status || 'confirmed')),
+                isSkipped: s.metadata?.is_skipped || s.status === 'skipped' || false,
+                skippedReason: s.metadata?.skipped_reason || undefined,
+                skippedBy: s.metadata?.skipped_by || undefined,
+                requestedBy: s.metadata?.requested_by || undefined,
+                declineReason: s.metadata?.decline_reason || undefined,
+              }
+            })
+
+          // Remote database schedules ARE the authoritative source of truth.
+          const scheduleMap = new Map<string, MasterRoutineItem>()
+          for (const remoteItem of mappedRemote) {
+            scheduleMap.set(remoteItem.id, remoteItem)
+          }
+          for (const pendingItem of validPending) {
+            if ((pendingItem.status as any) === 'deleted') {
+              scheduleMap.delete(pendingItem.id)
+            } else {
+              scheduleMap.set(pendingItem.id, pendingItem)
+            }
+          }
+          const merged = deduplicateRoutines(Array.from(scheduleMap.values()))
+          try {
+            if (typeof window !== 'undefined') {
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(merged))
+            }
+          } catch {}
+          setRoutines(merged)
+          return
         }
-      } else {
-        setRoutines(MASTER_ROUTINE)
+      } catch (e: any) {
+        if (e?.name !== 'AbortError' && !e?.message?.includes('Failed to fetch')) {
+          console.warn('Using local routine storage:', e)
+        }
       }
-    } catch (e) {} finally {
+
+      // Local fallback only if offline / fetch threw
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY)
+        if (saved) {
+          const parsed = JSON.parse(saved)
+          if (Array.isArray(parsed)) {
+            setRoutines(deduplicateRoutines(parsed))
+          }
+        } else {
+          setRoutines([])
+        }
+      } catch (e) {}
+    } finally {
       setIsLoaded(true)
+      setIsLoading(false)
+      setHasFetchedOnce(true)
     }
   }, [flushRoutineOutbox])
 
+  // Periodic polling & Supabase Realtime subscription
   useEffect(() => {
     loadRemoteSchedules()
 
@@ -273,7 +333,49 @@ export function useRoutineState() {
     }
 
     window.addEventListener('online', handleOnline)
-    return () => window.removeEventListener('online', handleOnline)
+
+    // Periodic synchronization heartbeat (every 10 seconds)
+    const syncInterval = setInterval(() => {
+      if (typeof window !== 'undefined' && navigator.onLine) {
+        loadRemoteSchedules()
+      }
+    }, 10000)
+
+    // Real-time Supabase postgres_changes channel for schedules
+    let channel: any = null
+    if (isSupabaseConfigured()) {
+      try {
+        const supabase = createClient()
+        const channelName = `schedules-realtime-${Math.random().toString(36).substring(2, 8)}`
+        channel = supabase
+          .channel(channelName)
+          .on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'schedules',
+            },
+            () => {
+              loadRemoteSchedules()
+            }
+          )
+          .subscribe()
+      } catch (err) {
+        console.warn('Realtime subscription error for schedules:', err)
+      }
+    }
+
+    return () => {
+      clearInterval(syncInterval)
+      window.removeEventListener('online', handleOnline)
+      if (channel && isSupabaseConfigured()) {
+        try {
+          const supabase = createClient()
+          supabase.removeChannel(channel)
+        } catch {}
+      }
+    }
   }, [flushRoutineOutbox, loadRemoteSchedules])
 
   // Listen to external updates across tabs
@@ -312,7 +414,7 @@ export function useRoutineState() {
           return deduped
         })
       } else {
-        handleUpdate()
+        loadRemoteSchedules()
       }
     })
 
@@ -321,42 +423,74 @@ export function useRoutineState() {
       window.removeEventListener('storage', handleUpdate as any)
       unsub()
     }
-  }, [])
+  }, [loadRemoteSchedules])
 
   // Operations backed by Server Actions + Optimistic State + Outbox
-  const addSession = async (session: MasterRoutineItem) => {
+  const addSession = async (session: MasterRoutineItem): Promise<{ success: boolean; error?: string }> => {
+    const effectiveSpan = session.span || 1
+    const effectiveTimeSlot = (effectiveSpan > 1 && session.slotId)
+      ? computeCombinedTimeRange(session.slotId, effectiveSpan)
+      : (session.timeSlot || '10:10 - 11:00')
+
+    const finalizedSession: MasterRoutineItem = {
+      ...session,
+      span: effectiveSpan,
+      timeSlot: effectiveTimeSlot,
+    }
+
     persistRoutines((prev) => {
-      const filtered = prev.filter((r) => r.id !== session.id)
-      return [...filtered, session]
+      const filtered = prev.filter((r) => r.id !== finalizedSession.id)
+      return [...filtered, finalizedSession]
     })
-    addRoutineToOutbox(session)
+    addRoutineToOutbox(finalizedSession)
 
     if (navigator.onLine) {
       try {
+        const parsedTimes = parseSlotTimeRange(effectiveTimeSlot)
         const res = await createSchedule({
-          lab_id: session.labKey === 'comp' ? 'comp' : session.labKey === 'phys' ? 'phys' : session.labKey === 'chem' ? 'chem' : session.labKey === 'bio' ? 'bio' : 'elec',
-          subject_name: formatRoutineSubject(session.subjectCode, session.subjectTitle),
-          batch_name: session.grade,
-          day_key: session.dayKey,
-          slot_id: session.slotId,
-          span: session.span || 1,
-          start_time: parseSlotTimeRange(session.timeSlot).startTime,
-          end_time: parseSlotTimeRange(session.timeSlot).endTime,
+          id: finalizedSession.id,
+          lab_id: finalizedSession.labKey || 'comp',
+          teacher_id: finalizedSession.teacherId || null,
+          subject_name: formatRoutineSubject(finalizedSession.subjectCode, finalizedSession.subjectTitle),
+          batch_name: finalizedSession.grade,
+          day_key: finalizedSession.dayKey,
+          slot_id: finalizedSession.slotId,
+          span: effectiveSpan,
+          start_time: parsedTimes.startTime,
+          end_time: parsedTimes.endTime,
+          class_subject_id: finalizedSession.classSubjectId || null,
+          academic_year_id: finalizedSession.academicYearId || null,
+          specific_date: finalizedSession.specificDate || null,
+          status: 'scheduled',
           metadata: {
-            teacher: session.teacher,
-            labName: session.lab,
-            studentsCount: session.defaultStudents,
+            teacher: finalizedSession.teacher,
+            labName: finalizedSession.lab,
+            studentsCount: finalizedSession.defaultStudents,
+            secondary_lab_id: finalizedSession.secondaryLabKey || null,
+            secondary_lab_name: finalizedSession.secondaryLab || null,
+            is_multi_lab: Boolean(finalizedSession.isDualLab),
+            co_teacher: finalizedSession.coTeacher || null,
+            status: finalizedSession.status || 'confirmed',
+            specific_date: finalizedSession.specificDate || null,
+            is_adhoc: finalizedSession.isAdHoc || Boolean(finalizedSession.specificDate),
           },
         })
         if (res && res.success) {
-          removeRoutineFromOutbox(session.id)
+          removeRoutineFromOutbox(finalizedSession.id)
+          broadcastSync('schedules', { action: 'add', sessionId: finalizedSession.id })
+          return { success: true }
         } else if (res && res.error) {
-          removeRoutineFromOutbox(session.id)
+          console.error('[LMR] createSchedule rejected:', res.error)
+          persistRoutines((prev) => prev.filter((r) => r.id !== finalizedSession.id))
+          removeRoutineFromOutbox(finalizedSession.id)
+          return { success: false, error: res.error }
         }
-      } catch (e) {
+      } catch (e: any) {
         console.warn('Network offline, routine queued in outbox:', e)
+        return { success: false, error: e?.message || 'Network error' }
       }
     }
+    return { success: true }
   }
 
   const deleteSession = async (sessionId: string) => {
@@ -366,7 +500,10 @@ export function useRoutineState() {
     if (navigator.onLine) {
       try {
         const res = await deleteScheduleAction(sessionId)
-        if (res && !res.success) {
+        if (res && res.success) {
+          removeRoutineFromOutbox(sessionId)
+          broadcastSync('schedules', { action: 'delete', sessionId })
+        } else if (res && !res.success) {
           console.error('[DATABASE ERROR] Failed to delete schedule in database:', res.error)
         }
       } catch (e) {
@@ -387,19 +524,11 @@ export function useRoutineState() {
 
     if (navigator.onLine) {
       try {
-        const labId =
-          updated.labKey === 'comp'
-            ? 'comp'
-            : updated.labKey === 'phys'
-            ? 'phys'
-            : updated.labKey === 'chem'
-            ? 'chem'
-            : updated.labKey === 'bio'
-            ? 'bio'
-            : 'elec'
+        const labId = updated.labKey || 'comp'
 
         const res = await updateScheduleAction(sessionId, {
           lab_id: labId,
+          teacher_id: updated.teacherId || null,
           subject_name: formatRoutineSubject(updated.subjectCode, updated.subjectTitle),
           batch_name: updated.grade,
           day_key: updated.dayKey,
@@ -407,16 +536,20 @@ export function useRoutineState() {
           span: updated.span || 1,
           start_time: parseSlotTimeRange(updated.timeSlot).startTime,
           end_time: parseSlotTimeRange(updated.timeSlot).endTime,
+          class_subject_id: updated.classSubjectId || null,
+          academic_year_id: updated.academicYearId || null,
           metadata: {
             teacher: updated.teacher,
             labName: updated.lab,
             studentsCount: updated.defaultStudents,
             secondary_lab_id: updated.secondaryLabKey,
             is_multi_lab: updated.isDualLab,
+            status: updated.status || 'confirmed',
           },
         })
         if (res && res.success) {
           removeRoutineFromOutbox(sessionId)
+          broadcastSync('schedules', { action: 'update', sessionId })
         }
       } catch (e) {
         console.warn('Network offline, update queued in outbox:', e)
@@ -439,12 +572,15 @@ export function useRoutineState() {
 
     if (navigator.onLine) {
       try {
-        await updateScheduleAction(sessionId, {
+        const res = await updateScheduleAction(sessionId, {
           span: newSpan,
           start_time: parseSlotTimeRange(newTimeSlot).startTime,
           end_time: parseSlotTimeRange(newTimeSlot).endTime,
         })
-        removeRoutineFromOutbox(sessionId)
+        if (res && res.success) {
+          removeRoutineFromOutbox(sessionId)
+          broadcastSync('schedules', { action: 'extend', sessionId })
+        }
       } catch (e) {
         console.warn('Server sync for extendSession skipped:', e)
       }
@@ -510,10 +646,15 @@ export function useRoutineState() {
         addRoutineToOutbox(mergedItem)
 
         try {
-          await mergeSchedulesAction(sessionId, nextSessionId, {
+          const res = await mergeSchedulesAction(sessionId, nextSessionId, {
             subject_name: mergedTitle,
             batch_name: mergedGrade,
           })
+          if (res && res.success) {
+            removeRoutineFromOutbox(sessionId)
+            if (nextSessionId) removeRoutineFromOutbox(nextSessionId)
+            broadcastSync('schedules', { action: 'merge', sessionId })
+          }
         } catch (e) {
           console.warn('Server sync for mergeSession skipped:', e)
         }
@@ -536,7 +677,7 @@ export function useRoutineState() {
     const current = routines.find((r) => r.id === sessionId)
     if (!current || (current.span || 1) <= 1) return
 
-    let slotList = MASTER_TIME_SLOTS
+    let slotList: Array<{ id: string; label: string; name?: string }> = []
     if (typeof window !== 'undefined') {
       try {
         const saved = localStorage.getItem('infrastructure_periods')
@@ -562,7 +703,11 @@ export function useRoutineState() {
     addRoutineToOutbox(unmerged)
 
     try {
-      await unmergeScheduleAction(sessionId)
+      const res = await unmergeScheduleAction(sessionId)
+      if (res && res.success) {
+        removeRoutineFromOutbox(sessionId)
+        broadcastSync('schedules', { action: 'unmerge', sessionId })
+      }
     } catch (e) {
       console.warn('Server sync for unmergeSession skipped:', e)
     }
@@ -599,17 +744,23 @@ export function useRoutineState() {
           : r
       )
     )
-    addRoutineToOutbox(updated)
 
     try {
-      await updateScheduleStatus(sessionId, {
+      const res = await updateScheduleStatus(sessionId, {
         status: 'skipped',
         is_skipped: true,
         skipped_reason: reason,
         skipped_by: skippedBy,
       })
+      if (res && res.success) {
+        removeRoutineFromOutbox(sessionId)
+        broadcastSync('schedules', { action: 'skip', sessionId })
+      } else {
+        addRoutineToOutbox(updated)
+      }
     } catch (e) {
       console.warn('Server sync for skipSession skipped:', e)
+      addRoutineToOutbox(updated)
     }
   }
 
@@ -642,99 +793,112 @@ export function useRoutineState() {
           : r
       )
     )
-    addRoutineToOutbox(updated)
 
     try {
-      await updateScheduleStatus(sessionId, {
+      const res = await updateScheduleStatus(sessionId, {
         status: 'confirmed',
         is_skipped: false,
       })
+      if (res && res.success) {
+        removeRoutineFromOutbox(sessionId)
+        broadcastSync('schedules', { action: 'unskip', sessionId })
+      } else {
+        addRoutineToOutbox(updated)
+      }
     } catch (e) {
       console.warn('Server sync for unskipSession skipped:', e)
+      addRoutineToOutbox(updated)
     }
   }
 
-  const requestSlotBooking = async (session: MasterRoutineItem, requestedBy: string) => {
+  const requestSlotBooking = async (
+    session: MasterRoutineItem,
+    requestedBy: string
+  ): Promise<{ success: boolean; error?: string }> => {
     const requestedSession: MasterRoutineItem = {
       ...session,
       status: 'requested',
       isSkipped: false,
       requestedBy,
     }
-    persistRoutines((prev) => {
-      const filtered = prev.filter((r) => r.id !== requestedSession.id)
-      return [...filtered, requestedSession]
-    })
-    addRoutineToOutbox(requestedSession)
 
     if (navigator.onLine) {
       try {
         const res = await createSchedule({
-          lab_id: session.labKey === 'comp' ? 'comp' : session.labKey === 'phys' ? 'phys' : session.labKey === 'chem' ? 'chem' : session.labKey === 'bio' ? 'bio' : 'elec',
+          id: session.id,
+          lab_id: session.labKey || 'comp',
           subject_name: formatRoutineSubject(session.subjectCode, session.subjectTitle),
           batch_name: session.grade,
           day_key: session.dayKey,
           slot_id: session.slotId,
           span: session.span || 1,
+          teacher_id: session.teacherId || null,
+          class_subject_id: session.classSubjectId || null,
+          specific_date: session.specificDate || null,
           start_time: parseSlotTimeRange(session.timeSlot).startTime,
           end_time: parseSlotTimeRange(session.timeSlot).endTime,
           metadata: {
             teacher: session.teacher,
             labName: session.lab,
             studentsCount: session.defaultStudents,
+            secondary_lab_id: session.secondaryLabKey || null,
+            secondary_lab_name: session.secondaryLab || null,
+            is_multi_lab: Boolean(session.isDualLab),
+            co_teacher: session.coTeacher || null,
             status: 'requested',
             requested_by: requestedBy,
+            specific_date: session.specificDate || null,
+            is_adhoc: session.isAdHoc || Boolean(session.specificDate),
           },
         })
-        if (res && res.success) {
-          removeRoutineFromOutbox(session.id)
+        if (res && res.error) {
+          console.error('[LMR] requestSlotBooking rejected by server:', res.error)
+          return { success: false, error: res.error }
         }
-      } catch (e) {
-        console.warn('Network offline, routine queued in outbox:', e)
+        if (res && res.success) {
+          removeRoutineFromOutbox(requestedSession.id)
+          persistRoutines((prev) => {
+            const filtered = prev.filter((r) => r.id !== requestedSession.id)
+            return [...filtered, requestedSession]
+          })
+          broadcastSync('schedules', { action: 'request', sessionId: requestedSession.id })
+          return { success: true }
+        }
+      } catch (e: any) {
+        console.warn('Network error during requestSlotBooking:', e)
+        return { success: false, error: e?.message || 'Network error' }
       }
+    } else {
+      persistRoutines((prev) => {
+        const filtered = prev.filter((r) => r.id !== requestedSession.id)
+        return [...filtered, requestedSession]
+      })
+      addRoutineToOutbox(requestedSession)
+      return { success: true }
     }
+    return { success: true }
   }
 
   const approveSlotBooking = async (sessionId: string) => {
-    const current = routines.find((r) => r.id === sessionId)
-    const updated: MasterRoutineItem = current
-      ? {
-          ...current,
-          status: 'confirmed',
-        }
-      : ({
-          id: sessionId,
-          status: 'confirmed',
-        } as any)
-
+    removeRoutineFromOutbox(sessionId)
     persistRoutines((prev) =>
-      prev.map((r) => (r.id === sessionId ? { ...r, status: 'confirmed' } : r))
+      prev.map((r) => (r.id === sessionId ? { ...r, status: 'confirmed', isSkipped: false } : r))
     )
-    addRoutineToOutbox(updated)
 
     try {
-      await updateScheduleStatus(sessionId, { status: 'confirmed' })
+      const res = await updateScheduleStatus(sessionId, { status: 'confirmed' })
+      if (res && res.success) {
+        removeRoutineFromOutbox(sessionId)
+        broadcastSync('schedules', { action: 'approve', sessionId })
+      }
     } catch (e) {
       console.warn('Server sync for approveSlotBooking skipped:', e)
     }
   }
 
   const rejectSlotBooking = async (sessionId: string, reason?: string) => {
-    const current = routines.find((r) => r.id === sessionId)
-    const updated: MasterRoutineItem = current
-      ? {
-          ...current,
-          status: 'skipped',
-          isSkipped: true,
-          declineReason: reason || 'Booking request declined by Lab Administration',
-        }
-      : ({
-          id: sessionId,
-          status: 'skipped',
-          isSkipped: true,
-          declineReason: reason || 'Booking request declined by Lab Administration',
-        } as any)
-
+    const finalReason = reason || 'Booking request declined by Lab Administration'
+    removeRoutineFromOutbox(sessionId)
     persistRoutines((prev) =>
       prev.map((r) =>
         r.id === sessionId
@@ -742,19 +906,22 @@ export function useRoutineState() {
               ...r,
               status: 'skipped',
               isSkipped: true,
-              declineReason: reason || 'Booking request declined by Lab Administration',
+              declineReason: finalReason,
             }
           : r
       )
     )
-    addRoutineToOutbox(updated)
 
     try {
-      await updateScheduleStatus(sessionId, {
+      const res = await updateScheduleStatus(sessionId, {
         status: 'skipped',
         is_skipped: true,
-        decline_reason: reason || 'Booking request declined by Lab Administration',
+        decline_reason: finalReason,
       })
+      if (res && res.success) {
+        removeRoutineFromOutbox(sessionId)
+        broadcastSync('schedules', { action: 'reject', sessionId })
+      }
     } catch (e) {
       console.warn('Server sync for rejectSlotBooking skipped:', e)
     }
@@ -765,9 +932,12 @@ export function useRoutineState() {
       localStorage.removeItem(ROUTINE_OUTBOX_KEY)
       savePendingRoutineOutbox([])
     }
-    persistRoutines(MASTER_ROUTINE)
     try {
-      await resetSchedulesToMasterAction()
+      const res = await resetSchedulesToMasterAction()
+      if (res.success) {
+        await loadRemoteSchedules()
+        broadcastSync('schedules', { action: 'reset' })
+      }
     } catch (e) {
       console.warn('Failed to reset remote database to master:', e)
     }
@@ -776,6 +946,9 @@ export function useRoutineState() {
   return {
     routines,
     isLoaded,
+    isLoading,
+    hasFetchedOnce,
+    refreshSchedules: loadRemoteSchedules,
     addSession,
     updateSession,
     deleteSession,

@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test'
+import { describe, it, after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -42,7 +42,12 @@ const {
   safeEqual,
 } = await import('../lib/security/terminal-token.ts')
 
-const { resetWorkstationHardwareLock } = await import('../app/actions/workstations.ts')
+const {
+  processTerminalHandshake,
+  getInstitutionalAgentSecret,
+} = await import('../lib/security/terminal-handshake.ts')
+
+const { resetWorkstationHardwareLock, getInstitutionalPairingKey } = await import('../app/actions/workstations.ts')
 
 describe('Phase 2: Cryptographic Handshake Engine & TOFU Hardware Lock', () => {
   const dbUrl = resolveDatabaseUrl(process.env.DATABASE_URL)
@@ -158,5 +163,161 @@ describe('Phase 2: Cryptographic Handshake Engine & TOFU Hardware Lock', () => {
       await pool.query(`DELETE FROM public.workstations WHERE id = $1`, [testWsId])
       await pool.end()
     }
+  })
+
+  it('Handshake Processing: Enforces token requirement, TOFU binding, spec discovery, and mismatch rejection', async () => {
+    if (!dbUrl) return
+    const pool = new pg.Pool({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } })
+    const secret = getInstitutionalAgentSecret()
+
+    const testLabel = 'PC-TEST-HANDSHAKE'
+    await pool.query(`DELETE FROM public.workstations WHERE label = $1`, [testLabel])
+    const insertRes = await pool.query(
+      `INSERT INTO public.workstations (lab_id, label, pos_x, pos_y, device_type, is_active)
+       VALUES ('comp', $1, 0, 0, 'desktop', true)
+       RETURNING id, label, machine_guid`,
+      [testLabel]
+    )
+    const wsId = insertRes.rows[0].id
+
+    try {
+      const legitGuid = 'hw-uuid-1111-reg-2222-mac-3333'
+      const rogueGuid = 'hw-uuid-9999-reg-8888-mac-7777'
+      const specs = {
+        cpu: 'Intel Core i5-10400 @ 2.90GHz',
+        cpu_cores: 6,
+        ram_gb: 16,
+        disk_c_total_gb: 256,
+        disk_c_free_gb: 120,
+        disk_c_used_pct: 53.1,
+        os_caption: 'Windows 11 Pro',
+        os_build: '22631',
+        mac_address: '00-15-5D-AA-BB-CC',
+        lan_ip: '192.168.1.150',
+      }
+
+      // 1. Rogue LAN attempt without pairing token on unbound station -> REJECTED (401)
+      const unauthRes = await processTerminalHandshake({
+        labId: 'comp',
+        workstationCode: testLabel,
+        machineGuid: legitGuid,
+        pairingToken: 'wrong-token',
+        hardwareSpecs: specs,
+      })
+      assert.equal(unauthRes.success, false)
+      assert.equal(unauthRes.status, 401, 'Unauthenticated pairing must be rejected with 401')
+
+      // 2. Legitimate setup with valid institutional token -> SUCCESS (200, is_new_pairing: true)
+      const authRes = await processTerminalHandshake({
+        labId: 'comp',
+        workstationCode: testLabel,
+        machineGuid: legitGuid,
+        pairingToken: secret,
+        hardwareSpecs: specs,
+      })
+      assert.equal(authRes.success, true, 'Legitimate initial pairing must succeed')
+      assert.equal(authRes.status, 200)
+      assert.equal(authRes.data?.is_new_pairing, true)
+      assert.equal(authRes.data?.station_code, testLabel)
+      assert.ok(authRes.data?.redirect_url.includes('/api/terminal/launch?code='))
+      assert.ok(authRes.data?.redirect_url.includes('&ticket='))
+
+      // Verify DB state
+      const dbCheck = await pool.query(`SELECT machine_guid, hardware_specs, last_seen_at FROM public.workstations WHERE id = $1`, [wsId])
+      assert.equal(dbCheck.rows[0].machine_guid, legitGuid)
+      assert.equal(dbCheck.rows[0].hardware_specs?.ram_gb, 16)
+      assert.ok(dbCheck.rows[0].last_seen_at)
+
+      // 3. Subsequent boot from same machine with valid token -> SUCCESS (200, is_new_pairing: false)
+      const rebootRes = await processTerminalHandshake({
+        labId: 'comp',
+        workstationCode: testLabel,
+        machineGuid: legitGuid,
+        pairingToken: secret,
+        hardwareSpecs: { ...specs, ram_gb: 32 },
+      })
+      assert.equal(rebootRes.success, true)
+      assert.equal(rebootRes.status, 200)
+      assert.equal(rebootRes.data?.is_new_pairing, false)
+
+      const rebootCheck = await pool.query(`SELECT hardware_specs FROM public.workstations WHERE id = $1`, [wsId])
+      assert.equal(rebootCheck.rows[0].hardware_specs?.ram_gb, 32, 'Hardware specs must update on boot')
+
+      // 4. Mismatched hardware GUID attempt on already bound station -> FORBIDDEN (403)
+      const mismatchRes = await processTerminalHandshake({
+        labId: 'comp',
+        workstationCode: testLabel,
+        machineGuid: rogueGuid,
+        pairingToken: secret,
+        hardwareSpecs: specs,
+      })
+      assert.equal(mismatchRes.success, false)
+      assert.equal(mismatchRes.status, 403, 'Hardware mismatch must return 403')
+      assert.ok(mismatchRes.error?.includes('Hardware Mismatch'))
+
+      // 5. Multi-lab isolation: querying a different lab_id fails with 404
+      const wrongLabRes = await processTerminalHandshake({
+        labId: 'physics_lab',
+        workstationCode: testLabel,
+        machineGuid: legitGuid,
+        pairingToken: secret,
+      })
+      assert.equal(wrongLabRes.success, false)
+      assert.equal(wrongLabRes.status, 404, 'Searching wrong lab must return 404')
+    } finally {
+      await pool.query(`DELETE FROM public.workstations WHERE id = $1`, [wsId])
+      await pool.end()
+    }
+  })
+
+  it('Launch Redemption & Replay Defense: Single-use ticket converts to 12h session token and denies replay', () => {
+    const wsData = {
+      id: 'ws-launch-test-uuid',
+      label: 'PC-23',
+      machine_guid: 'composite-silicon-guid-pc-23-test',
+    }
+
+    // 1. Issue 60s handshake ticket
+    const ticket = createHandshakeTicket(wsData, 60)
+    assert.ok(ticket)
+
+    // 2. First redemption -> VALID
+    const firstVerification = verifyHandshakeTicket(ticket)
+    assert.equal(firstVerification.valid, true)
+    assert.equal(firstVerification.payload?.stationCode, 'PC-23')
+    assert.equal(firstVerification.payload?.machineGuid, wsData.machine_guid)
+
+    // Create session token from validated ticket
+    const sessionToken = createTerminalSessionToken({
+      id: firstVerification.payload.stationId,
+      label: firstVerification.payload.stationCode,
+      machine_guid: firstVerification.payload.machineGuid,
+    })
+    assert.ok(sessionToken)
+
+    const sessionVerified = verifyTerminalSessionToken(sessionToken)
+    assert.equal(sessionVerified.valid, true)
+    assert.equal(sessionVerified.payload?.stationCode, 'PC-23')
+
+    // 3. Second redemption attempt (Replay Attack) -> MUST BE REJECTED
+    const replayVerification = verifyHandshakeTicket(ticket)
+    assert.equal(replayVerification.valid, false)
+    assert.ok(replayVerification.reason?.includes('already been redeemed'))
+  })
+
+  it('Agent Templates & Institutional Secret: Templates exist and institutional secret is securely resolved', () => {
+    const secret = getInstitutionalAgentSecret()
+    assert.ok(secret, 'Institutional agent secret must be configured')
+    assert.ok(secret.length >= 16, 'Secret must be sufficiently robust')
+
+    const batPath = path.join(process.cwd(), 'scripts', 'client-agent', 'Setup-LabTerminal.bat')
+    const ps1Path = path.join(process.cwd(), 'scripts', 'client-agent', 'labsync-agent.ps1')
+    assert.ok(fs.existsSync(batPath), 'Setup-LabTerminal.bat must exist in scripts/client-agent')
+    assert.ok(fs.existsSync(ps1Path), 'labsync-agent.ps1 must exist in scripts/client-agent')
+
+    const batContent = fs.readFileSync(batPath, 'utf8')
+    assert.ok(batContent.includes('SERVER_URL='))
+    assert.ok(batContent.includes('LAB_ID='))
+    assert.ok(batContent.includes('PAIRING_TOKEN='))
   })
 })

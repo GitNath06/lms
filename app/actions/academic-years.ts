@@ -90,6 +90,13 @@ export async function getCurrentAcademicYear(): Promise<{ success: boolean; data
 }
 
 /**
+ * Returns the active academic year (canonical action alias for cross-module consistency).
+ */
+export async function getActiveAcademicYearAction(): Promise<{ success: boolean; data: AcademicYear | null; error?: string }> {
+  return getCurrentAcademicYear()
+}
+
+/**
  * Flips the current academic year cycle. Super Admin / Privileged only.
  */
 export async function setCurrentAcademicYear(
@@ -153,6 +160,13 @@ export async function createAcademicYear(
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
+    await client.query('SET CONSTRAINTS uq_enrollment_roll DEFERRED;')
+
+    // Capture previous active academic year before setting new current year
+    const currentYearRes = await client.query(`
+      SELECT id FROM public.academic_years WHERE is_current = true LIMIT 1;
+    `)
+    const previousCurrentYearId = currentYearRes.rows[0]?.id
 
     if (input.is_current) {
       await client.query('UPDATE public.academic_years SET is_current = false WHERE is_current = true;')
@@ -169,6 +183,33 @@ export async function createAcademicYear(
       input.end_date,
       Boolean(input.is_current),
     ])
+
+    // Auto-clone active class_subjects from the most recent active academic year into the new cycle
+    let sourceYearId = previousCurrentYearId
+    if (!sourceYearId) {
+      const lastYearRes = await client.query(`
+        SELECT academic_year_id 
+        FROM public.class_subjects 
+        WHERE academic_year_id IS NOT NULL 
+        ORDER BY created_at DESC 
+        LIMIT 1;
+      `)
+      sourceYearId = lastYearRes.rows[0]?.academic_year_id
+    }
+
+    if (sourceYearId && sourceYearId !== input.id.trim()) {
+      await client.query(`
+        INSERT INTO public.class_subjects (id, class_id, subject_id, teacher_id, default_lab_id, academic_year_id)
+        SELECT gen_random_uuid()::text, cs.class_id, cs.subject_id, cs.teacher_id, cs.default_lab_id, $1
+        FROM public.class_subjects cs
+        JOIN public.classes c ON c.id = cs.class_id
+        JOIN public.subjects s ON s.id = cs.subject_id
+        WHERE cs.academic_year_id = $2
+          AND c.is_active = true
+          AND s.is_active = true
+        ON CONFLICT DO NOTHING;
+      `, [input.id.trim(), sourceYearId])
+    }
 
     await client.query('COMMIT')
 
@@ -222,10 +263,10 @@ export async function createAcademicYear(
  * This guarantees 100% data integrity for all existing foreign keys (practical_logs, enrollments, seat plans, schedules).
  */
 export async function updateAcademicYearAction(
-  input: { id: string; name?: string; start_date?: string; end_date?: string; internalBypassScopeCheck?: boolean }
+  input: { id: string; name?: string; start_date?: string; end_date?: string }
 ): Promise<{ success: boolean; data?: AcademicYear; error?: string }> {
   const scope = await getServerUserScope()
-  if (!scope.isPrivileged && !input.internalBypassScopeCheck) {
+  if (!scope.isPrivileged) {
     return { success: false, error: 'Access denied: Only administrators can modify academic years.' }
   }
 
@@ -408,11 +449,10 @@ export async function checkAcademicYearDependenciesAction(
  * - Accidental / empty years (totalDependencies === 0) can be safely deleted if unlocked by an administrator.
  */
 export async function deleteAcademicYearAction(
-  yearId: string,
-  internalBypassScopeCheck?: boolean
+  yearId: string
 ): Promise<{ success: boolean; error?: string; blockReason?: string; dependencies?: AcademicYearDependencyReport }> {
   const scope = await getServerUserScope()
-  if (!scope.isPrivileged && !internalBypassScopeCheck) {
+  if (!scope.isPrivileged) {
     return { success: false, error: 'Access denied: Only administrators can delete academic cycles.' }
   }
 
@@ -441,6 +481,7 @@ export async function deleteAcademicYearAction(
 
   try {
     await client.query('BEGIN')
+    await client.query('SET CONSTRAINTS uq_enrollment_roll DEFERRED;')
 
     // Double check with row lock
     const lockRes = await client.query(
@@ -528,7 +569,7 @@ export async function promoteCohortAction(
   input: PromoteCohortInput
 ): Promise<{ success: boolean; data?: PromoteCohortResult; error?: string }> {
   const scope = await getServerUserScope()
-  if (!scope.isPrivileged && !input.internalBypassScopeCheck) {
+  if (!scope.isPrivileged) {
     return { success: false, error: 'Access denied: Only administrators can promote cohorts.' }
   }
 
@@ -547,6 +588,7 @@ export async function promoteCohortAction(
 
   try {
     await client.query('BEGIN')
+    await client.query('SET CONSTRAINTS uq_enrollment_roll DEFERRED;')
 
     // 1. Fetch all active student enrollments in the source cohort
     const enrollmentsQuery = `
@@ -585,9 +627,9 @@ export async function promoteCohortAction(
       const exAction = exceptionMap.get(studentId)
 
       if (exAction === 'repeat') {
-        // Mark old enrollment as archived/retained
+        // Mark old enrollment as completed for the past academic cycle
         await client.query(
-          `UPDATE public.student_enrollments SET status = 'archived', updated_at = NOW() WHERE id = $1;`,
+          `UPDATE public.student_enrollments SET status = 'completed', updated_at = NOW() WHERE id = $1;`,
           [row.id]
         )
         // Insert new enrollment in same class for new year
@@ -607,9 +649,9 @@ export async function promoteCohortAction(
         archivedCount++
       } else {
         // Standard Promotion:
-        // Close old enrollment as archived
+        // Close old enrollment as completed (academic year successfully finished)
         await client.query(
-          `UPDATE public.student_enrollments SET status = 'archived', updated_at = NOW() WHERE id = $1;`,
+          `UPDATE public.student_enrollments SET status = 'completed', updated_at = NOW() WHERE id = $1;`,
           [row.id]
         )
         // Assign roll number (keep existing if unused in destination, otherwise increment)
@@ -686,6 +728,7 @@ export async function executeCohortPromotionBatchAction(
 
   try {
     await client.query('BEGIN')
+    await client.query('SET CONSTRAINTS uq_enrollment_roll DEFERRED;')
 
     // 1. Pre-flight roll collision validation within batch
     const targetRollsByClass = new Map<string, Map<number, string>>()
@@ -785,9 +828,9 @@ export async function executeCohortPromotionBatchAction(
         )
         retainedCount++
       } else if (item.action === 'promote') {
-        // Close old enrollment as archived
+        // Close old enrollment as completed (academic year milestone successfully finished)
         await client.query(
-          `UPDATE public.student_enrollments SET status = 'archived', updated_at = NOW() WHERE id = $1;`,
+          `UPDATE public.student_enrollments SET status = 'completed', updated_at = NOW() WHERE id = $1;`,
           [item.enrollmentId]
         )
         archivedEnrollmentIds.push(item.enrollmentId)
@@ -806,9 +849,9 @@ export async function executeCohortPromotionBatchAction(
         }
         promotedCount++
       } else if (item.action === 'repeat') {
-        // User Decision A1: Retain in current class for target year (archive old year, create new active in same class)
+        // User Decision A1: Retain in current class for target year (mark old year completed, create new active in same class)
         await client.query(
-          `UPDATE public.student_enrollments SET status = 'archived', updated_at = NOW() WHERE id = $1;`,
+          `UPDATE public.student_enrollments SET status = 'completed', updated_at = NOW() WHERE id = $1;`,
           [item.enrollmentId]
         )
         archivedEnrollmentIds.push(item.enrollmentId)
@@ -847,26 +890,35 @@ export async function executeCohortPromotionBatchAction(
     for (const newcomer of lateralNewcomers) {
       if (!newcomer.fullName.trim()) continue
 
-      // 1. Insert student (preserves raw RFID / admission numbers; if empty, uses non-year-coded synthetic sequence)
-      const studentRes = await client.query(
-        `INSERT INTO public.students (full_name, admission_no, gender, is_active)
-         VALUES ($1, $2, $3, true)
-         RETURNING id;`,
-        [
-          newcomer.fullName.trim(),
-          newcomer.admissionNo.trim() || `ADM-${Math.floor(10000 + Math.random() * 90000)}`,
-          newcomer.gender || 'male',
-        ]
+      const cleanAdm = newcomer.admissionNo?.trim() || `ADM-${Math.floor(10000 + Math.random() * 90000)}`
+      // Check if student with this admission number already exists
+      const existingStdRes = await client.query(
+        `SELECT id FROM public.students WHERE LOWER(admission_no) = LOWER($1) LIMIT 1;`,
+        [cleanAdm]
       )
-      const newStudentId = studentRes.rows[0]?.id
-      if (newStudentId) {
-        createdStudentIds.push(newStudentId)
+      let newStudentId = existingStdRes.rows[0]?.id
 
-        // 2. Enroll student into target class for target year
+      if (!newStudentId) {
+        const studentRes = await client.query(
+          `INSERT INTO public.students (full_name, admission_no, gender, is_active)
+           VALUES ($1, $2, $3, true)
+           RETURNING id;`,
+          [newcomer.fullName.trim(), cleanAdm, newcomer.gender || 'male']
+        )
+        newStudentId = studentRes.rows[0]?.id
+        if (newStudentId) {
+          createdStudentIds.push(newStudentId)
+        }
+      }
+
+      if (newStudentId) {
+        // Enroll student into target class for target year
         const destClass = isGraduation ? fromClassId : toClassId!
         const enrollRes = await client.query(
           `INSERT INTO public.student_enrollments (academic_year_id, class_id, student_id, roll_number, section, status)
            VALUES ($1, $2, $3, $4, $5, 'active')
+           ON CONFLICT (academic_year_id, class_id, student_id)
+           DO UPDATE SET status = 'active', roll_number = EXCLUDED.roll_number
            RETURNING id;`,
           [toAcademicYearId, destClass, newStudentId, newcomer.targetRollNumber || 1, newcomer.section || 'A']
         )
@@ -1007,6 +1059,7 @@ export async function rollbackCohortPromotionBatchAction(
 
   try {
     await client.query('BEGIN')
+    await client.query('SET CONSTRAINTS uq_enrollment_roll DEFERRED;')
 
     // 1. Fetch batch record from audit_logs
     const auditRes = await client.query(

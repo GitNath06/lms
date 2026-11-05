@@ -71,17 +71,17 @@ export function FloorLandmarkNode({
   const isDoor = element.element_type === 'door'
   const isSafety = element.element_type === 'fire_extinguisher'
 
-  let containerStyle = 'border-slate-700/60 bg-[#151E32]/70 text-slate-300'
+  let containerStyle = 'border-zinc-200 dark:border-slate-700/60 bg-white/90 dark:bg-[#151E32]/70 text-zinc-800 dark:text-slate-300'
   let accentColor = meta.color
 
   if (element.element_type === 'whiteboard') {
-    containerStyle = 'border-emerald-500/40 bg-emerald-950/20 text-emerald-200'
+    containerStyle = 'border-emerald-200 dark:border-emerald-500/40 bg-emerald-50/90 dark:bg-emerald-950/20 text-emerald-800 dark:text-emerald-200'
   } else if (element.element_type === 'teacher_desk') {
-    containerStyle = 'border-indigo-500/40 bg-indigo-950/30 text-indigo-200 shadow-md'
+    containerStyle = 'border-indigo-200 dark:border-indigo-500/40 bg-indigo-50/90 dark:bg-indigo-950/30 text-indigo-800 dark:text-indigo-200 shadow-md'
   } else if (isDoor) {
-    containerStyle = 'border-amber-500/40 bg-amber-950/20 text-amber-200'
+    containerStyle = 'border-amber-200 dark:border-amber-500/40 bg-amber-50/90 dark:bg-amber-950/20 text-amber-800 dark:text-amber-200'
   } else if (isSafety) {
-    containerStyle = 'border-rose-500/40 bg-rose-950/30 text-rose-200'
+    containerStyle = 'border-rose-200 dark:border-rose-500/40 bg-rose-50/90 dark:bg-rose-950/30 text-rose-800 dark:text-rose-200'
   }
 
   return (
@@ -118,7 +118,7 @@ export function FloorLandmarkNode({
 
         {/* Layout Mode Controls: Rotate & Delete */}
         {isLayoutMode && (
-          <div className="flex items-center gap-1 ml-1.5 pl-1.5 border-l border-white/10">
+          <div className="flex items-center gap-1 ml-1.5 pl-1.5 border-l border-zinc-200 dark:border-white/10">
             {onRotate && (
               <button
                 type="button"
@@ -126,7 +126,7 @@ export function FloorLandmarkNode({
                   e.stopPropagation()
                   onRotate(element)
                 }}
-                className="p-1 rounded hover:bg-white/10 text-slate-300 hover:text-white"
+                className="p-1 rounded hover:bg-zinc-100 dark:hover:bg-white/10 text-zinc-500 hover:text-zinc-900 dark:text-slate-300 dark:hover:text-white"
                 title="Rotate 90°"
               >
                 <RotateCw className="h-3 w-3" />
@@ -139,7 +139,7 @@ export function FloorLandmarkNode({
                   e.stopPropagation()
                   onDelete(element)
                 }}
-                className="p-1 rounded hover:bg-rose-500/20 text-rose-400 hover:text-rose-300"
+                className="p-1 rounded hover:bg-rose-100 dark:hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300"
                 title="Remove landmark"
               >
                 <Trash2 className="h-3 w-3" />
@@ -151,7 +151,7 @@ export function FloorLandmarkNode({
 
       {/* Coordinate pip in layout mode */}
       {isLayoutMode && (
-        <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 font-mono text-[8px] text-slate-400 bg-slate-900/90 px-1 rounded whitespace-nowrap">
+        <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 font-mono text-[8px] text-zinc-600 dark:text-slate-400 bg-white/90 dark:bg-slate-900/90 border border-zinc-200 dark:border-white/10 px-1 rounded whitespace-nowrap shadow-xs">
           {Math.round(element.pos_x)}%, {Math.round(element.pos_y)}% ({element.rotation || 0}°)
         </div>
       )}

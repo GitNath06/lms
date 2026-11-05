@@ -61,7 +61,9 @@ export function WorkstationFloorPlan({
 }: WorkstationFloorPlanProps) {
   const canvasRef = useRef<HTMLDivElement>(null)
   const [localWorkstations, setLocalWorkstations] = useState<WorkstationWithIssues[]>(workstations)
-  const [localFloorElements, setLocalFloorElements] = useState<LabFloorElementRow[]>(floorElements)
+  const [localFloorElements, setLocalFloorElements] = useState<LabFloorElementRow[]>(() =>
+    Array.isArray(floorElements) ? floorElements : []
+  )
   const [isLayoutMode, setIsLayoutMode] = useState(false)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [savingPositions, setSavingPositions] = useState(false)
@@ -91,7 +93,7 @@ export function WorkstationFloorPlan({
 
   useEffect(() => {
     if (!hasUnsavedChanges) {
-      setLocalFloorElements(floorElements)
+      setLocalFloorElements(Array.isArray(floorElements) ? floorElements : [])
     }
   }, [floorElements, hasUnsavedChanges])
 
@@ -312,13 +314,13 @@ export function WorkstationFloorPlan({
   return (
     <div className="space-y-3">
       {/* Floor Plan Canvas Toolbar & Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 rounded-xl border border-white/[0.08] bg-[#101726] p-3 text-xs">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] p-3 text-xs">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-heading font-extrabold text-sm text-white">
+          <span className="font-heading font-extrabold text-sm text-zinc-900 dark:text-white">
             {labName} Floor Canvas
           </span>
 
-          <span className="font-mono text-[11px] text-slate-400">
+          <span className="font-mono text-[11px] text-zinc-500 dark:text-slate-400">
             ({localWorkstations.length} Active Workstations &bull; {localFloorElements.length} Landmarks)
           </span>
 
@@ -344,7 +346,7 @@ export function WorkstationFloorPlan({
                   <button
                     type="button"
                     onClick={() => setIsAddModalOpen(true)}
-                    className="flex items-center gap-1.5 rounded-xl border border-indigo-500/40 bg-indigo-500/10 px-3 py-1.5 text-xs font-semibold text-indigo-300 hover:bg-indigo-500/20 transition-colors"
+                    className="flex items-center gap-1.5 rounded-xl border border-indigo-200 dark:border-indigo-500/40 bg-indigo-50 dark:bg-indigo-500/10 px-3 py-1.5 text-xs font-semibold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition-colors cursor-pointer"
                   >
                     <Plus className="h-3.5 w-3.5" />
                     <span>Add PC</span>
@@ -353,7 +355,7 @@ export function WorkstationFloorPlan({
                   <button
                     type="button"
                     onClick={() => setIsAddLandmarkOpen(true)}
-                    className="flex items-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/20 transition-colors"
+                    className="flex items-center gap-1.5 rounded-xl border border-emerald-200 dark:border-emerald-500/40 bg-emerald-50 dark:bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 transition-colors cursor-pointer"
                   >
                     <MapPin className="h-3.5 w-3.5" />
                     <span>Add Landmark</span>
@@ -363,7 +365,7 @@ export function WorkstationFloorPlan({
                     <button
                       type="button"
                       onClick={handleDiscardChanges}
-                      className="rounded-xl border border-slate-700 bg-slate-800/80 px-2.5 py-1.5 text-xs font-semibold text-slate-300 hover:bg-slate-700"
+                      className="rounded-xl border border-zinc-300 dark:border-slate-700 bg-zinc-100 dark:bg-slate-800/80 px-2.5 py-1.5 text-xs font-semibold text-zinc-700 dark:text-slate-300 hover:bg-zinc-200 dark:hover:bg-slate-700 cursor-pointer"
                     >
                       Discard
                     </button>
@@ -373,7 +375,7 @@ export function WorkstationFloorPlan({
                     type="button"
                     disabled={!hasUnsavedChanges || savingPositions}
                     onClick={handleSavePositions}
-                    className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-500 shadow-md transition-all disabled:opacity-50"
+                    className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-500 shadow-md transition-all disabled:opacity-50 cursor-pointer"
                   >
                     {savingPositions ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -395,7 +397,7 @@ export function WorkstationFloorPlan({
                         setIsLayoutMode(false)
                       }
                     }}
-                    className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:text-white"
+                    className="flex items-center gap-1.5 rounded-xl border border-zinc-300 dark:border-slate-700 bg-zinc-100 dark:bg-slate-800 px-3 py-1.5 text-xs font-semibold text-zinc-700 dark:text-slate-300 hover:bg-zinc-200 dark:hover:text-white cursor-pointer"
                   >
                     <Lock className="h-3.5 w-3.5" />
                     <span>Exit Layout Mode</span>
@@ -405,7 +407,7 @@ export function WorkstationFloorPlan({
                 <button
                   type="button"
                   onClick={() => setIsLayoutMode(true)}
-                  className="flex items-center gap-1.5 rounded-xl border border-white/[0.08] bg-[#151E32] px-3 py-1.5 text-xs font-semibold text-slate-300 hover:border-indigo-500/40 hover:text-indigo-300 transition-colors"
+                  className="flex items-center gap-1.5 rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] px-3 py-1.5 text-xs font-semibold text-zinc-700 dark:text-slate-300 hover:border-indigo-400 dark:hover:border-indigo-500/40 hover:text-indigo-600 dark:hover:text-indigo-300 transition-colors cursor-pointer"
                 >
                   <Unlock className="h-3.5 w-3.5" />
                   <span>Arrange Physical Layout</span>
@@ -417,7 +419,7 @@ export function WorkstationFloorPlan({
           <button
             type="button"
             onClick={onRefreshData}
-            className="rounded-xl border border-white/[0.08] bg-[#151E32] p-1.5 text-slate-400 hover:text-white transition-colors cursor-pointer"
+            className="rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32] p-1.5 text-zinc-500 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white transition-colors cursor-pointer"
             title="Refresh floor telemetry"
           >
             <RefreshCw className="h-4 w-4" />
@@ -428,21 +430,13 @@ export function WorkstationFloorPlan({
       {/* Interactive 16:9 Floor Plan Canvas Container */}
       <div
         ref={canvasRef}
-        className="relative w-full aspect-[16/9] min-h-[380px] sm:min-h-[480px] rounded-2xl border border-white/[0.08] bg-[#0B0F19] overflow-hidden select-none shadow-2xl"
-        style={{
-          backgroundImage: `
-            radial-gradient(circle at 50% 50%, rgba(99, 102, 241, 0.03) 0%, transparent 80%),
-            linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-            linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px)
-          `,
-          backgroundSize: '100% 100%, 32px 32px, 32px 32px',
-        }}
+        className="cad-canvas-grid relative w-full aspect-[16/9] min-h-[380px] sm:min-h-[480px] rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-slate-100 dark:bg-[#0B0F19] overflow-hidden select-none shadow-2xl"
       >
         {/* Real-Life Architectural Desk Tables & Corridor Structures */}
         <LabDeskStructureOverlay />
 
         {/* Physical Floor Landmarks (Data-Driven from public.lab_floor_elements) */}
-        {localFloorElements.map((el) => (
+        {(Array.isArray(localFloorElements) ? localFloorElements : []).map((el) => (
           <FloorLandmarkNode
             key={el.id}
             element={el}
@@ -476,7 +470,7 @@ export function WorkstationFloorPlan({
       </div>
 
       {/* Visual Status Legend Bar */}
-      <div className="flex items-center justify-between gap-4 rounded-xl border border-white/[0.08] bg-[#101726] p-3 text-xs text-slate-300 flex-wrap">
+      <div className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] p-3 text-xs text-zinc-700 dark:text-slate-300 flex-wrap">
         <div className="flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-1.5">
             <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]" />
@@ -496,48 +490,48 @@ export function WorkstationFloorPlan({
           </div>
         </div>
 
-        <div className="text-[11px] text-slate-500">
+        <div className="text-[11px] text-zinc-500 dark:text-slate-500">
           Tip: Tap any PC node to inspect active tickets or snap camera evidence
         </div>
       </div>
 
       {/* Modal: Add New Workstation Node */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-white/[0.08] bg-[#101726] p-5 shadow-2xl">
-            <h4 className="font-heading font-bold text-base text-white mb-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm select-none">
+          <div className="w-full max-w-md rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] p-5 shadow-2xl font-sans">
+            <h4 className="font-heading font-bold text-base text-zinc-900 dark:text-white mb-3">
               Add New Physical Workstation
             </h4>
             <form onSubmit={handleCreateWorkstation} className="space-y-3">
               <div>
-                <label className="text-xs font-semibold text-slate-300">Station Identifier / Label *</label>
+                <label className="text-xs font-semibold text-zinc-700 dark:text-slate-300">Station Identifier / Label *</label>
                 <input
                   type="text"
                   value={newLabel}
                   onChange={(e) => setNewLabel(e.target.value)}
                   placeholder="e.g. PC-33 or Server-01"
-                  className="mt-1 w-full rounded-xl border border-slate-700 bg-[#151E32] px-3.5 py-2 text-xs text-white focus:border-indigo-500 focus:outline-none"
+                  className="mt-1 w-full rounded-xl border border-zinc-300 dark:border-slate-700 bg-white dark:bg-[#151E32] px-3.5 py-2 text-xs text-zinc-900 dark:text-white focus:border-indigo-500 focus:outline-none"
                   required
                 />
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-300">Row / Section</label>
+                <label className="text-xs font-semibold text-zinc-700 dark:text-slate-300">Row / Section</label>
                 <input
                   type="text"
                   value={newRow}
                   onChange={(e) => setNewRow(e.target.value)}
                   placeholder="e.g. Row D, Teacher Station, or Rack 1"
-                  className="mt-1 w-full rounded-xl border border-slate-700 bg-[#151E32] px-3.5 py-2 text-xs text-white focus:border-indigo-500 focus:outline-none"
+                  className="mt-1 w-full rounded-xl border border-zinc-300 dark:border-slate-700 bg-white dark:bg-[#151E32] px-3.5 py-2 text-xs text-zinc-900 dark:text-white focus:border-indigo-500 focus:outline-none"
                 />
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-300">Device Hardware Profile</label>
+                <label className="text-xs font-semibold text-zinc-700 dark:text-slate-300">Device Hardware Profile</label>
                 <select
                   value={newDeviceType}
                   onChange={(e) => setNewDeviceType(e.target.value as any)}
-                  className="mt-1 w-full rounded-xl border border-slate-700 bg-[#151E32] px-3.5 py-2 text-xs text-white focus:border-indigo-500 focus:outline-none cursor-pointer"
+                  className="mt-1 w-full rounded-xl border border-zinc-300 dark:border-slate-700 bg-white dark:bg-[#151E32] px-3.5 py-2 text-xs text-zinc-900 dark:text-white focus:border-indigo-500 focus:outline-none cursor-pointer"
                 >
                   <option value="desktop">Standard Desktop Tower</option>
                   <option value="aio">All-In-One (AIO)</option>
@@ -550,14 +544,14 @@ export function WorkstationFloorPlan({
                 <button
                   type="button"
                   onClick={() => setIsAddModalOpen(false)}
-                  className="px-3.5 py-2 text-xs font-semibold text-slate-400 hover:text-white"
+                  className="px-3.5 py-2 text-xs font-semibold text-zinc-500 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={addingStation}
-                  className="flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white hover:bg-indigo-500 shadow-md transition-all disabled:opacity-50"
+                  className="flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white hover:bg-indigo-500 shadow-md transition-all disabled:opacity-50 cursor-pointer"
                 >
                   {addingStation && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                   <span>Add Workstation</span>
@@ -570,14 +564,14 @@ export function WorkstationFloorPlan({
 
       {/* Modal: Add New Floor Landmark */}
       {isAddLandmarkOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-white/[0.08] bg-[#101726] p-5 shadow-2xl">
-            <h4 className="font-heading font-bold text-base text-white mb-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm select-none">
+          <div className="w-full max-w-md rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] p-5 shadow-2xl font-sans">
+            <h4 className="font-heading font-bold text-base text-zinc-900 dark:text-white mb-3">
               Add Room Landmark / Landmark
             </h4>
             <form onSubmit={handleAddLandmark} className="space-y-3">
               <div>
-                <label className="text-xs font-semibold text-slate-300">Landmark Type</label>
+                <label className="text-xs font-semibold text-zinc-700 dark:text-slate-300">Landmark Type</label>
                 <select
                   value={selectedLandmarkType}
                   onChange={(e) => {
@@ -585,7 +579,7 @@ export function WorkstationFloorPlan({
                     setSelectedLandmarkType(t)
                     setNewLandmarkLabel(FLOOR_ELEMENT_CATALOG[t]?.label || 'Room Landmark')
                   }}
-                  className="mt-1 w-full rounded-xl border border-slate-700 bg-[#151E32] px-3.5 py-2 text-xs text-white focus:border-indigo-500 focus:outline-none cursor-pointer"
+                  className="mt-1 w-full rounded-xl border border-zinc-300 dark:border-slate-700 bg-white dark:bg-[#151E32] px-3.5 py-2 text-xs text-zinc-900 dark:text-white focus:border-indigo-500 focus:outline-none cursor-pointer"
                 >
                   <option value="whiteboard">Interactive Whiteboard</option>
                   <option value="projector_screen">Projector Screen</option>
@@ -601,13 +595,13 @@ export function WorkstationFloorPlan({
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-300">Display Label *</label>
+                <label className="text-xs font-semibold text-zinc-700 dark:text-slate-300">Display Label *</label>
                 <input
                   type="text"
                   value={newLandmarkLabel}
                   onChange={(e) => setNewLandmarkLabel(e.target.value)}
                   placeholder="e.g. Front Whiteboard, Emergency Exit"
-                  className="mt-1 w-full rounded-xl border border-slate-700 bg-[#151E32] px-3.5 py-2 text-xs text-white focus:border-indigo-500 focus:outline-none"
+                  className="mt-1 w-full rounded-xl border border-zinc-300 dark:border-slate-700 bg-white dark:bg-[#151E32] px-3.5 py-2 text-xs text-zinc-900 dark:text-white focus:border-indigo-500 focus:outline-none"
                   required
                 />
               </div>
@@ -616,13 +610,13 @@ export function WorkstationFloorPlan({
                 <button
                   type="button"
                   onClick={() => setIsAddLandmarkOpen(false)}
-                  className="px-3.5 py-2 text-xs font-semibold text-slate-400 hover:text-white"
+                  className="px-3.5 py-2 text-xs font-semibold text-zinc-500 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-500 shadow-md transition-all"
+                  className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-500 shadow-md transition-all cursor-pointer"
                 >
                   <span>Place Landmark on Floor</span>
                 </button>

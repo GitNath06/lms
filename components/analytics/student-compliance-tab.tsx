@@ -18,6 +18,7 @@ import {
   getStudentBoardComplianceReport,
   exportStudentBoardComplianceAction,
 } from '@/app/actions/institutional-reports'
+import { downloadExportStream } from '@/lib/exports/browser-downloader'
 import type { StudentComplianceReport } from '@/lib/types/institutional-reports'
 
 interface StudentComplianceTabProps {
@@ -95,34 +96,20 @@ export function StudentComplianceTab({ classes, academicYears }: StudentComplian
     document.body.removeChild(link)
   }
 
-  // Export to Excel (.xlsx)
+  // Export to Excel (.xlsx) via Streamed Binary Route
   const handleExportExcel = async () => {
     if (!report) return
     setExportingExcel(true)
     try {
-      const res = await exportStudentBoardComplianceAction({
-        academicYearId: selectedYearId,
-        classId: selectedClassId,
+      const streamUrl = `/api/export/neb-compliance?academic_year_id=${encodeURIComponent(selectedYearId)}&class_id=${encodeURIComponent(selectedClassId)}`
+      await downloadExportStream(streamUrl, {
+        filename: `NEB_Compliance_${report.class_name}_${report.academic_year_name}.xlsx`,
+        fallbackAction: () =>
+          exportStudentBoardComplianceAction({
+            academicYearId: selectedYearId,
+            classId: selectedClassId,
+          }),
       })
-      if (res.success && res.base64) {
-        const byteCharacters = atob(res.base64)
-        const byteNumbers = new Array(byteCharacters.length)
-        for (let i = 0; i < byteCharacters.length; i++) {
-          byteNumbers[i] = byteCharacters.charCodeAt(i)
-        }
-        const byteArray = new Uint8Array(byteNumbers)
-        const blob = new Blob([byteArray], {
-          type: res.contentType || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        })
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = res.filename || `NEB_Compliance_${report.class_name}.xlsx`
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
-        URL.revokeObjectURL(url)
-      }
     } catch (err) {
       console.error('Failed to export Excel:', err)
     } finally {
@@ -133,16 +120,16 @@ export function StudentComplianceTab({ classes, academicYears }: StudentComplian
   return (
     <div className="space-y-4 font-sans text-zinc-900 dark:text-zinc-100">
       {/* Filter Strip */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-2xl bg-[#101726] border border-white/[0.08] shadow-sm">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-2xl bg-white dark:bg-[#101726] border border-zinc-200 dark:border-white/[0.08] shadow-xs">
         <div className="flex items-center gap-2.5 flex-wrap">
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-300">
-            <Users className="h-4 w-4 text-indigo-400" />
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-700 dark:text-slate-300">
+            <Users className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
             <span>Class:</span>
           </div>
           <Select
             value={selectedClassId}
             onChange={(e) => setSelectedClassId(e.target.value)}
-            className="h-8.5 text-xs bg-[#151E32] border-white/10 text-white rounded-xl min-w-[160px]"
+            className="h-8.5 text-xs bg-zinc-50 dark:bg-[#151E32] border-zinc-200 dark:border-white/10 text-zinc-900 dark:text-white rounded-xl min-w-[160px]"
           >
             {classes.map((c) => (
               <option key={c.id} value={c.id}>
@@ -155,7 +142,7 @@ export function StudentComplianceTab({ classes, academicYears }: StudentComplian
             <Select
               value={selectedYearId}
               onChange={(e) => setSelectedYearId(e.target.value)}
-              className="h-8.5 text-xs bg-[#151E32] border-white/10 text-white rounded-xl min-w-[120px]"
+              className="h-8.5 text-xs bg-zinc-50 dark:bg-[#151E32] border-zinc-200 dark:border-white/10 text-zinc-900 dark:text-white rounded-xl min-w-[120px]"
             >
               {academicYears.map((y) => (
                 <option key={y.id} value={y.id}>
@@ -166,12 +153,12 @@ export function StudentComplianceTab({ classes, academicYears }: StudentComplian
           )}
 
           {/* Eligibility Filter Pills */}
-          <div className="flex items-center gap-1 p-0.5 rounded-lg bg-[#151E32] border border-white/5 text-[11px]">
+          <div className="flex items-center gap-1 p-0.5 rounded-lg bg-zinc-100 dark:bg-[#151E32] border border-zinc-200 dark:border-white/5 text-[11px]">
             <button
               type="button"
               onClick={() => setFilterEligible('all')}
-              className={`px-2.5 py-1 rounded-md transition-colors ${
-                filterEligible === 'all' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-400 hover:text-white'
+              className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
+                filterEligible === 'all' ? 'bg-indigo-600 text-white font-bold' : 'text-zinc-600 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white'
               }`}
             >
               All ({report?.total_students || 0})
@@ -179,10 +166,10 @@ export function StudentComplianceTab({ classes, academicYears }: StudentComplian
             <button
               type="button"
               onClick={() => setFilterEligible('eligible')}
-              className={`px-2.5 py-1 rounded-md transition-colors ${
+              className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
                 filterEligible === 'eligible'
                   ? 'bg-emerald-600 text-white font-bold'
-                  : 'text-slate-400 hover:text-emerald-400'
+                  : 'text-zinc-600 dark:text-slate-400 hover:text-emerald-700 dark:hover:text-emerald-400'
               }`}
             >
               Eligible ({report?.eligible_students || 0})
@@ -190,10 +177,10 @@ export function StudentComplianceTab({ classes, academicYears }: StudentComplian
             <button
               type="button"
               onClick={() => setFilterEligible('barred')}
-              className={`px-2.5 py-1 rounded-md transition-colors ${
+              className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
                 filterEligible === 'barred'
                   ? 'bg-rose-600 text-white font-bold'
-                  : 'text-slate-400 hover:text-rose-400'
+                  : 'text-zinc-600 dark:text-slate-400 hover:text-rose-700 dark:hover:text-rose-400'
               }`}
             >
               Barred ({report?.barred_students || 0})
@@ -204,13 +191,13 @@ export function StudentComplianceTab({ classes, academicYears }: StudentComplian
         {/* Search & Export Actions */}
         <div className="flex items-center gap-2">
           <div className="relative">
-            <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
+            <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-zinc-400 dark:text-slate-400" />
             <input
               type="text"
               placeholder="Search student or roll..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-8.5 pl-8 pr-3 text-xs rounded-xl bg-[#151E32] border border-white/10 text-white placeholder:text-slate-500 w-44 sm:w-52"
+              className="h-8.5 pl-8 pr-3 text-xs rounded-xl bg-zinc-50 dark:bg-[#151E32] border border-zinc-200 dark:border-white/10 text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-slate-500 w-44 sm:w-52"
             />
           </div>
 
@@ -220,9 +207,9 @@ export function StudentComplianceTab({ classes, academicYears }: StudentComplian
             size="sm"
             onClick={handleExportCSV}
             disabled={!report || report.records.length === 0}
-            className="h-8.5 px-3 text-xs rounded-xl border-white/10 text-slate-200 hover:bg-white/5 gap-1.5"
+            className="h-8.5 px-3 text-xs rounded-xl border-zinc-200 dark:border-white/10 text-zinc-700 dark:text-slate-200 hover:bg-zinc-100 dark:hover:bg-white/5 gap-1.5 cursor-pointer"
           >
-            <Download className="h-3.5 w-3.5 text-indigo-400" />
+            <Download className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
             <span>CSV</span>
           </Button>
 
@@ -232,12 +219,12 @@ export function StudentComplianceTab({ classes, academicYears }: StudentComplian
             size="sm"
             onClick={handleExportExcel}
             disabled={!report || report.records.length === 0 || exportingExcel}
-            className="h-8.5 px-3 text-xs rounded-xl border-emerald-500/20 text-emerald-300 hover:bg-emerald-500/10 gap-1.5"
+            className="h-8.5 px-3 text-xs rounded-xl border-emerald-300 dark:border-emerald-500/20 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 gap-1.5 cursor-pointer"
           >
             {exportingExcel ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : (
-              <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-400" />
+              <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
             )}
             <span>Excel</span>
           </Button>
@@ -246,61 +233,61 @@ export function StudentComplianceTab({ classes, academicYears }: StudentComplian
 
       {/* KPI Cards Strip */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
-        <div className="rounded-xl border border-white/[0.08] bg-[#101726] p-3 flex flex-col justify-between shadow-sm">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Total Enrolled</span>
-          <span className="font-heading text-xl sm:text-2xl font-extrabold text-white tabular-nums mt-1">
+        <div className="rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] p-3 flex flex-col justify-between shadow-xs">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-slate-400">Total Enrolled</span>
+          <span className="font-heading text-xl sm:text-2xl font-extrabold text-zinc-900 dark:text-white tabular-nums mt-1">
             {report?.total_students || 0}
           </span>
         </div>
 
-        <div className="rounded-xl border border-white/[0.08] bg-[#101726] p-3 flex flex-col justify-between shadow-sm">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">Board Exam Eligible</span>
+        <div className="rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] p-3 flex flex-col justify-between shadow-xs">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Board Exam Eligible</span>
           <div className="flex items-center justify-between mt-1">
-            <span className="font-heading text-xl sm:text-2xl font-extrabold text-emerald-400 tabular-nums">
+            <span className="font-heading text-xl sm:text-2xl font-extrabold text-emerald-600 dark:text-emerald-400 tabular-nums">
               {report?.eligible_students || 0}
             </span>
-            <Badge className="bg-emerald-500/10 text-emerald-300 border-emerald-500/20 text-[10px]">
+            <Badge className="bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/20 text-[10px]">
               &ge; 75%
             </Badge>
           </div>
         </div>
 
-        <div className="rounded-xl border border-white/[0.08] bg-[#101726] p-3 flex flex-col justify-between shadow-sm">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-rose-400">Barred (Attendance Shortage)</span>
+        <div className="rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] p-3 flex flex-col justify-between shadow-xs">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400">Barred (Attendance Shortage)</span>
           <div className="flex items-center justify-between mt-1">
-            <span className="font-heading text-xl sm:text-2xl font-extrabold text-rose-400 tabular-nums">
+            <span className="font-heading text-xl sm:text-2xl font-extrabold text-rose-600 dark:text-rose-400 tabular-nums">
               {report?.barred_students || 0}
             </span>
-            <Badge className="bg-rose-500/10 text-rose-300 border-rose-500/20 text-[10px]">
+            <Badge className="bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-500/20 text-[10px]">
               &lt; 75%
             </Badge>
           </div>
         </div>
 
-        <div className="rounded-xl border border-white/[0.08] bg-[#101726] p-3 flex flex-col justify-between shadow-sm">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-400">Cohort Avg Attendance</span>
-          <span className="font-heading text-xl sm:text-2xl font-extrabold text-white tabular-nums mt-1">
+        <div className="rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] p-3 flex flex-col justify-between shadow-xs">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">Cohort Avg Attendance</span>
+          <span className="font-heading text-xl sm:text-2xl font-extrabold text-zinc-900 dark:text-white tabular-nums mt-1">
             {report?.cohort_avg_rate_pct || 0}%
           </span>
         </div>
       </div>
 
       {/* Main Table */}
-      <div className="rounded-2xl border border-white/[0.08] bg-[#101726] overflow-hidden shadow-xl">
+      <div className="rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] overflow-hidden shadow-sm">
         {loading ? (
-          <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-2">
-            <Loader2 className="h-6 w-6 animate-spin text-indigo-400" />
+          <div className="flex flex-col items-center justify-center py-16 text-zinc-500 dark:text-slate-400 gap-2">
+            <Loader2 className="h-6 w-6 animate-spin text-indigo-600 dark:text-indigo-400" />
             <span className="text-xs">Computing board compliance metrics...</span>
           </div>
         ) : filteredRecords.length === 0 ? (
-          <div className="text-center py-12 text-slate-400 text-xs">
+          <div className="text-center py-12 text-zinc-500 dark:text-slate-400 text-xs">
             No students found matching your search or filters.
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
-                <tr className="border-b border-white/[0.08] bg-[#151E32]/60 text-slate-400 font-bold uppercase text-[10px] tracking-wider">
+                <tr className="border-b border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#151E32]/60 text-zinc-500 dark:text-slate-400 font-bold uppercase text-[10px] tracking-wider">
                   <th className="py-2.5 px-3 w-16">Roll</th>
                   <th className="py-2.5 px-3">Student Name</th>
                   <th className="py-2.5 px-3 w-28">Reg No</th>
@@ -311,35 +298,35 @@ export function StudentComplianceTab({ classes, academicYears }: StudentComplian
                   <th className="py-2.5 px-3 text-right w-36">NEB Status</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/[0.05]">
+              <tbody className="divide-y divide-zinc-200 dark:divide-white/[0.05]">
                 {filteredRecords.map((r) => (
-                  <tr key={r.enrollment_id} className="hover:bg-white/[0.02] transition-colors">
-                    <td className="py-2 px-3 font-mono font-bold text-slate-200 tabular-nums">
+                  <tr key={r.enrollment_id} className="hover:bg-zinc-50 dark:hover:bg-white/[0.02] transition-colors">
+                    <td className="py-2 px-3 font-mono font-bold text-zinc-700 dark:text-slate-200 tabular-nums">
                       Roll {r.roll_number}
                     </td>
-                    <td className="py-2 px-3 font-semibold text-white">
+                    <td className="py-2 px-3 font-semibold text-zinc-900 dark:text-white">
                       {r.full_name}
                     </td>
-                    <td className="py-2 px-3 text-slate-400 font-mono text-[11px]">
+                    <td className="py-2 px-3 text-zinc-500 dark:text-slate-400 font-mono text-[11px]">
                       {r.registration_no || '—'}
                     </td>
-                    <td className="py-2 px-3 text-center font-mono tabular-nums text-slate-300">
+                    <td className="py-2 px-3 text-center font-mono tabular-nums text-zinc-700 dark:text-slate-300">
                       {r.sessions_held}
                     </td>
-                    <td className="py-2 px-3 text-center font-mono tabular-nums text-emerald-400 font-bold">
+                    <td className="py-2 px-3 text-center font-mono tabular-nums text-emerald-600 dark:text-emerald-400 font-bold">
                       {r.sessions_attended}
                     </td>
-                    <td className="py-2 px-3 text-center font-mono tabular-nums text-rose-400">
+                    <td className="py-2 px-3 text-center font-mono tabular-nums text-rose-600 dark:text-rose-400">
                       {r.absent_count}
                     </td>
                     <td className="py-2 px-3 text-center font-mono font-extrabold tabular-nums">
                       <span
                         className={
                           r.attendance_rate_pct >= 85
-                            ? 'text-emerald-400'
+                            ? 'text-emerald-600 dark:text-emerald-400'
                             : r.attendance_rate_pct >= 75
-                            ? 'text-slate-200'
-                            : 'text-rose-400'
+                            ? 'text-zinc-800 dark:text-slate-200'
+                            : 'text-rose-600 dark:text-rose-400'
                         }
                       >
                         {r.attendance_rate_pct}%
@@ -349,8 +336,8 @@ export function StudentComplianceTab({ classes, academicYears }: StudentComplian
                       <Badge
                         className={`text-[10px] font-bold ${
                           r.is_eligible
-                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                            : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                            ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20'
+                            : 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20'
                         }`}
                       >
                         {r.is_eligible ? 'Eligible' : 'Barred (<75%)'}
