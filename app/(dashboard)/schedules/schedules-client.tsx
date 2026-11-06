@@ -22,7 +22,7 @@ import { useCalendarSettings, CalendarSettings } from '@/hooks/use-calendar-sett
 import { getWeekDates } from '@/lib/master-data'
 import { useLiveSchedule } from '@/hooks/use-live-schedule'
 import { INSTITUTION_CONFIG } from '@/lib/institution'
-import { fetchWithClientCache } from '@/lib/cache/client-query-cache'
+import { fetchWithClientCache, getCachedData } from '@/lib/cache/client-query-cache'
 
 interface SchedulesClientProps {
   initialSettings?: CalendarSettings | null
@@ -37,7 +37,9 @@ export default function SchedulesClient({
   const [teacherFilter, setTeacherFilter] = useState('all')
   const [weekOffset, setWeekOffset] = useState<number>(0)
   const [isAdhocOpen, setIsAdhocOpen] = useState(false)
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(initialUser || null)
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
+    return initialUser || getCachedData<UserProfile>('auth:current-user-profile') || null
+  })
   const [mounted, setMounted] = useState(false)
 
   const { now } = useLiveSchedule()

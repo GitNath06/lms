@@ -5,6 +5,7 @@ import { useUserScope } from '@/hooks/use-user-scope'
 import { TeacherProfileForm } from '@/components/profile/teacher-profile-form'
 import { ProfileSkeleton } from '@/components/ui/skeleton-loader'
 import { UserCheck, ShieldCheck, Clock } from 'lucide-react'
+import { getCachedData } from '@/lib/cache/client-query-cache'
 import type { UserProfile } from '@/lib/permissions'
 
 interface ProfileClientViewProps {
@@ -19,11 +20,11 @@ export function ProfileClientView({ initialProfile }: ProfileClientViewProps = {
     setMounted(true)
   }, [])
 
-  const profile = hookProfile || initialProfile
+  const profile = hookProfile || initialProfile || getCachedData<UserProfile>('auth:current-user-profile')
 
   // Prevent hydration mismatch: If initialProfile was not provided during SSR,
-  // ensure client frame-1 matches the server-rendered skeleton before mounting.
-  if (!initialProfile && !mounted) {
+  // ensure client frame-1 matches the server-rendered skeleton before mounting unless cached.
+  if (!initialProfile && !mounted && !profile) {
     return <ProfileSkeleton />
   }
 

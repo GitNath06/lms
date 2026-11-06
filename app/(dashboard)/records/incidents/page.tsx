@@ -28,35 +28,6 @@ import { Button } from '@/components/ui/button'
 
 export default function IncidentRecordsPage() {
   const [isPending, startTransition] = useTransition()
-  const [isLoading, setIsLoading] = useState(true)
-  const [incidents, setIncidents] = useState<IncidentRecordItem[]>([])
-  const [metrics, setMetrics] = useState<IncidentSummaryMetrics>({
-    totalIncidents: 0,
-    openCount: 0,
-    resolvedCount: 0,
-    underRepairCount: 0,
-    replacedCount: 0,
-    escalatedCount: 0,
-    minorCount: 0,
-    moderateCount: 0,
-    criticalCount: 0,
-    averageTimeToResolveHours: null,
-    averageTimeToResolveLabel: 'N/A',
-  })
-  const [userRole, setUserRole] = useState<string>('teacher')
-  const [userId, setUserId] = useState<string>('')
-  const [totalCount, setTotalCount] = useState<number>(0)
-  const [totalPages, setTotalPages] = useState<number>(1)
-  const [labs, setLabs] = useState<Array<{ id: string; name: string }>>(() => {
-    return getCachedData<Array<{ id: string; name: string }>>('master:active-labs') || []
-  })
-  const [academicYears, setAcademicYears] = useState<Array<{ id: string; name: string; isCurrent: boolean }>>([])
-  const [activeAcademicYearId, setActiveAcademicYearId] = useState<string | null>(null)
-
-  // Modal and Drawer States
-  const [selectedIncident, setSelectedIncident] = useState<IncidentRecordItem | null>(null)
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false)
-  const [isReportModalOpen, setIsReportModalOpen] = useState(false)
 
   // Filters State
   const [filters, setFilters] = useState<IncidentRecordFilters>(() => {
@@ -92,6 +63,39 @@ export default function IncidentRecordsPage() {
       pageSize: 10,
     }
   })
+
+  const initialKey = `incidents:records:${JSON.stringify(filters)}`
+  const initialCached = getCachedData<any>(initialKey)
+
+  const [isLoading, setIsLoading] = useState(() => !initialCached)
+  const [incidents, setIncidents] = useState<IncidentRecordItem[]>(() => initialCached?.incidents || [])
+  const [metrics, setMetrics] = useState<IncidentSummaryMetrics>(() => initialCached?.metrics || {
+    totalIncidents: 0,
+    openCount: 0,
+    resolvedCount: 0,
+    underRepairCount: 0,
+    replacedCount: 0,
+    escalatedCount: 0,
+    minorCount: 0,
+    moderateCount: 0,
+    criticalCount: 0,
+    averageTimeToResolveHours: null,
+    averageTimeToResolveLabel: 'N/A',
+  })
+  const [userRole, setUserRole] = useState<string>(() => initialCached?.userRole || 'teacher')
+  const [userId, setUserId] = useState<string>(() => initialCached?.userId || '')
+  const [totalCount, setTotalCount] = useState<number>(() => initialCached?.totalCount || 0)
+  const [totalPages, setTotalPages] = useState<number>(() => initialCached?.totalPages || 1)
+  const [labs, setLabs] = useState<Array<{ id: string; name: string }>>(() => {
+    return getCachedData<Array<{ id: string; name: string }>>('master:active-labs') || []
+  })
+  const [academicYears, setAcademicYears] = useState<Array<{ id: string; name: string; isCurrent: boolean }>>(() => initialCached?.academicYears || [])
+  const [activeAcademicYearId, setActiveAcademicYearId] = useState<string | null>(() => initialCached?.activeAcademicYearId || null)
+
+  // Modal and Drawer States
+  const [selectedIncident, setSelectedIncident] = useState<IncidentRecordItem | null>(null)
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false)
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false)
 
   // Format a raw or client incident into an IncidentRecordItem
   const formatIncidentItem = (raw: any): IncidentRecordItem => {

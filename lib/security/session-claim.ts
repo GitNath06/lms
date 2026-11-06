@@ -13,6 +13,17 @@ export interface SessionClaimPayload {
   approvalStatus: string
   isActive: boolean
   labScope?: string
+  teacherId?: string
+  assignedClasses?: string[]
+  assignedSubjects?: Array<{
+    code: string
+    title: string
+    grade: string
+    labId: string
+    labName: string
+    defaultTopic?: string
+  }>
+  assignedLabIds?: string[]
   exp: number
 }
 

@@ -1,5 +1,3 @@
-import { LogbookSkeleton } from '@/components/ui/skeleton-loader'
-
-export default function PracticalRecordsLoading() {
-  return <LogbookSkeleton />
+export default function RecordsLoading() {
+  return null
 }

@@ -3,6 +3,7 @@ import { createClient } from '../supabase/server'
 import { isSupabaseConfigured } from '../supabase/config'
 import { getCurrentUserProfile } from '@/app/actions/auth'
 import { resolveUserScope, type UserScopeContext } from './user-scope'
+import { verifySessionClaim, SESSION_CLAIM_COOKIE_NAME } from '../security/session-claim'
 
 export type { UserScopeContext }
 
@@ -35,6 +36,44 @@ export const getServerUserScope = cache(async (): Promise<UserScopeContext> => {
     }
     return resolveUserScope(testProfile)
   }
+
+  // Fast-path: Check HMAC-signed session claim cookie (< 1ms Web Crypto verification)
+  try {
+    const { cookies } = await import('next/headers')
+    const cookieStore = await cookies()
+    const claimCookie = cookieStore.get(SESSION_CLAIM_COOKIE_NAME)?.value
+    if (claimCookie) {
+      const verified = await verifySessionClaim(claimCookie)
+      if (verified && verified.uid && verified.approvalStatus === 'approved') {
+        const isPrivileged = verified.role === 'super_admin' || verified.role === 'hod' || verified.role === 'lab_incharge'
+        const teacherProfile = verified.role === 'teacher' ? {
+          teacherId: verified.teacherId || verified.uid,
+          name: '',
+          email: '',
+          assignedClasses: verified.assignedClasses || [],
+          assignedSubjects: verified.assignedSubjects || [],
+          assignedLabIds: verified.assignedLabIds || [],
+        } : null
+
+        return {
+          userId: verified.uid,
+          fullName: '',
+          email: '',
+          role: verified.role as any,
+          department: '',
+          approvalStatus: verified.approvalStatus as any,
+          isPending: false,
+          isPrivileged,
+          isTeacher: verified.role === 'teacher',
+          assignedClasses: verified.assignedClasses || [],
+          assignedSubjects: verified.assignedSubjects || [],
+          assignedLabIds: verified.assignedLabIds || (verified.labScope ? [verified.labScope] : []),
+          defaultViewMode: isPrivileged ? 'institutional' : 'my_data',
+          teacherProfile,
+        }
+      }
+    }
+  } catch {}
 
   const profile = await getCurrentUserProfile()
   const baseScope = resolveUserScope(profile)

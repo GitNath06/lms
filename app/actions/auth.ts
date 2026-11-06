@@ -143,11 +143,52 @@ export async function signIn(formData: FormData) {
   // Issue fast-path session claim cookie
   if (data?.user && userProfile) {
     try {
+      let assignedClasses: string[] = []
+      let assignedSubjects: Array<{
+        code: string
+        title: string
+        grade: string
+        labId: string
+        labName: string
+        defaultTopic?: string
+      }> = []
+      let assignedLabIds: string[] = []
+
+      if (userProfile.role === 'teacher') {
+        try {
+          const pool = getPgPool()
+          const csRes = await pool.query(
+            `SELECT cs.class_id, cs.subject_id, cs.default_lab_id, c.name AS class_name, s.code AS subject_code, s.name AS subject_name, l.name AS lab_name
+             FROM public.class_subjects cs
+             LEFT JOIN public.classes c ON c.id = cs.class_id
+             LEFT JOIN public.subjects s ON s.id = cs.subject_id
+             LEFT JOIN public.labs l ON l.id = cs.default_lab_id
+             WHERE cs.teacher_id = $1`,
+            [data.user.id]
+          )
+          assignedClasses = Array.from(new Set(csRes.rows.map((r: any) => r.class_name || r.class_id).filter(Boolean)))
+          assignedLabIds = Array.from(new Set(csRes.rows.map((r: any) => r.default_lab_id).filter(Boolean)))
+          assignedSubjects = csRes.rows.map((r: any) => ({
+            code: r.subject_code || r.subject_id || '',
+            title: r.subject_name || r.subject_code || 'Subject',
+            grade: r.class_name || r.class_id || '',
+            labId: r.default_lab_id || 'comp',
+            labName: r.lab_name || 'Laboratory',
+          })).filter((s: any) => Boolean(s.code))
+        } catch (csErr) {
+          console.warn('Failed to pre-resolve teacher scope for session claim:', csErr)
+        }
+      }
+
       const claim = await createSessionClaim({
         uid: data.user.id,
         role: userProfile.role || 'teacher',
         approvalStatus: userProfile.approval_status || 'approved',
         isActive: userProfile.is_active !== false,
+        teacherId: data.user.id,
+        assignedClasses,
+        assignedSubjects,
+        assignedLabIds,
       })
       const cookieStore = await cookies()
       cookieStore.set({

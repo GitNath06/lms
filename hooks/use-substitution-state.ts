@@ -9,7 +9,7 @@ import {
 } from '@/app/actions/substitutions'
 import { createClient } from '@/lib/supabase/client'
 import { isSupabaseConfigured } from '@/lib/supabase/config'
-import { fetchWithClientCache, invalidateCacheByPrefix } from '@/lib/cache/client-query-cache'
+import { fetchWithClientCache, invalidateCacheByPrefix, getCachedData } from '@/lib/cache/client-query-cache'
 
 const STORAGE_KEY = 'lab_teacher_substitutions_v1'
 const OUTBOX_KEY = 'lab_pending_teacher_substitutions_outbox_v1'
@@ -52,7 +52,11 @@ function removeFromOutbox(id: string) {
 }
 
 export function useSubstitutionState() {
-  const [substitutions, setSubstitutions] = useState<FacultySubstitutionRecord[]>([])
+  const [substitutions, setSubstitutions] = useState<FacultySubstitutionRecord[]>(() => {
+    const cached = getCachedData<FacultySubstitutionRecord[]>('substitutions:list')
+    if (Array.isArray(cached) && cached.length > 0) return cached
+    return []
+  })
 
   const isFlushingRef = useRef(false)
 

@@ -20,7 +20,7 @@ import { parseSlotTimeRange, sortSessionsChronologically } from '@/lib/utils'
 import { broadcastSync, subscribeToSync } from '@/lib/sync-bus'
 import { createClient } from '@/lib/supabase/client'
 import { isSupabaseConfigured } from '@/lib/supabase/config'
-import { fetchWithClientCache, invalidateCacheByPrefix } from '@/lib/cache/client-query-cache'
+import { fetchWithClientCache, invalidateCacheByPrefix, getCachedData, setCachedData } from '@/lib/cache/client-query-cache'
 
 const STORAGE_KEY = 'lab_master_routine_2083_v6'
 const ROUTINE_OUTBOX_KEY = 'lab_pending_schedules_outbox_v1'
@@ -79,10 +79,23 @@ function removeRoutineFromOutbox(id: string) {
 }
 
 export function useRoutineState() {
-  const [routines, setRoutines] = useState<MasterRoutineItem[]>([])
-  const [isLoading, setIsLoading] = useState<boolean>(true)
-  const [hasFetchedOnce, setHasFetchedOnce] = useState<boolean>(false)
-  const [isLoaded, setIsLoaded] = useState(false)
+  const [routines, setRoutines] = useState<MasterRoutineItem[]>(() => {
+    const cached = getCachedData<MasterRoutineItem[]>('schedules:formatted')
+    if (Array.isArray(cached) && cached.length > 0) return cached
+    return []
+  })
+  const [isLoading, setIsLoading] = useState<boolean>(() => {
+    const cached = getCachedData<MasterRoutineItem[]>('schedules:formatted')
+    return !cached || cached.length === 0
+  })
+  const [hasFetchedOnce, setHasFetchedOnce] = useState<boolean>(() => {
+    const cached = getCachedData<MasterRoutineItem[]>('schedules:formatted')
+    return Boolean(cached && cached.length > 0)
+  })
+  const [isLoaded, setIsLoaded] = useState(() => {
+    const cached = getCachedData<MasterRoutineItem[]>('schedules:formatted')
+    return Boolean(cached && cached.length > 0)
+  })
   const isFlushingRef = useRef(false)
 
   // Load from localStorage on mount (preserves user deletions and modifications without phantom resurrection)
@@ -295,6 +308,7 @@ export function useRoutineState() {
               localStorage.setItem(STORAGE_KEY, JSON.stringify(merged))
             }
           } catch {}
+          setCachedData('schedules:formatted', merged)
           setRoutines(merged)
           return
         }

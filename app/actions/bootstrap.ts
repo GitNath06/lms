@@ -88,6 +88,9 @@ export async function getLabSyncBootstrapData(): Promise<{
 
     const res = await pool.query(sql, [scope.userId])
     const payload = res.rows[0]?.payload as BootstrapDataPayload
+    if (payload) {
+      payload.user_scope = scope
+    }
 
     return {
       success: true,

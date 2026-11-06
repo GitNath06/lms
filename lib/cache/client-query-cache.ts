@@ -57,6 +57,8 @@ export function setCachedQuery<T>(key: string, data: T): void {
 /**
  * Restores query snapshots from IndexedDB into memory on cold start (<25ms).
  */
+let _offlineHydrationPromise: Promise<number> | null = null
+
 export async function hydrateCacheFromIndexedDB(uid: string): Promise<number> {
   if (typeof window === 'undefined' || !uid) return 0
   try {
@@ -80,6 +82,42 @@ export async function hydrateCacheFromIndexedDB(uid: string): Promise<number> {
     console.warn('[Cache] IDB hydration failed:', err)
     return 0
   }
+}
+
+export function waitForOfflineHydration(): Promise<number> {
+  if (_offlineHydrationPromise) return _offlineHydrationPromise
+  if (typeof window === 'undefined') return Promise.resolve(0)
+
+  let uid = 'anonymous'
+  try {
+    const activeUser = memoryCache.get('auth:current-user-profile')?.data
+    const stored = localStorage.getItem('labsync_current_uid')
+    if (activeUser?.id) {
+      uid = activeUser.id
+    } else if (stored) {
+      uid = stored
+    }
+  } catch {}
+
+  _offlineHydrationPromise = hydrateCacheFromIndexedDB(uid)
+  return _offlineHydrationPromise
+}
+
+export function startOfflineHydration(uid?: string): Promise<number> {
+  if (typeof window === 'undefined') return Promise.resolve(0)
+  let resolvedUid = uid
+  if (!resolvedUid) {
+    try {
+      const activeUser = memoryCache.get('auth:current-user-profile')?.data
+      const stored = localStorage.getItem('labsync_current_uid')
+      resolvedUid = activeUser?.id || stored || 'anonymous'
+    } catch {
+      resolvedUid = 'anonymous'
+    }
+  }
+  const safeUid: string = resolvedUid || 'anonymous'
+  _offlineHydrationPromise = hydrateCacheFromIndexedDB(safeUid)
+  return _offlineHydrationPromise
 }
 
 export const getCachedData = getCachedQuery
@@ -118,6 +156,15 @@ export async function fetchWithClientCache<T>(
     }
   }
 
+  // 1b. If client is known to be offline, wait for hydration and return cached data immediately
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    await waitForOfflineHydration()
+    const entry = memoryCache.get(key)
+    if (entry && entry.data !== undefined) {
+      return entry.data as T
+    }
+  }
+
   // 2. Return identical in-flight promise if a request for this exact key is already running
   if (inFlightPromises.has(key)) {
     return inFlightPromises.get(key) as Promise<T>
@@ -129,6 +176,16 @@ export async function fetchWithClientCache<T>(
       const freshData = await fetcher()
       setCachedQuery(key, freshData)
       return freshData
+    } catch (err) {
+      // If network fetcher failed (e.g. offline, timeout, or Server Action failure),
+      // wait for offline hydration and fall back to whatever cached snapshot is available
+      await waitForOfflineHydration()
+      const fallbackEntry = memoryCache.get(key)
+      if (fallbackEntry && fallbackEntry.data !== undefined) {
+        console.warn(`[Cache] Network fetch failed for "${key}". Falling back to cached snapshot.`, err)
+        return fallbackEntry.data as T
+      }
+      throw err
     } finally {
       inFlightPromises.delete(key)
     }

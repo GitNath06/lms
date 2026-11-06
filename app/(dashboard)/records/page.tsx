@@ -30,29 +30,6 @@ import PageHeader from '@/components/layout/page-header'
 
 export default function PracticalRecordsPage() {
   const [isPending, startTransition] = useTransition()
-  const [isLoading, setIsLoading] = useState<boolean>(true)
-  const [sections, setSections] = useState<PracticalGroupedSection[]>([])
-  const [metrics, setMetrics] = useState<PracticalSummaryMetrics>({
-    totalSessions: 0,
-    conductedSessions: 0,
-    skippedSessions: 0,
-    totalPresent: 0,
-    totalEnrolled: 0,
-    averageAttendancePct: 0,
-  })
-  const [totalCount, setTotalCount] = useState<number>(0)
-  const [totalPages, setTotalPages] = useState<number>(1)
-  const [userRole, setUserRole] = useState<string>('teacher')
-  const [userName, setUserName] = useState<string>('')
-  const [userScope, setUserScope] = useState<any>(null)
-  const [labs, setLabs] = useState<Array<{ id: string; name: string }>>(() => {
-    return getCachedData<Array<{ id: string; name: string }>>('master:active-labs') || []
-  })
-  const [teachers, setTeachers] = useState<Array<{ id: string; full_name: string }>>(() => {
-    return getCachedData<Array<{ id: string; full_name: string }>>('master:active-teachers') || []
-  })
-  const [academicYears, setAcademicYears] = useState<Array<{ id: string; name: string; isCurrent: boolean }>>([])
-  const [activeAcademicYearId, setActiveAcademicYearId] = useState<string | null>(null)
 
   // Filters and Grouping State (initialized with defaults or URL params if in browser)
   const [filters, setFilters] = useState<PracticalRecordFilters>(() => {
@@ -91,6 +68,33 @@ export default function PracticalRecordsPage() {
     }
   })
   const [groupBy, setGroupBy] = useState<PracticalGroupingKey>('none')
+
+  const initialKey = `records:list:${JSON.stringify(filters)}:${groupBy}`
+  const initialCached = getCachedData<any>(initialKey)
+
+  const [isLoading, setIsLoading] = useState<boolean>(() => !initialCached)
+  const [sections, setSections] = useState<PracticalGroupedSection[]>(() => initialCached?.sections || [])
+  const [metrics, setMetrics] = useState<PracticalSummaryMetrics>(() => initialCached?.metrics || {
+    totalSessions: 0,
+    conductedSessions: 0,
+    skippedSessions: 0,
+    totalPresent: 0,
+    totalEnrolled: 0,
+    averageAttendancePct: 0,
+  })
+  const [totalCount, setTotalCount] = useState<number>(() => initialCached?.totalCount || 0)
+  const [totalPages, setTotalPages] = useState<number>(() => initialCached?.totalPages || 1)
+  const [userRole, setUserRole] = useState<string>(() => initialCached?.userRole || 'teacher')
+  const [userName, setUserName] = useState<string>(() => initialCached?.userName || '')
+  const [userScope, setUserScope] = useState<any>(() => initialCached?.userScope || null)
+  const [labs, setLabs] = useState<Array<{ id: string; name: string }>>(() => {
+    return getCachedData<Array<{ id: string; name: string }>>('master:active-labs') || []
+  })
+  const [teachers, setTeachers] = useState<Array<{ id: string; full_name: string }>>(() => {
+    return getCachedData<Array<{ id: string; full_name: string }>>('master:active-teachers') || []
+  })
+  const [academicYears, setAcademicYears] = useState<Array<{ id: string; name: string; isCurrent: boolean }>>(() => initialCached?.academicYears || [])
+  const [activeAcademicYearId, setActiveAcademicYearId] = useState<string | null>(() => initialCached?.activeAcademicYearId || null)
 
   // Initial load of master labs and teachers
   useEffect(() => {

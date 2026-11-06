@@ -158,16 +158,81 @@ const infraSubscribers = new Set<{
 }>()
 
 export function useInfrastructureState() {
-  const [isLoading, setIsLoading] = useState<boolean>(true)
-  const [hasFetchedOnce, setHasFetchedOnce] = useState<boolean>(false)
-  const [periods, setPeriods] = useState<PeriodSlotItem[]>(CANONICAL_PERIOD_SLOTS)
-  const [labs, setLabs] = useState<LabFacilityItem[]>([])
-  const [classes, setClasses] = useState<ClassEnrollmentItem[]>([])
-  const [faculty, setFaculty] = useState<FacultyMemberItem[]>([])
-  const [subjects, setSubjects] = useState<SubjectCurriculumItem[]>([])
-  const [holidays, setHolidays] = useState<HolidayItem[]>(DEFAULT_HOLIDAYS)
-  const [incidentCategories, setIncidentCategories] = useState<IncidentCategoryItem[]>(DEFAULT_INCIDENT_CATEGORIES)
+  const [periods, setPeriods] = useState<PeriodSlotItem[]>(() => {
+    const cached = getCachedQuery<any>('bootstrap_data')
+    return (Array.isArray(cached?.period_settings) ? cached.period_settings : null) || CANONICAL_PERIOD_SLOTS
+  })
+  const [labs, setLabs] = useState<LabFacilityItem[]>(() => {
+    const cached = getCachedQuery<any>('bootstrap_data')
+    if (Array.isArray(cached?.labs)) {
+      return cached.labs.map((l: any) => ({
+        id: l.id,
+        name: l.name,
+        code: l.code || l.id.toUpperCase(),
+        capacity: l.capacity || 40,
+        type: l.type || 'computer_lab',
+        status: l.status || 'Operational',
+        is_active: l.is_active,
+      }))
+    }
+    return []
+  })
+  const [classes, setClasses] = useState<ClassEnrollmentItem[]>(() => {
+    const cached = getCachedQuery<any>('bootstrap_data')
+    if (Array.isArray(cached?.classes)) {
+      return cached.classes.map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        section: c.section || 'A',
+        capacity: c.capacity || 40,
+        stream: c.stream_id || 'General',
+        is_active: c.is_active,
+      }))
+    }
+    return []
+  })
+  const [faculty, setFaculty] = useState<FacultyMemberItem[]>(() => {
+    const cached = getCachedQuery<any>('bootstrap_data')
+    if (Array.isArray(cached?.teachers)) {
+      return cached.teachers.map((p: any) => ({
+        id: p.id,
+        name: p.full_name || p.name || 'Faculty Member',
+        dept: p.department || 'Computer Science',
+        role: p.role,
+        email: p.email || '',
+        photo_url: p.photo_url || null,
+      }))
+    }
+    return []
+  })
+  const [subjects, setSubjects] = useState<SubjectCurriculumItem[]>(() => {
+    const cached = getCachedQuery<any>('bootstrap_data')
+    if (Array.isArray(cached?.subjects)) {
+      return cached.subjects.map((s: any) => ({
+        code: s.code || s.id,
+        title: s.name,
+        creditHours: s.credit_hours || 4,
+        is_active: s.is_active,
+      }))
+    }
+    return []
+  })
+  const [holidays, setHolidays] = useState<HolidayItem[]>(() => {
+    const cached = getCachedQuery<any>('bootstrap_data')
+    return (Array.isArray(cached?.academic_holidays) ? cached.academic_holidays : null) || DEFAULT_HOLIDAYS
+  })
+  const [incidentCategories, setIncidentCategories] = useState<IncidentCategoryItem[]>(() => {
+    const cached = getCachedQuery<any>('bootstrap_data')
+    return (Array.isArray(cached?.issue_categories) ? cached.issue_categories : null) || DEFAULT_INCIDENT_CATEGORIES
+  })
   const [incidentSettings, setIncidentSettings] = useState<IncidentGovernanceSettings>(DEFAULT_INCIDENT_SETTINGS)
+
+  const [isLoading, setIsLoading] = useState<boolean>(() => {
+    return !getCachedQuery<any>('bootstrap_data')
+  })
+  const [hasFetchedOnce, setHasFetchedOnce] = useState<boolean>(() => {
+    return Boolean(getCachedQuery<any>('bootstrap_data'))
+  })
 
   // Load from localStorage on mount (prevents SSR hydration mismatch)
   useEffect(() => {

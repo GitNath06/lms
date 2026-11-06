@@ -1,5 +1,3 @@
-import { MaintenanceSkeleton } from '@/components/ui/skeleton-loader'
-
-export default function IncidentRecordsLoading() {
-  return <MaintenanceSkeleton />
+export default function RecordsIncidentsLoading() {
+  return null
 }

@@ -17,7 +17,7 @@ import {
 export type { LabIncidentRecord, LabNotificationRecord }
 import { createClient } from '@/lib/supabase/client'
 import { isSupabaseConfigured } from '@/lib/supabase/config'
-import { fetchWithClientCache, invalidateCacheByPrefix } from '@/lib/cache/client-query-cache'
+import { fetchWithClientCache, invalidateCacheByPrefix, getCachedData } from '@/lib/cache/client-query-cache'
 
 const INCIDENTS_KEY = 'lab_incidents_v1'
 const NOTIFS_KEY = 'lab_notifications_v1'
@@ -61,10 +61,24 @@ function removeFromOutbox(id: string) {
 }
 
 export function useIncidentState() {
-  const [incidents, setIncidents] = useState<LabIncidentRecord[]>([])
-  const [notifications, setNotifications] = useState<LabNotificationRecord[]>([])
-  const [isLoading, setIsLoading] = useState<boolean>(true)
-  const [hasFetchedOnce, setHasFetchedOnce] = useState<boolean>(false)
+  const [incidents, setIncidents] = useState<LabIncidentRecord[]>(() => {
+    const cached = getCachedData<LabIncidentRecord[]>('incidents:list')
+    if (Array.isArray(cached) && cached.length > 0) return cached
+    return []
+  })
+  const [notifications, setNotifications] = useState<LabNotificationRecord[]>(() => {
+    const cached = getCachedData<LabNotificationRecord[]>('notifications:list')
+    if (Array.isArray(cached) && cached.length > 0) return cached
+    return []
+  })
+  const [isLoading, setIsLoading] = useState<boolean>(() => {
+    const cached = getCachedData<LabIncidentRecord[]>('incidents:list')
+    return !cached || cached.length === 0
+  })
+  const [hasFetchedOnce, setHasFetchedOnce] = useState<boolean>(() => {
+    const cached = getCachedData<LabIncidentRecord[]>('incidents:list')
+    return Boolean(cached && cached.length > 0)
+  })
   const isFlushingRef = useRef(false)
 
   // Load from localStorage on mount (prevents SSR hydration mismatch)

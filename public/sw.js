@@ -1,17 +1,20 @@
 /**
- * LabSync LIMS — Next.js 16 RSC-Aware Enterprise Service Worker
+ * LabSync LIMS — Next.js 16 RSC-Aware Enterprise Service Worker (v2.0)
  * 
- * Features:
- * 1. Strict non-GET bypass: Server Actions use POST and are never touched.
- * 2. Next.js 16 RSC Flight Payload caching with dynamic _rsc hash normalization.
- * 3. 2,500ms Network-first timeout fallback for offline page navigation.
- * 4. Cache-first strategy for static bundles, fonts, and brand assets.
+ * Strict Invariant Enforcement:
+ * 1. NEVER share cache keys or storage buckets between HTML Document requests and RSC Flight requests.
+ * 2. HTML Document navigations (mode: 'navigate') are stored in CACHE_HTML.
+ * 3. Next.js 16 RSC Flight payloads (?_rsc=... or RSC: 1) are stored in CACHE_RSC.
+ * 4. Offline document navigation NEVER falls back to an RSC text/x-component payload.
+ * 5. Strict non-GET bypass: Server Actions use POST and are never touched.
  */
 
-const CACHE_STATIC = 'labsync-static-v1'
-const CACHE_PAGES = 'labsync-pages-v1'
+const CACHE_STATIC = 'labsync-static-v2'
+const CACHE_HTML = 'labsync-html-v2'
+const CACHE_RSC = 'labsync-rsc-v2'
 
 const PRECACHE_ASSETS = [
+  '/',
   '/offline.html',
   '/icons/icon-192x192.png',
   '/icons/icon-512x512.png',
@@ -19,18 +22,17 @@ const PRECACHE_ASSETS = [
   '/icons/apple-touch-icon.png',
 ]
 
-// Normalize Next.js 16 RSC Flight request URLs by removing transient _rsc query params
-function normalizeRscUrl(urlStr) {
+// Normalize RSC URLs by stripping transient Next.js _rsc query hashes
+function getCleanUrlKey(urlStr) {
   try {
     const url = new URL(urlStr)
-    if (url.searchParams.has('_rsc')) {
-      url.searchParams.delete('_rsc')
-    }
-    return url.toString()
+    url.searchParams.delete('_rsc')
+    return url.origin + url.pathname + (url.searchParams.toString() ? '?' + url.searchParams.toString() : '')
   } catch {
     return urlStr
   }
 }
+const normalizeRscUrl = getCleanUrlKey
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -45,7 +47,7 @@ self.addEventListener('activate', (event) => {
     caches.keys().then((keys) => {
       return Promise.all(
         keys
-          .filter((k) => k !== CACHE_STATIC && k !== CACHE_PAGES)
+          .filter((k) => k !== CACHE_STATIC && k !== CACHE_HTML && k !== CACHE_RSC)
           .map((k) => caches.delete(k))
       )
     }).then(() => self.clients.claim())
@@ -68,15 +70,15 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(req.url)
 
-  // Skip chrome-extension, internal schemes, and analytics/telemetry if any
+  // Skip chrome-extension, internal schemes, and non-http(s)
   if (!url.protocol.startsWith('http')) {
     return
   }
 
   const isRsc = req.headers.get('RSC') === '1' || url.searchParams.has('_rsc')
-  const isNavigation = req.mode === 'navigate'
+  const isDocumentNavigation = req.mode === 'navigate' || (!isRsc && (req.headers.get('accept') || '').includes('text/html'))
 
-  // STRATEGY A: Static bundles, fonts, and media -> Cache First with Network Fallback
+  // STRATEGY A: Static bundles, fonts, and brand icons -> Cache First with Network Fallback
   const isStaticAsset =
     url.pathname.startsWith('/_next/static/') ||
     url.pathname.startsWith('/icons/') ||
@@ -105,36 +107,43 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  // STRATEGY B: Navigation and Next.js 16 RSC Flight Requests -> Network First with 2,500ms Timeout Fallback
-  if (isNavigation || isRsc) {
-    const normalizedKey = normalizeRscUrl(req.url)
+  // STRATEGY B: HTML Document Navigations -> CACHE_HTML (Never RSC, Never Raw Text)
+  if (isDocumentNavigation && !isRsc) {
+    const cleanUrlKey = url.origin + url.pathname
 
     event.respondWith(
       new Promise((resolve) => {
         let timedOut = false
 
-        // 2,500ms timeout timer for weak/dead Wi-Fi inside laboratory buildings
+        // 2,500ms timeout for weak laboratory Wi-Fi
         const timer = setTimeout(async () => {
           timedOut = true
-          const pageCache = await caches.open(CACHE_PAGES)
-          const cached = await pageCache.match(normalizedKey) || await pageCache.match(req)
+          const htmlCache = await caches.open(CACHE_HTML)
+          const cached = await htmlCache.match(cleanUrlKey) || await htmlCache.match(req)
           if (cached) {
             resolve(cached)
-          } else if (isNavigation) {
-            const staticCache = await caches.open(CACHE_STATIC)
-            const offlinePage = await staticCache.match('/offline.html')
-            resolve(offlinePage || new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain' } }))
+          } else {
+            // Fall back to root App Shell or offline.html
+            const appShell = await htmlCache.match('/')
+            if (appShell) {
+              resolve(appShell)
+            } else {
+              const staticCache = await caches.open(CACHE_STATIC)
+              const offlinePage = await staticCache.match('/offline.html')
+              resolve(offlinePage || new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/html' } }))
+            }
           }
         }, 2500)
 
         fetch(req)
           .then(async (networkRes) => {
             clearTimeout(timer)
-            if (networkRes.ok) {
-              const cacheCopy = networkRes.clone()
-              const pageCache = await caches.open(CACHE_PAGES)
-              // Cache against both the exact request and normalized RSC key
-              pageCache.put(normalizedKey, cacheCopy)
+            const contentType = networkRes.headers.get('content-type') || ''
+            // Invariant: ONLY store genuine HTML in CACHE_HTML
+            if (networkRes.ok && contentType.includes('text/html')) {
+              const htmlCache = await caches.open(CACHE_HTML)
+              htmlCache.put(cleanUrlKey, networkRes.clone())
+              htmlCache.put(req, networkRes.clone())
             }
             if (!timedOut) {
               resolve(networkRes)
@@ -143,14 +152,67 @@ self.addEventListener('fetch', (event) => {
           .catch(async () => {
             clearTimeout(timer)
             if (!timedOut) {
-              const pageCache = await caches.open(CACHE_PAGES)
-              const cached = await pageCache.match(normalizedKey) || await pageCache.match(req)
+              const htmlCache = await caches.open(CACHE_HTML)
+              const cached = await htmlCache.match(cleanUrlKey) || await htmlCache.match(req)
               if (cached) {
                 resolve(cached)
-              } else if (isNavigation) {
-                const staticCache = await caches.open(CACHE_STATIC)
-                const offlinePage = await staticCache.match('/offline.html')
-                resolve(offlinePage || new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain' } }))
+              } else {
+                const appShell = await htmlCache.match('/')
+                if (appShell) {
+                  resolve(appShell)
+                } else {
+                  const staticCache = await caches.open(CACHE_STATIC)
+                  const offlinePage = await staticCache.match('/offline.html')
+                  resolve(offlinePage || new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/html' } }))
+                }
+              }
+            }
+          })
+      })
+    )
+    return
+  }
+
+  // STRATEGY C: Next.js 16 RSC Flight Requests -> CACHE_RSC (Separated Keying & Bucket)
+  if (isRsc) {
+    const cleanRscKey = getCleanUrlKey(req.url)
+
+    event.respondWith(
+      new Promise((resolve) => {
+        let timedOut = false
+
+        const timer = setTimeout(async () => {
+          timedOut = true
+          const rscCache = await caches.open(CACHE_RSC)
+          const cached = await rscCache.match(cleanRscKey) || await rscCache.match(req)
+          if (cached) {
+            resolve(cached)
+          } else {
+            resolve(new Response(JSON.stringify({ error: 'RSC Flight payload offline miss' }), {
+              status: 503,
+              headers: { 'Content-Type': 'application/json' },
+            }))
+          }
+        }, 2500)
+
+        fetch(req)
+          .then(async (networkRes) => {
+            clearTimeout(timer)
+            if (networkRes.ok) {
+              const rscCache = await caches.open(CACHE_RSC)
+              rscCache.put(cleanRscKey, networkRes.clone())
+            }
+            if (!timedOut) {
+              resolve(networkRes)
+            }
+          })
+          .catch(async () => {
+            clearTimeout(timer)
+            if (!timedOut) {
+              const rscCache = await caches.open(CACHE_RSC)
+              const cached = await rscCache.match(cleanRscKey) || await rscCache.match(req)
+              if (cached) {
+                resolve(cached)
               } else {
                 resolve(new Response(JSON.stringify({ error: 'Offline network failure' }), {
                   status: 503,
@@ -164,4 +226,3 @@ self.addEventListener('fetch', (event) => {
     return
   }
 })
-

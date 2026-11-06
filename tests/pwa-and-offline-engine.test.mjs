@@ -71,6 +71,20 @@ test('2. Next.js 16 RSC-Aware Service Worker Verification', async (t) => {
     const sw = fs.readFileSync(path.resolve('public/sw.js'), 'utf8')
     assert.match(sw, /2500/, 'Must specify 2500ms timeout for network fallback')
   })
+
+  await t.test('public/sw.js strictly isolates CACHE_HTML from CACHE_RSC to prevent raw-text dumps', () => {
+    const sw = fs.readFileSync(path.resolve('public/sw.js'), 'utf8')
+    assert.match(sw, /CACHE_HTML/, 'Must define CACHE_HTML cache bucket')
+    assert.match(sw, /CACHE_RSC/, 'Must define CACHE_RSC cache bucket')
+    assert.match(sw, /isDocumentNavigation\s*&&\s*!isRsc/, 'Must guard HTML navigation from RSC collision')
+    assert.match(sw, /contentType\.includes\(['"]text\/html['"]\)/, 'Must verify text/html Content-Type before storing in HTML cache')
+  })
+
+  await t.test('public/sw.js guarantees document navigation falls back to HTML or offline.html and never text/x-component', () => {
+    const sw = fs.readFileSync(path.resolve('public/sw.js'), 'utf8')
+    assert.match(sw, /'Content-Type':\s*['"]text\/html['"]/, 'HTML document offline fallback must specify text/html Content-Type')
+    assert.doesNotMatch(sw, /CACHE_PAGES\.put\(normalizedKey,\s*cacheCopy\)/, 'Must not share single CACHE_PAGES between HTML and RSC')
+  })
 })
 
 test('3. Database Idempotency Guard & Server Action Verification', async (t) => {

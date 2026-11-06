@@ -75,5 +75,6 @@ export interface BootstrapDataPayload {
   }>
   period_settings: any
   user_profile?: UserProfile | null
+  user_scope?: any | null
 }
 
