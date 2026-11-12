@@ -553,8 +553,8 @@ export function SeatPlannerTab({
 
       {/* 3. MOBILE BOTTOM SHEET FOR UNASSIGNED TRAY */}
       {isMobileTrayOpen && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 backdrop-blur-sm lg:hidden select-none">
-          <div className="w-full max-h-[80vh] rounded-t-3xl border-t border-zinc-200 dark:border-white/10 bg-white dark:bg-[#101726] p-4 flex flex-col font-sans">
+        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/70 backdrop-blur-sm lg:hidden select-none">
+          <div className="w-full max-h-[80vh] rounded-t-3xl border-t border-zinc-200 dark:border-white/10 bg-white dark:bg-[#101726] p-4 pb-[calc(1rem+env(safe-area-inset-bottom,0px))] flex flex-col font-sans">
             <div className="flex items-center justify-between pb-3 border-b border-zinc-200 dark:border-white/10">
               <h3 className="font-heading font-bold text-sm text-zinc-900 dark:text-white flex items-center gap-2">
                 <Users className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
@@ -591,7 +591,7 @@ export function SeatPlannerTab({
 
       {/* 4. WORKSTATION ACTION POPOVER / MODAL */}
       {activeWsModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm select-none">
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm select-none">
           <div className="w-full max-w-sm rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] p-5 shadow-2xl font-sans">
             <div className="flex items-center justify-between pb-3 border-b border-zinc-200 dark:border-white/[0.08]">
               <div>
@@ -695,7 +695,7 @@ export function SeatPlannerTab({
 
       {/* 5. ATOMIC STUDENT SWAP DIALOG */}
       {isSwapDialogOpen && activeWsModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm select-none">
+        <div className="fixed inset-0 z-[75] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm select-none">
           <div className="w-full max-w-sm rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] p-5 shadow-2xl font-sans">
             <h4 className="font-heading font-extrabold text-sm text-zinc-900 dark:text-white mb-2">
               Swap Seats &mdash; {activeWsModal.label}
@@ -748,7 +748,7 @@ export function SeatPlannerTab({
 
       {/* 6. AUTO-ASSIGN CONFIRMATION MODAL */}
       {isAutoAssignDialogOpen && planData && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm select-none">
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm select-none">
           <div className="w-full max-w-md rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] p-5 shadow-2xl font-sans">
             <div className="flex items-center gap-2 mb-2">
               <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-500/20">

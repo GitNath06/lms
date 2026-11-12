@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { authenticateAsTerminal } from './helpers/auth'
 
 test.describe('Responsive Multi-Device Viewport Audit Suite', () => {
   const viewports = [
@@ -41,6 +42,7 @@ test.describe('Responsive Multi-Device Viewport Audit Suite', () => {
 
   test('2. Mobile Device Navigation & Touch-Target Accessibility (390x844)', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
+    await authenticateAsTerminal(page, 'PC-01')
 
     await page.goto('/terminal/PC-01')
     await page.waitForLoadState('domcontentloaded')

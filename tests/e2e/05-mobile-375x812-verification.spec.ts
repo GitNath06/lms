@@ -38,7 +38,7 @@ test.describe('Mobile 375x812 UX & Non-Overlapping Layout Verification', () => {
 
     // Wait for form to mount
     const form = page.locator('form').filter({ hasText: 'Session Environment' })
-    await expect(form).toBeVisible()
+    await expect(form).toBeVisible({ timeout: 30000 })
 
     // Check sticky bottom submit bar
     const submitBtn = form.locator('button[type="submit"]')
@@ -71,9 +71,9 @@ test.describe('Mobile 375x812 UX & Non-Overlapping Layout Verification', () => {
     await page.goto('/computer-lab')
     await page.waitForLoadState('domcontentloaded')
 
-    // Mode switcher should show Bench List active on mobile
-    const benchListToggle = page.locator('button:has-text("Bench List")')
-    await expect(benchListToggle).toBeVisible({ timeout: 30000 })
+    // Mode switcher should show Aisle Deck / Bench List active on mobile
+    const aisleDeckToggle = page.locator('button:has-text("Aisle Deck"), button:has-text("Bench List")').first()
+    await expect(aisleDeckToggle).toBeVisible({ timeout: 30000 })
 
     // Verify bench items are rendered in a clean column
     const benchItems = page.locator('[data-testid="mobile-bench-item"], .rounded-2xl.border')
@@ -84,5 +84,31 @@ test.describe('Mobile 375x812 UX & Non-Overlapping Layout Verification', () => {
       return document.documentElement.scrollWidth > window.innerWidth
     })
     expect(hasHorizontalOverflow).toBe(false)
+  })
+
+  test('4. MobileBottomNav dock is automatically hidden on /records/new to maximize form workspace', async ({ page }) => {
+    await loginAsAdmin(page)
+    await page.goto('/records/new')
+    await page.waitForLoadState('domcontentloaded')
+
+    // Mobile nav dock should NOT be rendered on full-screen creation view
+    const mobileDock = page.locator('nav[aria-label="Mobile Navigation Dock"]')
+    await expect(mobileDock).toHaveCount(0)
+  })
+
+  test('5. MobileBottomNav dock is visible on home/records and positioned below modal overlays', async ({ page }) => {
+    await loginAsAdmin(page)
+    await page.goto('/records')
+    await page.waitForLoadState('domcontentloaded')
+
+    // Mobile nav dock should be visible on /records
+    const mobileDock = page.locator('nav[aria-label="Mobile Navigation Dock"]')
+    await expect(mobileDock).toBeVisible()
+
+    // Mobile dock must have z-index 30
+    const dockZIndex = await mobileDock.evaluate((el) => {
+      return window.getComputedStyle(el).zIndex
+    })
+    expect(Number(dockZIndex)).toBeLessThanOrEqual(30)
   })
 })

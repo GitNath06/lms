@@ -47,8 +47,12 @@ export function setCachedQuery<T>(key: string, data: T): void {
   // Write-through persistence to IndexedDB asynchronously for offline resilience
   if (typeof window !== 'undefined') {
     try {
+      if (key === 'auth:current-user-profile' && (data as any)?.id) {
+        localStorage.setItem('labsync_active_uid', (data as any).id)
+      }
       const activeUser = memoryCache.get('auth:current-user-profile')?.data
-      const uid = activeUser?.id || 'anonymous'
+      const stored = localStorage.getItem('labsync_active_uid') || localStorage.getItem('labsync_current_uid')
+      const uid = activeUser?.id || stored || 'anonymous'
       saveQuerySnapshot(uid, key, data).catch(() => {})
     } catch {}
   }
@@ -58,6 +62,13 @@ export function setCachedQuery<T>(key: string, data: T): void {
  * Restores query snapshots from IndexedDB into memory on cold start (<25ms).
  */
 let _offlineHydrationPromise: Promise<number> | null = null
+
+if (typeof window !== 'undefined') {
+  try {
+    const initUid = localStorage.getItem('labsync_active_uid') || localStorage.getItem('labsync_current_uid') || 'anonymous'
+    _offlineHydrationPromise = hydrateCacheFromIndexedDB(initUid)
+  } catch {}
+}
 
 export async function hydrateCacheFromIndexedDB(uid: string): Promise<number> {
   if (typeof window === 'undefined' || !uid) return 0
@@ -91,7 +102,7 @@ export function waitForOfflineHydration(): Promise<number> {
   let uid = 'anonymous'
   try {
     const activeUser = memoryCache.get('auth:current-user-profile')?.data
-    const stored = localStorage.getItem('labsync_current_uid')
+    const stored = localStorage.getItem('labsync_active_uid') || localStorage.getItem('labsync_current_uid')
     if (activeUser?.id) {
       uid = activeUser.id
     } else if (stored) {
@@ -109,7 +120,7 @@ export function startOfflineHydration(uid?: string): Promise<number> {
   if (!resolvedUid) {
     try {
       const activeUser = memoryCache.get('auth:current-user-profile')?.data
-      const stored = localStorage.getItem('labsync_current_uid')
+      const stored = localStorage.getItem('labsync_active_uid') || localStorage.getItem('labsync_current_uid')
       resolvedUid = activeUser?.id || stored || 'anonymous'
     } catch {
       resolvedUid = 'anonymous'

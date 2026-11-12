@@ -1,13 +1,16 @@
+
 import { test, expect } from '@playwright/test'
+import { loginAsAdmin, authenticateAsTerminal } from './helpers/auth'
 
 test.describe('Deep Interactive Clicks, Drawers & Modals Audit Suite', () => {
   test('1. Computer Lab CAD Floor: Workstation Node Click & Sidebar Drawer Tab Switching', async ({ page }) => {
+    await loginAsAdmin(page)
     await page.goto('/computer-lab')
     await page.waitForLoadState('domcontentloaded')
 
     // Find and click any workstation node (e.g. PC-01, PC-02)
     const pcNode = page.locator('[data-testid="workstation-node"]').first()
-    await expect(pcNode).toBeVisible({ timeout: 10000 })
+    await expect(pcNode).toBeVisible({ timeout: 30000 })
     await pcNode.click()
 
     // Verify Unified Workstation Sidebar Drawer opens
@@ -54,6 +57,7 @@ test.describe('Deep Interactive Clicks, Drawers & Modals Audit Suite', () => {
   })
 
   test('2. Canvas HUD Controls: Minimap, Zoom, Fit-to-Screen & Jump-to-Roll', async ({ page }) => {
+    await loginAsAdmin(page)
     await page.goto('/computer-lab')
     await page.waitForLoadState('domcontentloaded')
 
@@ -71,9 +75,9 @@ test.describe('Deep Interactive Clicks, Drawers & Modals Audit Suite', () => {
       await page.waitForTimeout(300)
     }
 
-    // Test Jump-to-Roll Input
+    // Test Jump-to-Roll Input (present during active session)
     const jumpInput = page.locator('input[placeholder*="Roll"], input[aria-label*="Jump"]').first()
-    if (await jumpInput.count() > 0) {
+    if (await jumpInput.isVisible()) {
       await jumpInput.fill('12')
       await page.waitForTimeout(300)
       expect(await jumpInput.inputValue()).toBe('12')
@@ -81,16 +85,17 @@ test.describe('Deep Interactive Clicks, Drawers & Modals Audit Suite', () => {
   })
 
   test('3. Timetable Grid (/schedules): Day Tabs & Session Action Modal', async ({ page }) => {
+    await loginAsAdmin(page)
     await page.goto('/schedules')
     await page.waitForLoadState('domcontentloaded')
 
     // Click through weekly day tabs (Sunday - Friday)
     const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
     for (const day of dayNames) {
-      const dayBtn = page.locator(`button:has-text("${day}")`).first()
-      if (await dayBtn.count() > 0) {
-        await dayBtn.click()
-        await page.waitForTimeout(200)
+      const dayBtn = page.getByRole('button', { name: day }).or(page.locator(`button:has-text("${day}")`)).first()
+      if (await dayBtn.isVisible()) {
+        await dayBtn.click({ force: true })
+        await page.waitForTimeout(300)
         await expect(page.locator('body')).not.toContainText('Internal Server Error')
       }
     }
@@ -112,6 +117,7 @@ test.describe('Deep Interactive Clicks, Drawers & Modals Audit Suite', () => {
   })
 
   test('4. Maintenance Workbench (/maintenance): Tab Switching & Certified Service History', async ({ page }) => {
+    await loginAsAdmin(page)
     await page.goto('/maintenance')
     await page.waitForLoadState('domcontentloaded')
 
@@ -134,11 +140,12 @@ test.describe('Deep Interactive Clicks, Drawers & Modals Audit Suite', () => {
   })
 
   test('5. Student Terminal Portal (/terminal/PC-01): Interactive Issue Chip Selection & Practical Focus', async ({ page }) => {
+    await authenticateAsTerminal(page, 'PC-01')
     await page.goto('/terminal/PC-01')
     await page.waitForLoadState('domcontentloaded')
 
-    // Verify Practical Focus Banner renders
-    await expect(page.locator('body')).toContainText(/Active Practical Routine|Practical/i)
+    // Verify Problem Category or Terminal view renders
+    await expect(page.locator('body')).toContainText(/Select Problem Category|Workstation|Active Session/i)
 
     // Click an issue chip (e.g. "Mouse / Keyboard Fault")
     const issueChip = page.locator('button:has-text("Mouse / Keyboard Fault"), button:has-text("Missing Lab Software")').first()

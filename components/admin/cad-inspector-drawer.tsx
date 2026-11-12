@@ -227,10 +227,10 @@ export function CadInspectorDrawer({
   return (
     <>
       <div
-        className="fixed inset-0 z-40 bg-black/60 backdrop-blur-xs transition-opacity"
+        className="fixed inset-0 z-[70] bg-black/60 backdrop-blur-xs transition-opacity"
         onClick={onClose}
       />
-      <aside className="fixed top-0 right-0 h-full w-96 max-w-[90vw] z-50 bg-white dark:bg-[#101726] border-l border-zinc-200 dark:border-white/10 shadow-2xl flex flex-col font-sans animate-in slide-in-from-right duration-200">
+      <aside className="fixed top-0 right-0 h-full w-96 max-w-[90vw] z-[71] bg-white dark:bg-[#101726] border-l border-zinc-200 dark:border-white/10 shadow-2xl flex flex-col font-sans animate-in slide-in-from-right duration-200 pb-[env(safe-area-inset-bottom)]">
       {/* Drawer Header */}
       <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-white/10 bg-zinc-50 dark:bg-[#0B0F19]">
         <div className="flex items-center gap-2.5">

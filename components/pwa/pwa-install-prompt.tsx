@@ -122,8 +122,8 @@ export function PwaInstallPrompt() {
 
       {/* iOS Safari 3-Step Visual Instruction Sheet */}
       {showIosGuide && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-150">
-          <div className="bg-[#101726] border border-white/10 rounded-t-3xl sm:rounded-2xl p-6 w-full max-w-md shadow-2xl text-zinc-100">
+        <div className="fixed inset-0 z-[70] bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-150">
+          <div className="bg-[#101726] border border-white/10 rounded-t-3xl sm:rounded-2xl p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] w-full max-w-md shadow-2xl text-zinc-100">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-heading font-bold text-white flex items-center gap-2">
                 <Smartphone className="h-4 w-4 text-indigo-400" />

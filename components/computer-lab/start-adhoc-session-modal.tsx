@@ -134,7 +134,7 @@ export function StartAdHocSessionModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-xs font-sans">
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4 backdrop-blur-xs font-sans">
       <div className="w-full max-w-lg rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 max-h-[calc(100dvh-2rem)] flex flex-col text-zinc-900 dark:text-white">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-zinc-200 dark:border-white/[0.08] p-4.5 bg-zinc-50 dark:bg-[#151E32]/60 shrink-0">

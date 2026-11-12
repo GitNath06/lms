@@ -358,6 +358,16 @@ export function useInfrastructureState() {
             setCachedQuery('bootstrap_data', res.data)
             if (res.data.user_profile) {
               setCachedData('auth:current-user-profile', res.data.user_profile)
+              setCachedQuery('auth:current-user-profile', res.data.user_profile)
+              if (res.data.user_profile.id && typeof window !== 'undefined') {
+                try {
+                  localStorage.setItem('labsync_active_uid', res.data.user_profile.id)
+                } catch {}
+              }
+            }
+            if (res.data.user_scope) {
+              setCachedData('auth:user-scope', res.data.user_scope)
+              setCachedQuery('auth:user-scope', res.data.user_scope)
             }
             return res.data
           }

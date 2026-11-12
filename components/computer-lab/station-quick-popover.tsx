@@ -205,7 +205,7 @@ export function StationQuickPopover({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs select-none">
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs select-none">
       <div className="relative w-full max-w-sm sm:max-w-md rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#101726] shadow-2xl p-4 font-sans text-zinc-900 dark:text-white animate-in zoom-in-95 duration-150 max-h-[calc(100dvh-2rem)] flex flex-col overflow-hidden my-auto space-y-3">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-zinc-200 dark:border-white/[0.08] pb-3 shrink-0">

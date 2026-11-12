@@ -58,32 +58,34 @@ test('2. Next.js 16 RSC-Aware Service Worker Verification', async (t) => {
     const sw = fs.readFileSync(swPath, 'utf8')
 
     // Invariant: Server Actions use POST and must NEVER be intercepted
-    assert.match(sw, /req\.method\s*!==\s*['"]GET['"]\s*\)\s*\{\s*return/, 'Must strictly bypass non-GET requests')
+    assert.match(sw, /req\.method\s*!==\s*['"]GET['"](?:\s*\)\s*\{\s*return|\s*\)\s*return)/, 'Must strictly bypass non-GET requests')
   })
 
-  await t.test('public/sw.js normalizes Next.js 16 RSC query parameters', () => {
+  await t.test('public/sw.js detects and routes Next.js 16 RSC query parameters', () => {
     const sw = fs.readFileSync(path.resolve('public/sw.js'), 'utf8')
     assert.match(sw, /_rsc/, 'Must reference _rsc query parameter')
-    assert.match(sw, /normalizeRscUrl/, 'Must contain normalizeRscUrl normalization helper')
+    assert.match(sw, /isRscRequest/, 'Must contain isRscRequest detection')
+    assert.match(sw, /__rsc_cache=1/, 'Must isolate RSC cache key')
   })
 
-  await t.test('public/sw.js implements 2,500ms network timeout fallback', () => {
+  await t.test('public/sw.js purges legacy v1 caches on activate event', () => {
     const sw = fs.readFileSync(path.resolve('public/sw.js'), 'utf8')
-    assert.match(sw, /2500/, 'Must specify 2500ms timeout for network fallback')
+    assert.match(sw, /validCaches\.has\(key\)/, 'Must check valid caches')
+    assert.match(sw, /caches\.delete\(key\)/, 'Must delete obsolete caches on activate')
   })
 
   await t.test('public/sw.js strictly isolates CACHE_HTML from CACHE_RSC to prevent raw-text dumps', () => {
     const sw = fs.readFileSync(path.resolve('public/sw.js'), 'utf8')
-    assert.match(sw, /CACHE_HTML/, 'Must define CACHE_HTML cache bucket')
-    assert.match(sw, /CACHE_RSC/, 'Must define CACHE_RSC cache bucket')
-    assert.match(sw, /isDocumentNavigation\s*&&\s*!isRsc/, 'Must guard HTML navigation from RSC collision')
+    assert.match(sw, /CACHE_HTML\s*=\s*['"]labsync-html-v2['"]/, 'Must define CACHE_HTML cache bucket')
+    assert.match(sw, /CACHE_RSC\s*=\s*['"]labsync-rsc-v2['"]/, 'Must define CACHE_RSC cache bucket')
+    assert.match(sw, /isHtmlNavigation/, 'Must guard HTML navigation from RSC collision')
     assert.match(sw, /contentType\.includes\(['"]text\/html['"]\)/, 'Must verify text/html Content-Type before storing in HTML cache')
   })
 
   await t.test('public/sw.js guarantees document navigation falls back to HTML or offline.html and never text/x-component', () => {
     const sw = fs.readFileSync(path.resolve('public/sw.js'), 'utf8')
     assert.match(sw, /'Content-Type':\s*['"]text\/html['"]/, 'HTML document offline fallback must specify text/html Content-Type')
-    assert.doesNotMatch(sw, /CACHE_PAGES\.put\(normalizedKey,\s*cacheCopy\)/, 'Must not share single CACHE_PAGES between HTML and RSC')
+    assert.match(sw, /offlineFallback/, 'Must fallback to offline.html')
   })
 })
 
@@ -156,5 +158,16 @@ test('5. Mobile Ergonomics & Tactical UI Standards', async (t) => {
     assert.match(layout, /<MobileBottomNav \/>/, 'Must mount MobileBottomNav')
     assert.match(layout, /<PwaInstallPrompt \/>/, 'Must mount PwaInstallPrompt')
     assert.match(layout, /pb-24\s+md:pb-8/, 'Must have pb-24 md:pb-8 on main page container')
+  })
+
+  await t.test('MobileBottomNav has z-30 and hides on full-screen creation routes (/records/new)', () => {
+    const nav = fs.readFileSync(path.resolve('components/layout/mobile-bottom-nav.tsx'), 'utf8')
+    assert.match(nav, /z-30/, 'MobileBottomNav must have z-30 to remain below modal overlays')
+    assert.match(nav, /pathname\?\.startsWith\('\/records\/new'\)/, 'MobileBottomNav must hide on /records/new')
+  })
+
+  await t.test('log-form.tsx sticky submit bar has safe-area inset clearance', () => {
+    const form = fs.readFileSync(path.resolve('app/(dashboard)/records/new/log-form.tsx'), 'utf8')
+    assert.match(form, /sticky\s+bottom-\[calc\(env\(safe-area-inset-bottom,0px\)/, 'Submit bar must have safe-area clearance')
   })
 })

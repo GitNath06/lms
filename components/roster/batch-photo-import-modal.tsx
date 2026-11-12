@@ -160,7 +160,7 @@ export function BatchPhotoImportModal({
   const unmatchedCount = matchedPhotos.filter((p) => !p.matchedStudentId).length
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 sm:p-6 animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 sm:p-6 animate-in fade-in duration-200">
       <div className="w-full max-w-4xl max-h-[90vh] flex flex-col rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#0E1526] shadow-2xl overflow-hidden font-sans text-zinc-900 dark:text-slate-100">
         
         {/* MODAL HEADER */}

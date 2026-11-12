@@ -368,9 +368,9 @@ export function LiveCockpitBar({
                   ? 'Edit window closed'
                   : undefined
             }
-            className={`h-8 px-3.5 text-xs font-bold rounded-xl shadow-xs gap-1.5 transition-all ${isLocked || isUpcoming
+            className={`h-9 sm:h-8 min-h-[38px] px-3.5 text-xs font-bold rounded-xl shadow-xs gap-1.5 transition-all touch-manipulation cursor-pointer ${isLocked || isUpcoming
                 ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed border border-white/5'
-                : 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer shadow-[0_0_16px_rgba(16,185,129,0.35)]'
+                : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-[0_0_16px_rgba(16,185,129,0.35)]'
               }`}
           >
             {isSaving ? (
@@ -381,17 +381,20 @@ export function LiveCockpitBar({
             ) : isUpcoming ? (
               <>
                 <Lock className="h-3.5 w-3.5 text-slate-500" />
-                <span>Starts at {sessionContext.startTime}</span>
+                <span className="sm:hidden">Starts {sessionContext.startTime}</span>
+                <span className="hidden sm:inline">Starts at {sessionContext.startTime}</span>
               </>
             ) : existingLog ? (
               <>
                 <FileCheck className="h-3.5 w-3.5" />
-                <span>Update Session Log</span>
+                <span className="sm:hidden">Update Log</span>
+                <span className="hidden sm:inline">Update Session Log</span>
               </>
             ) : (
               <>
                 <CheckCircle2 className="h-3.5 w-3.5" />
-                <span>Save & Submit Practical Log</span>
+                <span className="sm:hidden">Submit Log</span>
+                <span className="hidden sm:inline">Save & Submit Practical Log</span>
               </>
             )}
           </Button>

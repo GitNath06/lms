@@ -221,7 +221,10 @@ export function useLogsState() {
       return
     }
 
-    setIsLoading(true)
+    const cached = getCachedData<CachedLogsPayload>(`logs:list:${getNepalDateStr()}`)
+    if (!cached) {
+      setIsLoading(true)
+    }
     try {
       // First attempt to flush any pending offline logs
       await flushOutbox()

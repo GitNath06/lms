@@ -432,14 +432,14 @@ export function WorkstationIssueDrawer({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-xs transition-opacity animate-in fade-in duration-150 cursor-pointer"
+      className="fixed inset-0 z-[70] flex justify-end bg-black/60 backdrop-blur-xs transition-opacity animate-in fade-in duration-150 cursor-pointer"
       onClick={onClose}
     >
       <div
         data-testid="workstation-drawer"
         role="dialog"
         aria-modal="true"
-        className="relative flex h-[100dvh] max-h-[100dvh] w-full sm:w-[420px] max-w-lg md:max-w-xl flex-col bg-white dark:bg-[#101726] border-l border-zinc-200 dark:border-white/[0.08] shadow-2xl overflow-hidden animate-in slide-in-from-right duration-200 cursor-default"
+        className="relative flex h-[100dvh] max-h-[100dvh] w-full sm:w-[420px] max-w-lg md:max-w-xl flex-col bg-white dark:bg-[#101726] border-l border-zinc-200 dark:border-white/[0.08] shadow-2xl overflow-hidden animate-in slide-in-from-right duration-200 cursor-default pb-[env(safe-area-inset-bottom)]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Enterprise Command Header Bar */}

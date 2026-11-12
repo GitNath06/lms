@@ -312,6 +312,13 @@ export async function purgeUserOfflineData(uid: string): Promise<void> {
  * Completely drops the IndexedDB database upon sign-out to guarantee zero student data leaks on shared devices.
  */
 export async function purgeAllOfflineData(): Promise<void> {
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.removeItem('labsync_active_uid')
+      localStorage.removeItem('labsync_current_uid')
+    } catch {}
+  }
+
   if (dbPromise) {
     try {
       const db = await dbPromise

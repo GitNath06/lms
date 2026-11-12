@@ -8,7 +8,7 @@ import {
   isDateWithinHoliday
 } from '@/lib/master-data'
 import { getPeriodSlotsAction } from '@/app/actions/settings'
-import { fetchWithClientCache } from '@/lib/cache/client-query-cache'
+import { fetchWithClientCache, getCachedData, getCachedQuery } from '@/lib/cache/client-query-cache'
 import { useCalendarSettings } from '@/hooks/use-calendar-settings'
 import { parseSlotTimeRange, sortSessionsChronologically } from '@/lib/utils'
 import { getEffectiveDate, isSimulatingTime, TIME_TRAVEL_EVENT } from '@/lib/time-simulator'
@@ -43,7 +43,21 @@ export function useLiveSchedule(customRoutines?: MasterRoutineItem[]): LiveSched
   const [now, setNow] = useState<Date>(() => new Date())
   const [isSimulating, setIsSimulating] = useState(false)
   const [holidayInfo, setHolidayInfo] = useState<{ isHoliday: boolean; holidayTitle?: string }>({ isHoliday: false })
-  const [periods, setPeriods] = useState<PeriodMinuteRange[]>([])
+  const [periods, setPeriods] = useState<PeriodMinuteRange[]>(() => {
+    const cachedSlots = getCachedData<any>('settings:period-slots')?.data || getCachedQuery<any>('bootstrap_data')?.period_settings
+    if (Array.isArray(cachedSlots) && cachedSlots.length > 0) {
+      return cachedSlots.map((slot: any) => {
+        const parsed = parseSlotTimeRange(slot.label || '')
+        return {
+          id: slot.id,
+          name: slot.name || slot.id.toUpperCase(),
+          startMin: parsed.startMin,
+          endMin: parsed.endMin,
+        }
+      })
+    }
+    return []
+  })
 
   useEffect(() => {
     setMounted(true)

@@ -5,6 +5,7 @@ test.describe('Academic Terminology, Design Invariants & Standards Audit Suite',
   const routes = ['/computer-lab', '/terminal/PC-01', '/login']
 
   test('1. Standardized Academic Terminology Compliance (Zero Forbidden Jargon)', async ({ page }) => {
+    await loginAsAdmin(page)
     for (const route of routes) {
       await page.goto(route)
       await page.waitForLoadState('domcontentloaded')

@@ -185,7 +185,10 @@ export function useRoutineState() {
 
   // Load from Supabase with fallback to localStorage and pending outbox merge
   const loadRemoteSchedules = useCallback(async () => {
-    setIsLoading(true)
+    const cached = getCachedData<MasterRoutineItem[]>('schedules:formatted')
+    if (!cached || cached.length === 0) {
+      setIsLoading(true)
+    }
     try {
       try {
         await flushRoutineOutbox()

@@ -1,7 +1,9 @@
 import { test, expect } from '@playwright/test'
+import { loginAsAdmin } from './helpers/auth'
 
 test.describe('LabSync LIMS: Core End-to-End Regressions', () => {
   test('1. Computer Lab CAD Floor Plan & Live Cockpit renders living nodes', async ({ page }) => {
+    await loginAsAdmin(page)
     await page.goto('/computer-lab')
     await page.waitForLoadState('domcontentloaded')
 
@@ -14,6 +16,7 @@ test.describe('LabSync LIMS: Core End-to-End Regressions', () => {
 
     // Verify living workstation nodes are mounted on the floor
     const pcNodes = page.locator('text=/PC-\\d+/i')
+    await expect(pcNodes.first()).toBeAttached({ timeout: 30000 })
     const count = await pcNodes.count()
     expect(count).toBeGreaterThan(0)
 
@@ -26,6 +29,7 @@ test.describe('LabSync LIMS: Core End-to-End Regressions', () => {
   })
 
   test('2. Navigation Hub: Core Operational Views load successfully', async ({ page }) => {
+    await loginAsAdmin(page)
     // A. Weekly Routine Timetable
     await page.goto('/schedules')
     await page.waitForLoadState('domcontentloaded')

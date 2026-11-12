@@ -29,6 +29,12 @@ const NAV_ITEMS: NavItem[] = [
 export function MobileBottomNav() {
   const pathname = usePathname()
 
+  // Hide mobile bottom nav on full-screen creation pages and print views
+  // to ensure 100% viewport space for sticky action bars and inputs
+  if (pathname?.startsWith('/records/new') || pathname?.startsWith('/print')) {
+    return null
+  }
+
   const handleTap = () => {
     try {
       navigator.vibrate?.(8)
@@ -40,7 +46,7 @@ export function MobileBottomNav() {
   return (
     <nav
       aria-label="Mobile Navigation Dock"
-      className="md:hidden fixed bottom-0 inset-x-0 z-50 bg-[#09090B]/95 backdrop-blur-xl border-t border-zinc-800/80 pb-[env(safe-area-inset-bottom)] transition-transform duration-200"
+      className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-[#09090B]/95 backdrop-blur-xl border-t border-zinc-800/80 pb-[env(safe-area-inset-bottom)] transition-transform duration-200"
     >
       <div className="grid grid-cols-5 h-16 items-center px-1">
         {NAV_ITEMS.map((item) => {
