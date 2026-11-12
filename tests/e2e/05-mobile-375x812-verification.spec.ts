@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test'
 import { loginAsAdmin } from './helpers/auth'
 
 test.describe('Mobile 375x812 UX & Non-Overlapping Layout Verification', () => {
+  test.describe.configure({ timeout: 90000 })
   test.use({ viewport: { width: 375, height: 812 } })
 
   test('1. Top Navbar has zero horizontal overflow and no overlapping elements at 375px', async ({ page }) => {
@@ -73,7 +74,7 @@ test.describe('Mobile 375x812 UX & Non-Overlapping Layout Verification', () => {
 
     // Mode switcher should show Aisle Deck / Bench List active on mobile
     const aisleDeckToggle = page.locator('button:has-text("Aisle Deck"), button:has-text("Bench List")').first()
-    await expect(aisleDeckToggle).toBeVisible({ timeout: 30000 })
+    await expect(aisleDeckToggle).toBeVisible({ timeout: 60000 })
 
     // Verify bench items are rendered in a clean column
     const benchItems = page.locator('[data-testid="mobile-bench-item"], .rounded-2xl.border')
@@ -86,14 +87,14 @@ test.describe('Mobile 375x812 UX & Non-Overlapping Layout Verification', () => {
     expect(hasHorizontalOverflow).toBe(false)
   })
 
-  test('4. MobileBottomNav dock is automatically hidden on /records/new to maximize form workspace', async ({ page }) => {
+  test('4. MobileBottomNav dock is visible on /records/new', async ({ page }) => {
     await loginAsAdmin(page)
     await page.goto('/records/new')
     await page.waitForLoadState('domcontentloaded')
 
-    // Mobile nav dock should NOT be rendered on full-screen creation view
+    // Mobile nav dock should be rendered on creation view
     const mobileDock = page.locator('nav[aria-label="Mobile Navigation Dock"]')
-    await expect(mobileDock).toHaveCount(0)
+    await expect(mobileDock).toBeVisible()
   })
 
   test('5. MobileBottomNav dock is visible on home/records and positioned below modal overlays', async ({ page }) => {

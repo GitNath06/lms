@@ -30,44 +30,51 @@ import PageHeader from '@/components/layout/page-header'
 
 export default function PracticalRecordsPage() {
   const [isPending, startTransition] = useTransition()
+  const [mounted, setMounted] = useState<boolean>(false)
 
-  // Filters and Grouping State (initialized with defaults or URL params if in browser)
-  const [filters, setFilters] = useState<PracticalRecordFilters>(() => {
+  // Filters and Grouping State (deterministic SSR defaults to guarantee 0 hydration mismatch)
+  const DEFAULT_FILTERS: PracticalRecordFilters = {
+    academic_year_id: 'all',
+    lab_id: 'all',
+    batch_group: 'all',
+    subject_name: 'all',
+    teacher_id: 'all',
+    status: 'all',
+    search: '',
+    page: 1,
+    pageSize: 10,
+  }
+
+  const [filters, setFilters] = useState<PracticalRecordFilters>(DEFAULT_FILTERS)
+  const [groupBy, setGroupBy] = useState<PracticalGroupingKey>('none')
+
+  // Client-side mount & URL search param hydration
+  useEffect(() => {
+    setMounted(true)
     if (typeof window !== 'undefined' && window.location.search) {
       const parsed = searchParamsToFilters(new URLSearchParams(window.location.search))
-      return {
-        academic_year_id: parsed.academic_year_id || 'all',
-        lab_id: parsed.lab_id || 'all',
-        batch_group: parsed.batch_group || 'all',
-        subject_name: parsed.subject_name || 'all',
-        teacher_id: parsed.teacher_id || 'all',
-        status: parsed.status || 'all',
-        search: parsed.search || '',
-        page: parsed.page || 1,
-        pageSize: parsed.pageSize || 10,
-        sortKey: parsed.sortKey,
-        sortDirection: parsed.sortDirection,
-        date_from: parsed.date_from || '',
-        date_to: parsed.date_to || '',
-        date: parsed.date || '',
-        period_label: parsed.period_label || '',
-        remarks: parsed.remarks || '',
-        teacher_name: parsed.teacher_name || '',
-      }
+      setFilters((prev) => ({
+        ...prev,
+        academic_year_id: parsed.academic_year_id || prev.academic_year_id,
+        lab_id: parsed.lab_id || prev.lab_id,
+        batch_group: parsed.batch_group || prev.batch_group,
+        subject_name: parsed.subject_name || prev.subject_name,
+        teacher_id: parsed.teacher_id || prev.teacher_id,
+        status: parsed.status || prev.status,
+        search: parsed.search || prev.search,
+        page: parsed.page || prev.page,
+        pageSize: parsed.pageSize || prev.pageSize,
+        sortKey: parsed.sortKey || prev.sortKey,
+        sortDirection: parsed.sortDirection || prev.sortDirection,
+        date_from: parsed.date_from || prev.date_from,
+        date_to: parsed.date_to || prev.date_to,
+        date: parsed.date || prev.date,
+        period_label: parsed.period_label || prev.period_label,
+        remarks: parsed.remarks || prev.remarks,
+        teacher_name: parsed.teacher_name || prev.teacher_name,
+      }))
     }
-    return {
-      academic_year_id: 'all',
-      lab_id: 'all',
-      batch_group: 'all',
-      subject_name: 'all',
-      teacher_id: 'all',
-      status: 'all',
-      search: '',
-      page: 1,
-      pageSize: 10,
-    }
-  })
-  const [groupBy, setGroupBy] = useState<PracticalGroupingKey>('none')
+  }, [])
 
   const initialKey = `records:list:${JSON.stringify(filters)}:${groupBy}`
   const initialCached = getCachedData<any>(initialKey)
@@ -236,7 +243,7 @@ export default function PracticalRecordsPage() {
       />
 
       {/* Module C: Analytics Summary Strip */}
-      <PracticalSummaryStrip metrics={metrics} isLoading={isLoading || isPending} />
+      <PracticalSummaryStrip metrics={metrics} isLoading={!mounted || isLoading || isPending} />
 
       {/* Curriculum Syllabus Progress & Quota Tracking */}
       <SyllabusProgress />
@@ -271,7 +278,7 @@ export default function PracticalRecordsPage() {
         userName={userName}
         userScope={userScope}
         onRecordUpdated={fetchRecords}
-        isLoading={isLoading || isPending}
+        isLoading={!mounted || isLoading || isPending}
       />
     </div>
   )

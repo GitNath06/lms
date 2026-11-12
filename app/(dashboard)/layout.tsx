@@ -2,7 +2,6 @@ import Link from 'next/link'
 import { FlaskConical, Command, LogOut } from 'lucide-react'
 import ThemeToggle from '@/components/ui/theme-toggle'
 import LiveClockHeader from '@/components/layout/live-clock-header'
-import CloudSyncStatus from '@/components/layout/cloud-sync-status'
 import NotificationBell from '@/components/layout/notification-bell'
 import CommandPalette from '@/components/command-palette'
 import TimeTravelController from '@/components/dev/time-travel-controller'
@@ -77,9 +76,9 @@ export default async function DashboardLayout({
         {/* Main Container */}
         <div className="flex-1 flex flex-col overflow-hidden print:overflow-visible print:block print:h-auto print:bg-white">
           {/* Topbar with Live Nepali Calendar & Real-time Clock */}
-          <header className="h-16 glass-header flex items-center justify-between px-2.5 sm:px-6 z-40 print:hidden gap-1.5 sm:gap-4">
-            {/* Zone 1: Context (Mobile Nav, Period Beacon & Live Clock) */}
-            <div className="flex items-center gap-1.5 sm:gap-3 shrink-0 min-w-0">
+          <header className="h-16 glass-header w-full max-w-[100vw] px-3 sm:px-6 flex items-center justify-between gap-3 z-40 print:hidden">
+            {/* Left Group */}
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
               <MobileNav
                 isSuperAdmin={isSuperAdmin}
                 canAccessMaintenance={canAccessMaintenance}
@@ -91,14 +90,9 @@ export default async function DashboardLayout({
               <LiveClockHeader />
             </div>
 
-            {/* Zone 2: Flexible Center Spacer */}
-            <div className="flex-1 min-w-2" />
-
-            {/* Zone 3: Utilities & User Identity */}
-            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+            {/* Right Group */}
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
               <HeaderSearchTrigger />
-              <CloudSyncStatus />
-              <div className="h-4 w-px bg-zinc-200/80 dark:bg-zinc-800/80 mx-0.5 hidden xs:block" />
               <NotificationBell
                 currentUserRole={role}
                 currentUserName={profile?.full_name}
@@ -115,7 +109,7 @@ export default async function DashboardLayout({
           <HistoricalArchiveShield />
 
           {/* Page Content with safe padding for persistent mobile dock */}
-          <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 pb-24 md:pb-8 bg-canvas print:p-0 print:m-0 print:bg-white print:overflow-visible print:block">
+          <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 pb-28 md:pb-8 bg-canvas print:p-0 print:m-0 print:bg-white print:overflow-visible print:block">
             <PendingVerificationBanner profile={profile} />
             {children}
           </main>

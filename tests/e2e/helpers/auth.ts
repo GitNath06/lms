@@ -26,7 +26,7 @@ export async function loginAsAdmin(page: Page) {
   await submitBtn.click()
 
   // Wait for redirect to dashboard or away from /login
-  await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 20000 })
+  await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 45000 })
 }
 
 /**

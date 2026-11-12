@@ -682,7 +682,7 @@ export default function PracticalRecordsTable({
         {/* ==================================================================== */}
         {/* RESPONSIVE MOBILE CARD STACK (md:hidden)                              */}
         {/* ==================================================================== */}
-        <div className="block md:hidden divide-y divide-zinc-200/80 dark:divide-zinc-800/80">
+        <div className="block md:hidden p-3 space-y-3 bg-zinc-50/50 dark:bg-canvas">
           {isLoading ? (
             <div className="p-8 text-center text-xs text-zinc-500 space-y-2">
               <div className="h-6 w-6 rounded-full border-2 border-emerald-500/30 border-t-emerald-600 animate-spin mx-auto" />
@@ -701,19 +701,101 @@ export default function PracticalRecordsTable({
               const pct = total > 0 ? Math.round((present / total) * 100) : 0
               const isLowRate = pct < 75
               const isOptimal = pct >= 85
+              const isSkipped = rec.status === 'skipped'
 
               return (
                 <div
                   key={rec.id}
                   onClick={() => handleOpenDetail(rec)}
-                  className={`p-3.5 space-y-2.5 transition-colors cursor-pointer active:scale-[0.99] ${
+                  className={`rounded-xl p-3.5 bg-white dark:bg-zinc-900/90 border transition-all shadow-md flex flex-col gap-2.5 cursor-pointer active:scale-[0.99] ${
                     isSelected
-                      ? 'bg-emerald-50/50 dark:bg-emerald-950/25'
-                      : 'hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40'
+                      ? 'border-emerald-500/50 ring-1 ring-emerald-500/30 bg-emerald-50/30 dark:bg-emerald-950/20'
+                      : 'border-zinc-200/90 dark:border-zinc-800/80 hover:border-indigo-500/40'
                   }`}
                 >
-                  {/* Row 1: Checkbox + Date/Miti + Period Pill */}
-                  <div className="flex items-center justify-between gap-2">
+                  {/* Top row: Subject name + Class badge on left | Conducted/Skipped/Pending on right */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-heading font-extrabold text-sm text-zinc-950 dark:text-white leading-tight">
+                          {rec.subject_name}
+                        </span>
+                        <span className="text-[10px] font-heading font-bold px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-500/20 shrink-0">
+                          {rec.batch_group || 'General'}
+                        </span>
+                      </div>
+                      {rec.practical_title && (
+                        <p className="text-xs text-zinc-600 dark:text-zinc-300 line-clamp-1 mt-0.5">
+                          {rec.practical_title}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {isSkipped ? (
+                        <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/30 uppercase">
+                          Skipped
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 uppercase">
+                          Conducted
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Middle row: 2-column grid of Lab, Date & Period, Instructor, Attendance */}
+                  <div className="grid grid-cols-2 gap-2 text-xs p-2.5 rounded-lg bg-zinc-50 dark:bg-zinc-950/60 border border-zinc-100 dark:border-zinc-800/60">
+                    <div className="space-y-0.5 min-w-0">
+                      <span className="text-[10px] font-mono text-zinc-600 dark:text-slate-300 uppercase block">Facility</span>
+                      <span className="font-medium text-zinc-900 dark:text-zinc-200 truncate block">
+                        {rec.labs?.name || rec.lab_id}
+                      </span>
+                    </div>
+
+                    <div className="space-y-0.5 min-w-0">
+                      <span className="text-[10px] font-mono text-zinc-600 dark:text-slate-300 uppercase block">Date & Period</span>
+                      <span className="font-mono text-zinc-900 dark:text-zinc-200 truncate block text-[11px]">
+                        {miti ? miti.bsFormattedNp : rec.date} • {rec.period_label}
+                      </span>
+                    </div>
+
+                    <div className="space-y-0.5 min-w-0">
+                      <span className="text-[10px] font-mono text-zinc-600 dark:text-slate-300 uppercase block">Instructor</span>
+                      <span className="font-medium text-zinc-900 dark:text-zinc-200 truncate block">
+                        {rec.profiles?.full_name || 'Assigned Teacher'}
+                      </span>
+                    </div>
+
+                    <div className="space-y-0.5 min-w-0">
+                      <span className="text-[10px] font-mono text-zinc-600 dark:text-slate-300 uppercase block">Attendance</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-mono font-bold tabular-nums text-zinc-900 dark:text-zinc-100">
+                          {present}/{total}
+                        </span>
+                        <span
+                          className={`text-[9px] font-mono font-bold px-1.5 py-0.2 rounded border tabular-nums ${
+                            isOptimal
+                              ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
+                              : isLowRate
+                              ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30'
+                              : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-slate-200 border-zinc-200 dark:border-zinc-700'
+                          }`}
+                        >
+                          {pct}%
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Bottom row: Topic Learned Summary & Touch-friendly Action Buttons (min-h-[40px]) */}
+                  {rec.topic_learned && (
+                    <p className="text-[11px] text-zinc-500 dark:text-slate-400 line-clamp-2 italic">
+                      "{rec.topic_learned}"
+                    </p>
+                  )}
+
+                  <div className="flex items-center justify-between gap-2 pt-1 border-t border-zinc-100 dark:border-zinc-800/80">
                     <div className="flex items-center gap-2">
                       <input
                         type="checkbox"
@@ -723,68 +805,38 @@ export default function PracticalRecordsTable({
                         className="rounded border-zinc-300 dark:border-zinc-700 text-emerald-600 focus:ring-emerald-500 cursor-pointer h-4 w-4"
                         aria-label={`Select practical record on ${rec.date}`}
                       />
-                      <div className="text-xs font-mono">
-                        <span className="font-heading font-extrabold text-zinc-900 dark:text-white">
-                          {miti ? miti.bsFormattedNp : rec.date}
-                        </span>
-                        <span className="text-[10px] text-zinc-500 dark:text-slate-400 ml-1.5">
-                          ({rec.date})
-                        </span>
-                      </div>
+                      <span className="text-[10px] font-mono text-zinc-600 dark:text-slate-300">Select</span>
                     </div>
 
-                    <span className="text-[11px] font-mono font-medium px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700">
-                      {rec.period_label}
-                    </span>
-                  </div>
-
-                  {/* Row 2: Subject & Class Batch & Lab */}
-                  <div>
-                    <h4 className="font-heading font-extrabold text-sm text-zinc-900 dark:text-white leading-snug">
-                      {rec.subject_name}
-                    </h4>
-                    {rec.practical_title && (
-                      <p className="text-xs text-zinc-600 dark:text-zinc-300 line-clamp-1 mt-0.5">
-                        {rec.practical_title}
-                      </p>
-                    )}
-                    <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-                      <span className="text-[10px] font-heading font-bold px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-500/20">
-                        {rec.batch_group || 'General'}
-                      </span>
-                      <span className="text-[10px] font-sans px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700">
-                        {rec.labs?.name || rec.lab_id}
-                      </span>
-                      {rec.status === 'skipped' ? (
-                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-600 border border-rose-500/20">
-                          Skipped
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
-
-                  {/* Row 3: Teacher & Attendance Pill */}
-                  <div className="flex items-center justify-between pt-1 text-xs">
-                    <span className="text-zinc-600 dark:text-zinc-400 font-medium truncate max-w-[160px]">
-                      {rec.profiles?.full_name || 'Assigned Subject Teacher'}
-                    </span>
-
-                    {/* Attendance Pill with 3-tier semantic badge */}
                     <div className="flex items-center gap-1.5">
-                      <span className="font-mono text-zinc-500 dark:text-slate-400 text-[11px] tabular-nums">
-                        {present}/{total}
-                      </span>
-                      <span
-                        className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-md border tabular-nums ${
-                          isOptimal
-                            ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
-                            : isLowRate
-                            ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30'
-                            : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-slate-200 border-zinc-200 dark:border-zinc-700'
-                        }`}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleOpenDetail(rec)
+                        }}
+                        className="h-10 px-3 rounded-xl text-xs font-semibold border-zinc-200 dark:border-zinc-800 text-zinc-800 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 gap-1 cursor-pointer"
                       >
-                        {pct}% {isOptimal ? 'Optimal' : isLowRate ? 'Low Rate' : 'Normal'}
-                      </span>
+                        <Eye className="h-3.5 w-3.5 text-zinc-500" />
+                        <span>View Details</span>
+                      </Button>
+
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          window.open(`/print/records?selected_ids=${rec.id}`, '_blank')
+                        }}
+                        className="h-10 px-3 rounded-xl text-xs font-semibold border-zinc-200 dark:border-zinc-800 text-zinc-800 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 gap-1 cursor-pointer"
+                        title="Print single session slip"
+                      >
+                        <Printer className="h-3.5 w-3.5 text-zinc-500" />
+                        <span>Print</span>
+                      </Button>
                     </div>
                   </div>
                 </div>

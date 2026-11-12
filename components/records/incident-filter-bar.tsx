@@ -114,14 +114,14 @@ export default function IncidentFilterBar({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
+        <div className="grid grid-cols-3 sm:flex sm:flex-wrap items-center gap-2 w-full sm:w-auto">
           {/* Mobile on-demand toggle button */}
           <Button
             type="button"
             variant="outline"
             size="sm"
             onClick={() => setIsMobileExpanded(!isMobileExpanded)}
-            className="md:hidden h-8 px-2.5 rounded-xl text-xs font-sans border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-200 gap-1.5"
+            className="md:hidden h-9 px-2 rounded-xl text-xs font-sans border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-200 gap-1 justify-center w-full"
           >
             <SlidersHorizontal className="h-3.5 w-3.5 text-indigo-500" />
             <span>Filters {activeFilterCount > 0 ? `(${activeFilterCount})` : ''}</span>
@@ -137,7 +137,7 @@ export default function IncidentFilterBar({
             variant="outline"
             size="sm"
             onClick={handleReset}
-            className="h-8 px-2.5 rounded-xl text-xs font-mono border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 gap-1.5"
+            className="h-9 px-2.5 rounded-xl text-xs font-mono border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 gap-1.5 justify-center w-full sm:w-auto"
           >
             <RotateCcw className="h-3 w-3" />
             <span>Reset</span>
@@ -146,7 +146,7 @@ export default function IncidentFilterBar({
           <Button
             type="submit"
             size="sm"
-            className="h-8 px-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-sans text-xs font-semibold gap-1.5 shadow-xs border border-indigo-500/30 cursor-pointer"
+            className="h-9 px-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-sans text-xs font-semibold gap-1.5 shadow-xs border border-indigo-500/30 cursor-pointer justify-center w-full sm:w-auto"
           >
             <Search className="h-3.5 w-3.5" />
             <span>Search</span>

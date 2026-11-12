@@ -18,6 +18,20 @@ export function PwaRegister() {
       window.caches.delete('labsync-pages-v1').catch(() => {})
       window.caches.delete('labsync-static-v1').catch(() => {})
       window.caches.delete('labsync-rsc-v1').catch(() => {})
+
+      // In local development, purge any cached Next.js static chunks to prevent stale chunk collisions
+      const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+      if (isLocalhost) {
+        window.caches.open('labsync-static-v2').then((cache) => {
+          cache.keys().then((requests) => {
+            for (const req of requests) {
+              if (req.url.includes('/_next/')) {
+                cache.delete(req)
+              }
+            }
+          })
+        }).catch(() => {})
+      }
     }
 
     const prewarmRoutes = () => {

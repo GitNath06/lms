@@ -375,45 +375,48 @@ export function TeacherProfileForm({ initialProfile, userScope }: TeacherProfile
 
   return (
     <div className="space-y-6">
-      {/* 1. Top Tab Navigation Bar */}
-      <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-zinc-100/80 dark:bg-zinc-900/80 border border-zinc-200/80 dark:border-zinc-800/80 w-full sm:w-fit">
+      {/* 1. Top Tab Navigation Bar (Full Width Responsive Grid on Mobile) */}
+      <div className="grid grid-cols-3 w-full bg-zinc-100/90 dark:bg-zinc-950 p-1 rounded-2xl border border-zinc-200/80 dark:border-zinc-800 text-xs sm:text-sm font-sans gap-1">
         <button
           type="button"
           onClick={() => setActiveTab('identity')}
-          className={`flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+          className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2.5 rounded-xl font-semibold transition-all cursor-pointer min-h-[42px] ${
             activeTab === 'identity'
               ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-xs'
               : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200'
           }`}
         >
-          <User className="h-4 w-4 text-indigo-500" />
-          <span>Academic Profile & Scope</span>
+          <User className="h-4 w-4 text-indigo-500 shrink-0" />
+          <span className="sm:hidden">Profile</span>
+          <span className="hidden sm:inline">Academic Profile</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('security')}
-          className={`flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+          className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2.5 rounded-xl font-semibold transition-all cursor-pointer min-h-[42px] ${
             activeTab === 'security'
               ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-xs'
               : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200'
           }`}
         >
-          <KeyRound className="h-4 w-4 text-amber-500" />
-          <span>Security & Credentials</span>
+          <KeyRound className="h-4 w-4 text-amber-500 shrink-0" />
+          <span className="sm:hidden">Security</span>
+          <span className="hidden sm:inline">Security</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('preferences')}
-          className={`flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+          className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2.5 rounded-xl font-semibold transition-all cursor-pointer min-h-[42px] ${
             activeTab === 'preferences'
               ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-xs'
               : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200'
           }`}
         >
-          <Bell className="h-4 w-4 text-emerald-500" />
-          <span>Preferences & Alerts</span>
+          <Bell className="h-4 w-4 text-emerald-500 shrink-0" />
+          <span className="sm:hidden">Preferences</span>
+          <span className="hidden sm:inline">Preferences</span>
         </button>
       </div>
 
@@ -447,7 +450,7 @@ export function TeacherProfileForm({ initialProfile, userScope }: TeacherProfile
             </div>
 
             {/* Profile Picture / Avatar Management */}
-            <div className="flex flex-col sm:flex-row sm:items-center gap-4 p-4 rounded-2xl bg-zinc-50 dark:bg-zinc-900/40 border border-zinc-200/80 dark:border-zinc-800/80">
+            <div className="flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-4 p-4 sm:p-6 rounded-2xl bg-zinc-50 dark:bg-zinc-900/95 border border-zinc-200/80 dark:border-zinc-800 shadow-xs">
               <div className="relative group shrink-0">
                 <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl border-2 border-indigo-500/30 overflow-hidden bg-gradient-to-br from-indigo-500/10 via-zinc-100 to-zinc-200 dark:from-indigo-950/40 dark:via-zinc-800 dark:to-zinc-900 flex items-center justify-center shadow-inner">
                   {avatarUrl ? (
@@ -479,7 +482,7 @@ export function TeacherProfileForm({ initialProfile, userScope }: TeacherProfile
                   </p>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
                   <input
                     type="file"
                     ref={fileInputRef}
@@ -491,7 +494,7 @@ export function TeacherProfileForm({ initialProfile, userScope }: TeacherProfile
                     type="button"
                     disabled={isAvatarUploading}
                     onClick={() => fileInputRef.current?.click()}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white transition-colors cursor-pointer disabled:opacity-50 shadow-xs"
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white transition-colors cursor-pointer disabled:opacity-50 shadow-xs min-h-[38px]"
                   >
                     <Camera className="h-3.5 w-3.5" />
                     <span>Upload Photo</span>
@@ -502,7 +505,7 @@ export function TeacherProfileForm({ initialProfile, userScope }: TeacherProfile
                       type="button"
                       disabled={isAvatarUploading}
                       onClick={handleRemoveAvatar}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-zinc-200 dark:bg-zinc-800 hover:bg-rose-500/10 hover:text-rose-600 dark:hover:text-rose-400 text-zinc-700 dark:text-zinc-300 transition-colors cursor-pointer disabled:opacity-50"
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-zinc-200 dark:bg-zinc-800 hover:bg-rose-500/10 hover:text-rose-600 dark:hover:text-rose-400 text-zinc-700 dark:text-zinc-300 transition-colors cursor-pointer disabled:opacity-50 min-h-[38px]"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                       <span>Remove</span>
@@ -512,7 +515,7 @@ export function TeacherProfileForm({ initialProfile, userScope }: TeacherProfile
 
                 {avatarMessage && (
                   <div
-                    className={`text-xs font-medium flex items-center gap-1.5 ${
+                    className={`text-xs font-medium flex items-center gap-1.5 justify-center sm:justify-start ${
                       avatarMessage.type === 'success'
                         ? 'text-emerald-600 dark:text-emerald-400'
                         : 'text-rose-600 dark:text-rose-400'
@@ -538,7 +541,7 @@ export function TeacherProfileForm({ initialProfile, userScope }: TeacherProfile
                 <select
                   value={honorific}
                   onChange={(e) => setHonorific(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                  className="w-full px-3 py-2.5 text-base sm:text-xs min-h-[44px] rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700/80 text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/40 dark:focus:border-emerald-500 transition-colors"
                 >
                   <option value="">None</option>
                   <option value="Er.">Er. (Engineer)</option>
@@ -561,7 +564,7 @@ export function TeacherProfileForm({ initialProfile, userScope }: TeacherProfile
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
                   placeholder="e.g. Ramesh Adhikari"
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                  className="w-full px-3 py-2.5 text-base sm:text-xs min-h-[44px] rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700/80 text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 dark:focus:border-emerald-500 transition-colors"
                 />
               </div>
 
@@ -580,9 +583,9 @@ export function TeacherProfileForm({ initialProfile, userScope }: TeacherProfile
                     Change Email
                   </button>
                 </div>
-                <div className="px-3 py-2 text-xs rounded-xl bg-zinc-100/80 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 font-mono select-none flex items-center justify-between">
-                  <span>{currentEmail}</span>
-                  <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                <div className="px-3 py-2.5 text-base sm:text-xs min-h-[44px] rounded-xl bg-zinc-100/80 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 font-mono select-none flex items-center justify-between">
+                  <span className="truncate">{currentEmail}</span>
+                  <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20 shrink-0">
                     Primary
                   </span>
                 </div>
@@ -599,7 +602,7 @@ export function TeacherProfileForm({ initialProfile, userScope }: TeacherProfile
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   placeholder="e.g. +977 9841XXXXXX"
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                  className="w-full px-3 py-2.5 text-base sm:text-xs min-h-[44px] rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700/80 text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 dark:focus:border-emerald-500 transition-colors"
                 />
               </div>
 
@@ -613,7 +616,7 @@ export function TeacherProfileForm({ initialProfile, userScope }: TeacherProfile
                   value={bio}
                   onChange={(e) => setBio(e.target.value)}
                   placeholder="Describe your subject focus, laboratory practical modules, or research areas..."
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                  className="w-full px-3 py-2.5 text-base sm:text-xs rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700/80 text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 dark:focus:border-emerald-500 transition-colors"
                 />
               </div>
             </div>
@@ -714,7 +717,7 @@ export function TeacherProfileForm({ initialProfile, userScope }: TeacherProfile
             <button
               type="submit"
               disabled={isPending}
-              className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs transition-all shadow-md shadow-indigo-600/20 disabled:opacity-50 cursor-pointer"
+              className="w-full sm:w-auto min-h-[48px] inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm sm:text-xs transition-all shadow-md shadow-indigo-600/20 disabled:opacity-50 cursor-pointer"
             >
               {isPending ? (
                 <>
@@ -777,12 +780,12 @@ export function TeacherProfileForm({ initialProfile, userScope }: TeacherProfile
                     value={currPassword}
                     onChange={(e) => setCurrPassword(e.target.value)}
                     placeholder="Enter current password"
-                    className="w-full px-3 py-2 pr-10 text-xs rounded-xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-amber-500/40"
+                    className="w-full px-3 py-2.5 pr-10 text-base sm:text-xs min-h-[44px] rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700/80 text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-amber-500/40 dark:focus:border-amber-500 transition-colors"
                   />
                   <button
                     type="button"
                     onClick={() => setShowCurrPass(!showCurrPass)}
-                    className="absolute right-3 top-2.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 cursor-pointer"
+                    className="absolute right-3 top-3 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 cursor-pointer"
                   >
                     {showCurrPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
@@ -801,12 +804,12 @@ export function TeacherProfileForm({ initialProfile, userScope }: TeacherProfile
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     placeholder="Enter new strong password"
-                    className="w-full px-3 py-2 pr-10 text-xs rounded-xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-amber-500/40"
+                    className="w-full px-3 py-2.5 pr-10 text-base sm:text-xs min-h-[44px] rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700/80 text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-amber-500/40 dark:focus:border-amber-500 transition-colors"
                   />
                   <button
                     type="button"
                     onClick={() => setShowNewPass(!showNewPass)}
-                    className="absolute right-3 top-2.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 cursor-pointer"
+                    className="absolute right-3 top-3 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 cursor-pointer"
                   >
                     {showNewPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
@@ -825,12 +828,12 @@ export function TeacherProfileForm({ initialProfile, userScope }: TeacherProfile
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="Confirm new password"
-                    className="w-full px-3 py-2 pr-10 text-xs rounded-xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-amber-500/40"
+                    className="w-full px-3 py-2.5 pr-10 text-base sm:text-xs min-h-[44px] rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700/80 text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-amber-500/40 dark:focus:border-amber-500 transition-colors"
                   />
                   <button
                     type="button"
                     onClick={() => setShowConfirmPass(!showConfirmPass)}
-                    className="absolute right-3 top-2.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 cursor-pointer"
+                    className="absolute right-3 top-3 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 cursor-pointer"
                   >
                     {showConfirmPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
@@ -850,7 +853,7 @@ export function TeacherProfileForm({ initialProfile, userScope }: TeacherProfile
                 <button
                   type="submit"
                   disabled={isPassChanging}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs transition-all shadow-md shadow-amber-600/20 disabled:opacity-50 cursor-pointer"
+                  className="w-full sm:w-auto min-h-[48px] inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-semibold text-sm sm:text-xs transition-all shadow-md shadow-amber-600/20 disabled:opacity-50 cursor-pointer"
                 >
                   {isPassChanging ? (
                     <>
@@ -933,12 +936,12 @@ export function TeacherProfileForm({ initialProfile, userScope }: TeacherProfile
                       value={emailCurrPassword}
                       onChange={(e) => setEmailCurrPassword(e.target.value)}
                       placeholder="Confirm your identity with password"
-                      className="w-full px-3 py-2 pr-10 text-xs rounded-xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                      className="w-full px-3 py-2.5 pr-10 text-base sm:text-xs min-h-[44px] rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700/80 text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 dark:focus:border-indigo-500 transition-colors"
                     />
                     <button
                       type="button"
                       onClick={() => setShowEmailCurrPass(!showEmailCurrPass)}
-                      className="absolute right-3 top-2.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 cursor-pointer"
+                      className="absolute right-3 top-3 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 cursor-pointer"
                     >
                       {showEmailCurrPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
@@ -955,7 +958,7 @@ export function TeacherProfileForm({ initialProfile, userScope }: TeacherProfile
                     value={targetNewEmail}
                     onChange={(e) => setTargetNewEmail(e.target.value)}
                     placeholder="e.g. new.faculty@rrl.edu.np"
-                    className="w-full px-3 py-2 text-xs rounded-xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                    className="w-full px-3 py-2.5 text-base sm:text-xs min-h-[44px] rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700/80 text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 dark:focus:border-indigo-500 transition-colors"
                   />
                 </div>
 
@@ -963,7 +966,7 @@ export function TeacherProfileForm({ initialProfile, userScope }: TeacherProfile
                   <button
                     type="submit"
                     disabled={isEmailSending}
-                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs transition-all shadow-md shadow-indigo-600/20 disabled:opacity-50 cursor-pointer"
+                    className="w-full sm:w-auto min-h-[48px] inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm sm:text-xs transition-all shadow-md shadow-indigo-600/20 disabled:opacity-50 cursor-pointer"
                   >
                     {isEmailSending ? (
                       <>
@@ -1185,7 +1188,7 @@ export function TeacherProfileForm({ initialProfile, userScope }: TeacherProfile
                   value={newSpecInput}
                   onChange={(e) => setNewSpecInput(e.target.value)}
                   placeholder="Add subject (e.g. Chemistry Lab, Class 12 CS)"
-                  className="flex-1 px-3 py-1.5 text-xs rounded-xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                  className="flex-1 px-3 py-2 text-base sm:text-xs min-h-[40px] rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700/80 text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
                 />
                 <button
                   type="button"
@@ -1235,7 +1238,7 @@ export function TeacherProfileForm({ initialProfile, userScope }: TeacherProfile
             <button
               type="submit"
               disabled={isPending}
-              className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs transition-all shadow-md shadow-indigo-600/20 disabled:opacity-50 cursor-pointer"
+              className="w-full sm:w-auto min-h-[48px] inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm sm:text-xs transition-all shadow-md shadow-indigo-600/20 disabled:opacity-50 cursor-pointer"
             >
               {isPending ? (
                 <>

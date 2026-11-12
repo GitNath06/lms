@@ -35,50 +35,55 @@ export default function LiveClockHeader() {
     )
   }
 
-  // Mobile compact date string: e.g. "२०८३ कात्तिक ७" (hiding long weekday on <640px)
-  const shortBsDateMobile = `${toNepaliDigits(nepaliDate.bsYear)} ${nepaliDate.bsMonthNameNp} ${toNepaliDigits(nepaliDate.bsDay)}`
+  // Base Bikram Sambat date string: e.g. "२०८३ कात्तिक २६"
+  const baseBsDate = `${toNepaliDigits(nepaliDate.bsYear)} ${nepaliDate.bsMonthNameNp} ${toNepaliDigits(nepaliDate.bsDay)}`
 
   return (
     <>
-      <div className="flex items-center gap-2 select-none min-w-0">
-        {/* Live Active Period Beacon */}
+      <div className="flex items-center gap-2 select-none shrink-0 whitespace-nowrap">
+        {/* Live Active Period Beacon — hidden on mobile (< 768px), visible on md:inline-flex */}
         {activeSlotId ? (
-          <span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-heading font-extrabold tracking-wider bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/60 shadow-2xs shrink-0">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-ping" />
-            {activePeriodName.toUpperCase()}
+          <span className="hidden md:inline-flex items-center gap-2 h-9 px-2.5 sm:px-3 rounded-xl text-xs font-heading font-extrabold tracking-wider bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 shadow-2xs shrink-0 whitespace-nowrap">
+            <span className="h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-emerald-500/30 animate-pulse shrink-0" />
+            <span>{activePeriodName.toUpperCase()}</span>
           </span>
         ) : (
-          <span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-heading font-semibold tracking-wide text-zinc-700 dark:text-slate-200 bg-zinc-100 dark:bg-surface-2 border border-zinc-200/80 dark:border-border-subtle shrink-0">
-            <span className="h-1.5 w-1.5 rounded-full bg-zinc-400 dark:bg-slate-400" />
-            BREAK / OFF-HOURS
+          <span className="hidden md:inline-flex items-center gap-2 h-9 px-2.5 sm:px-3 rounded-xl text-xs font-heading font-bold tracking-wide text-zinc-800 dark:text-zinc-200 bg-zinc-100/90 dark:bg-zinc-800/80 shadow-2xs shrink-0 whitespace-nowrap">
+            <span className="h-2 w-2 rounded-full bg-zinc-400 dark:bg-zinc-500 shrink-0" />
+            <span>BREAK</span>
+            <span className="hidden lg:inline">&nbsp;/ OFF-HOURS</span>
           </span>
         )}
 
-        {/* Nepali Calendar BS & English Date Interactive Display */}
+        {/* Nepali Calendar BS & English Date Interactive Display (Zero overflow-hidden, zero chopping) */}
         <button
           type="button"
           onClick={() => setIsCalendarOpen(true)}
-          className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 rounded-xl border border-zinc-200/90 dark:border-zinc-800/90 bg-white/90 dark:bg-zinc-900/90 hover:border-amber-400/80 dark:hover:border-amber-600/80 hover:bg-amber-50/40 dark:hover:bg-amber-950/30 shadow-2xs text-xs font-sans transition-all cursor-pointer group text-left max-w-[165px] sm:max-w-none shrink-0"
+          className="h-9 flex items-center gap-2 sm:gap-2.5 px-2.5 sm:px-3 rounded-xl bg-zinc-100/90 dark:bg-zinc-800/80 hover:bg-zinc-200/80 dark:hover:bg-zinc-700/70 shadow-2xs text-xs font-sans transition-all cursor-pointer group text-left shrink-0 whitespace-nowrap"
           title="Click to view Academic Calendar & National Holidays"
         >
-          <div className="flex items-center gap-1.5 min-w-0">
-            <Calendar className="h-3.5 w-3.5 text-amber-500 dark:text-amber-400 group-hover:scale-110 transition-transform shrink-0" />
-            <span className="font-semibold text-zinc-900 dark:text-zinc-100 group-hover:text-amber-700 dark:group-hover:text-amber-300 transition-colors truncate">
-              <span className="sm:hidden">{shortBsDateMobile}</span>
-              <span className="hidden sm:inline">{nepaliDate.formattedDateNp}</span>
+          <div className="flex items-center gap-1.5 shrink-0 whitespace-nowrap">
+            <Calendar className="h-4 w-4 text-amber-500 dark:text-amber-400 group-hover:scale-110 transition-transform shrink-0" />
+            {/* Always show Bikram Sambat date */}
+            <span className="font-semibold text-zinc-900 dark:text-zinc-100 group-hover:text-amber-600 dark:group-hover:text-amber-300 transition-colors whitespace-nowrap">
+              {baseBsDate}
+              {/* Show weekday on 2xl screens (>= 1536px) */}
+              <span className="hidden 2xl:inline">, {nepaliDate.dayNameNp}</span>
             </span>
-            <span className="text-[11.5px] font-sans font-medium text-zinc-500 dark:text-slate-300 hidden md:inline shrink-0">
+            {/* Show English date on 2xl screens (>= 1536px) */}
+            <span className="text-xs font-sans font-medium text-zinc-500 dark:text-zinc-400 hidden 2xl:inline shrink-0 whitespace-nowrap">
               ({nepaliDate.englishDate})
             </span>
-            <ChevronDown className="h-3 w-3 text-zinc-400 group-hover:text-amber-500 transition-colors ml-0.5 shrink-0" />
+            <ChevronDown className="h-3 w-3 text-zinc-400 group-hover:text-amber-500 transition-colors shrink-0" />
           </div>
 
-          <div className="h-3.5 w-px bg-zinc-200 dark:bg-zinc-800 hidden sm:block" />
+          {/* Divider between Date and Clock: visible on lg:flex (>= 1024px) */}
+          <div className="h-4 w-px bg-zinc-300 dark:bg-zinc-700 hidden lg:block shrink-0" />
 
-          {/* Live Clock with Tabular Numbers (Secondary hierarchy on desktop/tablet) */}
-          <div className="hidden sm:flex items-center gap-1.5 text-zinc-700 dark:text-slate-300 font-mono tabular-nums font-medium">
-            <Clock className="h-3.5 w-3.5 text-zinc-400 dark:text-slate-400" />
-            <span>{localTime || timeString}</span>
+          {/* Live Clock with Bold Tabular Numbers — visible on lg:inline-flex (>= 1024px) */}
+          <div className="hidden lg:flex items-center gap-1.5 text-zinc-900 dark:text-zinc-100 font-mono tabular-nums font-bold text-xs sm:text-[13px] whitespace-nowrap shrink-0">
+            <Clock className="h-3.5 w-3.5 text-zinc-500 dark:text-zinc-400 shrink-0" />
+            <span className="whitespace-nowrap">{localTime || timeString}</span>
           </div>
         </button>
       </div>

@@ -28,41 +28,48 @@ import { Button } from '@/components/ui/button'
 
 export default function IncidentRecordsPage() {
   const [isPending, startTransition] = useTransition()
+  const [mounted, setMounted] = useState<boolean>(false)
 
-  // Filters State
-  const [filters, setFilters] = useState<IncidentRecordFilters>(() => {
+  // Filters State (deterministic SSR defaults to guarantee 0 hydration mismatch)
+  const DEFAULT_FILTERS: IncidentRecordFilters = {
+    academic_year_id: 'all',
+    lab_id: 'all',
+    severity: 'all',
+    status: 'all',
+    incident_type: 'all',
+    search: '',
+    page: 1,
+    pageSize: 10,
+  }
+
+  const [filters, setFilters] = useState<IncidentRecordFilters>(DEFAULT_FILTERS)
+
+  // Client-side mount & URL search param hydration
+  useEffect(() => {
+    setMounted(true)
     if (typeof window !== 'undefined' && window.location.search) {
       const parsed = searchParamsToFilters(new URLSearchParams(window.location.search))
-      return {
-        academic_year_id: (parsed as any).academic_year_id || 'all',
-        lab_id: parsed.lab_id || 'all',
-        severity: parsed.severity || 'all',
-        status: parsed.status || 'all',
-        incident_type: (parsed as any).incident_type || 'all',
-        date_from: parsed.date_from || '',
-        date_to: parsed.date_to || '',
-        date: parsed.date || '',
-        equipment_name: parsed.equipment_name || '',
-        title: parsed.title || '',
-        teacher_name: parsed.teacher_name || '',
-        search: parsed.search || '',
-        page: parsed.page || 1,
-        pageSize: parsed.pageSize || 10,
-        sortKey: parsed.sortKey,
-        sortDirection: parsed.sortDirection,
-      }
+      setFilters((prev) => ({
+        ...prev,
+        academic_year_id: (parsed as any).academic_year_id || prev.academic_year_id,
+        lab_id: parsed.lab_id || prev.lab_id,
+        severity: parsed.severity || prev.severity,
+        status: parsed.status || prev.status,
+        incident_type: (parsed as any).incident_type || (prev as any).incident_type,
+        date_from: parsed.date_from || prev.date_from,
+        date_to: parsed.date_to || prev.date_to,
+        date: parsed.date || prev.date,
+        equipment_name: parsed.equipment_name || prev.equipment_name,
+        title: parsed.title || prev.title,
+        teacher_name: parsed.teacher_name || prev.teacher_name,
+        search: parsed.search || prev.search,
+        page: parsed.page || prev.page,
+        pageSize: parsed.pageSize || prev.pageSize,
+        sortKey: parsed.sortKey || prev.sortKey,
+        sortDirection: parsed.sortDirection || prev.sortDirection,
+      }))
     }
-    return {
-      academic_year_id: 'all',
-      lab_id: 'all',
-      severity: 'all',
-      status: 'all',
-      incident_type: 'all',
-      search: '',
-      page: 1,
-      pageSize: 10,
-    }
-  })
+  }, [])
 
   const initialKey = `incidents:records:${JSON.stringify(filters)}`
   const initialCached = getCachedData<any>(initialKey)
@@ -420,7 +427,7 @@ export default function IncidentRecordsPage() {
       />
 
       {/* Module C: Analytics Summary Strip */}
-      <IncidentSummaryStrip metrics={metrics} isLoading={isLoading || isPending} />
+      <IncidentSummaryStrip metrics={metrics} isLoading={!mounted || isLoading || isPending} />
 
       {/* Module B1: Filter Bar */}
       <IncidentFilterBar
@@ -444,7 +451,7 @@ export default function IncidentRecordsPage() {
         labs={labs}
         userRole={userRole}
         userName={userId}
-        isLoading={isLoading || isPending}
+        isLoading={!mounted || isLoading || isPending}
       />
 
       {/* Module B2: Incident Detail & Action Drawer */}

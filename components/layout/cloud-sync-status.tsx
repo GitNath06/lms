@@ -155,7 +155,7 @@ const isSyncing = (isOnline && totalPending > 0) || isManagerSyncing
             setIsHovered((v) => !v)
             if (totalPending > 0) flushMutationOutbox()
           }}
-          className="flex items-center justify-center h-9 w-9 rounded-xl hover:bg-zinc-100 dark:hover:bg-white/[0.06] transition-colors cursor-pointer select-none"
+          className="flex items-center justify-center h-8 w-8 sm:h-9 sm:w-9 rounded-xl hover:bg-zinc-100 dark:hover:bg-white/[0.06] transition-colors cursor-pointer select-none shrink-0"
           title="Database: Supabase Live (Synced) - Click for details"
           aria-label="Cloud Sync Status: Supabase Live (Synced)"
         >
@@ -171,7 +171,7 @@ const isSyncing = (isOnline && totalPending > 0) || isManagerSyncing
             setIsHovered((v) => !v)
             if (totalPending > 0) flushMutationOutbox()
           }}
-          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-mono font-medium border transition-all cursor-pointer select-none ${
+          className={`flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2.5 py-1 rounded-full text-[11px] font-mono font-medium border transition-all cursor-pointer select-none shrink-0 ${
             isSyncing
               ? 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/20 hover:border-indigo-500/40'
               : 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/20 hover:border-amber-500/40'
@@ -185,8 +185,11 @@ const isSyncing = (isOnline && totalPending > 0) || isManagerSyncing
               <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
             )}
           </span>
-          <span className="text-[10px] font-mono">
+          <span className="text-[10px] font-mono hidden sm:inline">
             {isSyncing ? `Syncing (${totalPending})` : `${totalPending} Offline`}
+          </span>
+          <span className="text-[10px] font-mono sm:hidden">
+            {totalPending}
           </span>
         </button>
       )}

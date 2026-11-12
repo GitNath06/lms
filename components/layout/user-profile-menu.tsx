@@ -17,11 +17,17 @@ import {
   Camera,
   Trash2,
   Loader2,
+  Crown,
+  Microscope,
+  Landmark,
+  GraduationCap,
+  Clock,
 } from 'lucide-react'
 import { signOut, updateCurrentUserPhoto } from '@/app/actions/auth'
 import { purgeAllOfflineData } from '@/lib/offline/offline-store'
 import { UserRole, UserProfile } from '@/lib/permissions'
 import { compressAvatar } from '@/lib/student-photos/compressor'
+import { cn } from '@/lib/utils'
 
 interface UserProfileMenuProps {
   profile: UserProfile | null
@@ -32,8 +38,21 @@ export default function UserProfileMenu({ profile }: UserProfileMenuProps) {
   const [photoUrl, setPhotoUrl] = useState<string | null>(profile?.photo_url || profile?.avatar_url || null)
   const [isUploading, setIsUploading] = useState(false)
   const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null)
+  const [isOnline, setIsOnline] = useState(true) // Deterministic true on SSR & initial client render (0 hydration mismatch!)
   const menuRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    setIsOnline(navigator.onLine)
+    const handleOnline = () => setIsOnline(true)
+    const handleOffline = () => setIsOnline(false)
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
 
   useEffect(() => {
     setPhotoUrl(profile?.photo_url || profile?.avatar_url || null)
@@ -105,7 +124,7 @@ export default function UserProfileMenu({ profile }: UserProfileMenuProps) {
     super_admin: {
       label: 'Super Admin',
       sublabel: 'Tier-1 Root Administrator',
-      icon: '👑',
+      Icon: Crown,
       tagBadge: 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30',
       avatarRing: 'ring-2 ring-amber-500/80 shadow-md shadow-amber-500/20',
       avatarBg: 'bg-gradient-to-tr from-amber-600 to-yellow-500 text-white',
@@ -116,7 +135,7 @@ export default function UserProfileMenu({ profile }: UserProfileMenuProps) {
     lab_incharge: {
       label: 'Lab Incharge',
       sublabel: 'Laboratory Facilities Manager',
-      icon: '🔬',
+      Icon: Microscope,
       tagBadge: 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/30',
       avatarRing: 'ring-2 ring-indigo-500/80 shadow-md shadow-indigo-500/20',
       avatarBg: 'bg-gradient-to-tr from-indigo-600 to-blue-500 text-white',
@@ -127,7 +146,7 @@ export default function UserProfileMenu({ profile }: UserProfileMenuProps) {
     hod: {
       label: 'Head of Department',
       sublabel: 'Academic & Incident Escalations',
-      icon: '🏛️',
+      Icon: Landmark,
       tagBadge: 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/30',
       avatarRing: 'ring-2 ring-indigo-500/80 shadow-md shadow-indigo-500/20',
       avatarBg: 'bg-indigo-700 text-white',
@@ -138,7 +157,7 @@ export default function UserProfileMenu({ profile }: UserProfileMenuProps) {
     teacher: {
       label: 'Teacher',
       sublabel: 'Academic Practical Instructor',
-      icon: '👨‍🏫',
+      Icon: GraduationCap,
       tagBadge: 'bg-zinc-100 dark:bg-slate-800 text-zinc-700 dark:text-slate-300 border-zinc-200 dark:border-slate-700/60',
       avatarRing: 'ring-2 ring-zinc-300 dark:ring-slate-700 shadow-md',
       avatarBg: 'bg-zinc-700 dark:bg-slate-800 text-white',
@@ -153,7 +172,7 @@ export default function UserProfileMenu({ profile }: UserProfileMenuProps) {
     ? {
         label: 'Pending Verification',
         sublabel: 'Awaiting Administrator Review',
-        icon: '⏳',
+        Icon: Clock,
         tagBadge: 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30',
         avatarRing: 'ring-2 ring-amber-500/80 shadow-md shadow-amber-500/20',
         avatarBg: 'bg-gradient-to-tr from-amber-600 to-amber-500 text-white',
@@ -174,48 +193,55 @@ export default function UserProfileMenu({ profile }: UserProfileMenuProps) {
         className="hidden"
       />
 
-      {/* Trigger Button */}
+      {/* Trigger Button (Clean, no unnecessary arrow, robust clickable surface) */}
       <button
         type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-1.5 sm:gap-2 p-0.5 sm:pl-2 sm:pr-1.5 py-1 rounded-2xl hover:bg-zinc-100 dark:hover:bg-zinc-800/60 transition-all border border-transparent hover:border-zinc-200 dark:hover:border-zinc-800 cursor-pointer group"
+        onClick={() => setIsOpen((prev) => !prev)}
+        className="flex items-center gap-1.5 sm:gap-2 p-1 rounded-2xl hover:bg-zinc-100/90 dark:hover:bg-zinc-800/80 transition-all cursor-pointer group shrink-0"
+        aria-label="User Profile Menu"
+        aria-expanded={isOpen}
       >
-        <div className="text-right hidden sm:block">
-          <div className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 truncate max-w-[140px]">
+        {/* Inside the user name + role text column next to the avatar (hidden xl:flex saves 170px between 768px-1279px!) */}
+        <div className="hidden xl:flex flex-col items-end justify-center leading-tight mr-1">
+          <span className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 whitespace-nowrap">
             {profile?.full_name || 'Academic Staff'}
-          </div>
-          <div className="flex items-center justify-end gap-1 text-[10px] font-mono font-bold">
-            <span className={activeRoleConfig.accentText}>
-              {activeRoleConfig.icon} {activeRoleConfig.label}
-            </span>
-          </div>
-        </div>
-
-        {/* Customized Avatar Ring */}
-        <div
-          className={`h-8 w-8 rounded-full overflow-hidden flex items-center justify-center text-xs font-bold transition-transform group-hover:scale-105 shrink-0 ${activeRoleConfig.avatarRing} ${activeRoleConfig.avatarBg}`}
-        >
-          {photoUrl ? (
-            <img
-              src={photoUrl}
-              alt={profile?.full_name || 'Staff Profile'}
-              className="h-full w-full object-cover"
+          </span>
+          <span className={cn('inline-flex items-center gap-1.5 text-[11px] font-medium whitespace-nowrap', activeRoleConfig.accentText)}>
+            <activeRoleConfig.Icon className="h-3 w-3 shrink-0" />
+            <span>{activeRoleConfig.label}</span>
+            <span
+              title={isOnline ? 'Online & Connected' : 'Offline Mode'}
+              className={cn(
+                'inline-block h-2 w-2 rounded-full shrink-0 transition-colors duration-300',
+                isOnline
+                  ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.85)]'
+                  : 'bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.85)]'
+              )}
             />
-          ) : (
-            initials
-          )}
+          </span>
         </div>
 
-        <ChevronDown
-          className={`h-3.5 w-3.5 text-zinc-400 transition-transform duration-200 hidden sm:block ${
-            isOpen ? 'rotate-180' : ''
-          }`}
-        />
+        {/* Clean Avatar Ring with ZERO dot covering the photo */}
+        <div className="relative shrink-0">
+          <div
+            className={`h-9 w-9 shrink-0 rounded-full overflow-hidden flex items-center justify-center text-xs font-bold transition-transform group-hover:scale-105 shadow-md ${activeRoleConfig.avatarRing} ${activeRoleConfig.avatarBg}`}
+          >
+            {photoUrl ? (
+              <img
+                src={photoUrl}
+                alt={profile?.full_name || 'Staff Profile'}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <span className="text-xs font-bold text-white tracking-wider">{initials}</span>
+            )}
+          </div>
+        </div>
       </button>
 
       {/* Popover Card */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-72 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl shadow-2xl p-4 space-y-3 z-50 animate-in fade-in zoom-in-95 duration-150 font-sans">
+        <div className="absolute right-0 top-full mt-2 w-72 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl shadow-2xl p-4 space-y-3 z-50 animate-in fade-in zoom-in-95 duration-150 font-sans">
           {/* Top Profile Banner */}
           <div className="flex items-start gap-3 pb-3 border-b border-zinc-100 dark:border-zinc-800">
             {/* Avatar with Camera Trigger */}
@@ -257,10 +283,22 @@ export default function UserProfileMenu({ profile }: UserProfileMenuProps) {
               </div>
               <div className="pt-0.5 flex items-center justify-between gap-1">
                 <span
-                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-mono font-bold border ${activeRoleConfig.tagBadge}`}
+                  className={cn(
+                    'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-mono font-bold border',
+                    activeRoleConfig.tagBadge
+                  )}
                 >
-                  <span>{activeRoleConfig.icon}</span>
+                  <activeRoleConfig.Icon className="h-3 w-3 shrink-0" />
                   <span>{activeRoleConfig.label}</span>
+                  <span
+                    title={isOnline ? 'Online & Connected' : 'Offline Mode'}
+                    className={cn(
+                      'inline-block h-1.5 w-1.5 rounded-full shrink-0 transition-colors duration-300',
+                      isOnline
+                        ? 'bg-emerald-500 shadow-[0_0_4px_rgba(16,185,129,0.85)]'
+                        : 'bg-amber-400 shadow-[0_0_4px_rgba(251,191,36,0.85)]'
+                    )}
+                  />
                 </span>
                 {photoUrl && !isUploading && (
                   <button
@@ -310,15 +348,36 @@ export default function UserProfileMenu({ profile }: UserProfileMenuProps) {
           <div className="p-2.5 rounded-xl bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200/60 dark:border-zinc-800/60 flex items-center justify-between text-xs">
             <div className="flex items-center gap-2">
               <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 shadow-[0_0_6px_#10B981]" />
+                <span
+                  className={cn(
+                    'animate-ping absolute inline-flex h-full w-full rounded-full opacity-75',
+                    isOnline ? 'bg-emerald-400' : 'bg-amber-400'
+                  )}
+                />
+                <span
+                  className={cn(
+                    'relative inline-flex rounded-full h-2 w-2',
+                    isOnline
+                      ? 'bg-emerald-500 shadow-[0_0_6px_#10B981]'
+                      : 'bg-amber-500 shadow-[0_0_6px_#F59E0B]'
+                  )}
+                />
               </span>
               <span className="text-[11px] font-medium text-zinc-700 dark:text-zinc-300">
-                Database: Supabase Live (Synced)
+                {isOnline
+                  ? 'Database: Supabase Live (Connected)'
+                  : 'Database: Offline Mode (Local Cache)'}
               </span>
             </div>
-            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold border border-emerald-500/20">
-              Active
+            <span
+              className={cn(
+                'text-[9px] font-mono px-1.5 py-0.5 rounded font-bold border',
+                isOnline
+                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+                  : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20'
+              )}
+            >
+              {isOnline ? 'Live' : 'Offline'}
             </span>
           </div>
 

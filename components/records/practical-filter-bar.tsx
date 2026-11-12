@@ -190,14 +190,14 @@ export default function PracticalFilterBar({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
+        <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 w-full sm:w-auto">
           {/* Mobile On-Demand Filter Drawer / Accordion Toggle */}
           <Button
             type="button"
             variant="outline"
             size="sm"
             onClick={() => setIsMobileExpanded(!isMobileExpanded)}
-            className={`md:hidden h-8 px-2.5 rounded-xl text-xs font-semibold gap-1.5 transition-colors cursor-pointer ${
+            className={`md:hidden h-9 px-2.5 rounded-xl text-xs font-semibold gap-1.5 transition-colors cursor-pointer justify-center w-full ${
               activeFilterCount > 0 || isMobileExpanded
                 ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
                 : 'border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300'
@@ -218,13 +218,15 @@ export default function PracticalFilterBar({
           </Button>
 
           {/* Group By Selector */}
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-xs font-medium text-zinc-800 dark:text-zinc-200">
-            <Layers className="h-3.5 w-3.5 text-zinc-500 dark:text-slate-400" />
-            <span className="font-mono text-[11px] uppercase font-bold text-zinc-600 dark:text-slate-300">Group:</span>
+          <div className="flex items-center justify-between sm:justify-start gap-1.5 px-2.5 py-1.5 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-xs font-medium text-zinc-800 dark:text-zinc-200 min-h-[36px] w-full sm:w-auto">
+            <div className="flex items-center gap-1.5">
+              <Layers className="h-3.5 w-3.5 text-zinc-500 dark:text-slate-400 shrink-0" />
+              <span className="font-mono text-[11px] uppercase font-bold text-zinc-600 dark:text-slate-300 shrink-0">Group:</span>
+            </div>
             <select
               value={groupBy}
               onChange={(e) => onGroupByChange(e.target.value as PracticalGroupingKey)}
-              className="bg-transparent font-medium text-zinc-900 dark:text-white focus:outline-hidden cursor-pointer text-xs"
+              className="bg-transparent font-medium text-zinc-900 dark:text-white focus:outline-hidden cursor-pointer text-xs flex-1 text-right sm:text-left"
             >
               <option value="none" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white">None (Flat)</option>
               <option value="batch_group" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white">Class</option>
@@ -239,7 +241,7 @@ export default function PracticalFilterBar({
             variant="outline"
             size="sm"
             onClick={handleReset}
-            className="h-8 px-2.5 rounded-xl text-xs font-mono border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 gap-1.5 cursor-pointer"
+            className="h-9 px-2.5 rounded-xl text-xs font-mono border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 gap-1.5 cursor-pointer justify-center w-full sm:w-auto"
           >
             <RotateCcw className="h-3 w-3" />
             <span>Reset</span>
@@ -248,7 +250,7 @@ export default function PracticalFilterBar({
           <Button
             type="submit"
             size="sm"
-            className="h-8 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-sans text-xs font-semibold gap-1.5 shadow-xs border border-emerald-500/30 cursor-pointer"
+            className="h-9 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-sans text-xs font-semibold gap-1.5 shadow-xs border border-emerald-500/30 cursor-pointer justify-center w-full sm:w-auto"
           >
             <Search className="h-3.5 w-3.5" />
             <span>Search</span>

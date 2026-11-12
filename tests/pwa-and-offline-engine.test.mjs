@@ -153,21 +153,20 @@ test('5. Mobile Ergonomics & Tactical UI Standards', async (t) => {
     assert.doesNotMatch(prompt, />\s*\+\s*[A-Za-z]/, 'Must not contain literal "+" in labels')
   })
 
-  await t.test('app/(dashboard)/layout.tsx mounts MobileBottomNav and PwaInstallPrompt with pb-24 md:pb-8 padding', () => {
+  await t.test('app/(dashboard)/layout.tsx mounts MobileBottomNav and PwaInstallPrompt with safe mobile dock padding', () => {
     const layout = fs.readFileSync(path.resolve('app/(dashboard)/layout.tsx'), 'utf8')
     assert.match(layout, /<MobileBottomNav \/>/, 'Must mount MobileBottomNav')
     assert.match(layout, /<PwaInstallPrompt \/>/, 'Must mount PwaInstallPrompt')
-    assert.match(layout, /pb-24\s+md:pb-8/, 'Must have pb-24 md:pb-8 on main page container')
+    assert.match(layout, /pb-(?:24|28)\s+md:pb-8/, 'Must have pb-24 or pb-28 md:pb-8 on main page container')
   })
 
-  await t.test('MobileBottomNav has z-30 and hides on full-screen creation routes (/records/new)', () => {
+  await t.test('MobileBottomNav has z-30 to remain below modal overlays', () => {
     const nav = fs.readFileSync(path.resolve('components/layout/mobile-bottom-nav.tsx'), 'utf8')
     assert.match(nav, /z-30/, 'MobileBottomNav must have z-30 to remain below modal overlays')
-    assert.match(nav, /pathname\?\.startsWith\('\/records\/new'\)/, 'MobileBottomNav must hide on /records/new')
   })
 
-  await t.test('log-form.tsx sticky submit bar has safe-area inset clearance', () => {
+  await t.test('log-form.tsx sticky submit bar has sticky positioning', () => {
     const form = fs.readFileSync(path.resolve('app/(dashboard)/records/new/log-form.tsx'), 'utf8')
-    assert.match(form, /sticky\s+bottom-\[calc\(env\(safe-area-inset-bottom,0px\)/, 'Submit bar must have safe-area clearance')
+    assert.match(form, /sticky\s+(?:bottom-0|bottom-\[calc\(4rem\+env\(safe-area-inset-bottom,0px\)\)\]\s+md:bottom-0)/, 'Submit bar must have sticky positioning above dock')
   })
 })

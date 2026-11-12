@@ -21,6 +21,7 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('activate', (event) => {
   const validCaches = new Set([CACHE_STATIC, CACHE_HTML, CACHE_RSC])
+  const isDev = self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1'
   event.waitUntil(
     caches
       .keys()
@@ -29,6 +30,17 @@ self.addEventListener('activate', (event) => {
           keys.map((key) => {
             if (!validCaches.has(key)) {
               return caches.delete(key)
+            }
+            if (isDev && key === CACHE_STATIC) {
+              return caches.open(key).then((cache) =>
+                cache.keys().then((requests) =>
+                  Promise.all(
+                    requests
+                      .filter((r) => r.url.includes('/_next/'))
+                      .map((r) => cache.delete(r))
+                  )
+                )
+              )
             }
           })
         )
@@ -50,6 +62,10 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url)
   if (url.origin !== self.location.origin) return
   if (url.pathname.startsWith('/_next/webpack-hmr') || url.pathname.startsWith('/api/')) return
+
+  // Development safeguard: Never intercept or cache dynamic Next.js development chunks on localhost/127.0.0.1
+  const isDev = self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1'
+  if (isDev && url.pathname.startsWith('/_next/')) return
 
   const isRscRequest =
     req.headers.get('RSC') === '1' ||

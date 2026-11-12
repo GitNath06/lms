@@ -29,12 +29,6 @@ const NAV_ITEMS: NavItem[] = [
 export function MobileBottomNav() {
   const pathname = usePathname()
 
-  // Hide mobile bottom nav on full-screen creation pages and print views
-  // to ensure 100% viewport space for sticky action bars and inputs
-  if (pathname?.startsWith('/records/new') || pathname?.startsWith('/print')) {
-    return null
-  }
-
   const handleTap = () => {
     try {
       navigator.vibrate?.(8)

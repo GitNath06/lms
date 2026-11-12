@@ -37,7 +37,7 @@ export function ProfileClientView({ initialProfile }: ProfileClientViewProps = {
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6 pb-12 font-sans">
+    <div className="max-w-4xl mx-auto space-y-6 pb-28 md:pb-12 font-sans">
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-zinc-200/60 dark:border-zinc-800/60">
         <div>

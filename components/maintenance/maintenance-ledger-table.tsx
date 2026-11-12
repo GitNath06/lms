@@ -304,93 +304,173 @@ export default function MaintenanceLedgerTable({
           )}
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="bg-zinc-50/80 dark:bg-zinc-900/80 border-b border-zinc-200 dark:border-zinc-800 admin-type-table-header text-zinc-600 dark:text-slate-300">
-                <th className="py-3 px-4">Service Date</th>
-                <th className="py-3 px-3">Laboratory</th>
-                <th className="py-3 px-4">Routine & Target Machine(s)</th>
-                <th className="py-3 px-3">Performed By</th>
-                <th className="py-3 px-3 text-center">Checklist Verified</th>
-                <th className="py-3 px-3 text-center">Next Target</th>
-                <th className="py-3 px-3 text-center">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800 font-sans">
-              {filteredLogs.map((log) => (
-                <tr
-                  key={log.id}
-                  onClick={() => onSelectLog(log)}
-                  className="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/50 cursor-pointer transition-colors group"
-                >
-                  {/* Service Date */}
-                  <td className="py-3.5 px-4 admin-type-primary-label font-mono text-zinc-950 dark:text-white whitespace-nowrap">
-                    {log.service_date}
-                  </td>
-
-                  {/* Lab */}
-                  <td className="py-3.5 px-3 whitespace-nowrap">
-                    <span className="admin-type-code-chip px-2 py-0.5 rounded uppercase tracking-wider bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-slate-300 border border-zinc-200 dark:border-zinc-700">
-                      {log.lab_name || log.lab_id}
-                    </span>
-                  </td>
-
-                  {/* Plan & Target Machine */}
-                  <td className="py-3.5 px-4">
-                    <div className="admin-type-primary-label text-zinc-950 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+        <>
+          {/* Mobile Card Stack (<768px) */}
+          <div className="md:hidden divide-y divide-zinc-200/80 dark:divide-zinc-800/80">
+            {filteredLogs.map((log) => (
+              <div
+                key={log.id}
+                onClick={() => onSelectLog(log)}
+                className="p-3.5 space-y-2.5 hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40 active:bg-zinc-100 dark:active:bg-zinc-800 transition-colors cursor-pointer"
+              >
+                {/* Top Row: Routine Title & Lab Badge */}
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <h4 className="font-heading font-extrabold text-sm text-zinc-950 dark:text-white leading-tight">
                       {log.plan_title || 'General Maintenance'}
-                    </div>
-                    <div className="admin-type-subtext text-zinc-500 dark:text-slate-300 flex items-center gap-1.5 mt-0.5">
-                      <span className="text-zinc-400 dark:text-slate-400">Target:</span>
-                      <span className="admin-type-code-chip text-zinc-900 dark:text-white font-mono">
+                    </h4>
+                    <div className="flex items-center gap-1.5 mt-0.5 text-xs text-zinc-500 dark:text-slate-400">
+                      <span>Target:</span>
+                      <span className="font-mono font-bold text-zinc-900 dark:text-zinc-100">
                         {log.asset_identifier}
                       </span>
                       {log.parts_replaced && (
-                        <span className="text-[11.5px] text-zinc-500 dark:text-slate-300 truncate max-w-[160px]">
-                          • {log.parts_replaced}
-                        </span>
+                        <span className="truncate max-w-[130px]">• {log.parts_replaced}</span>
                       )}
                     </div>
-                  </td>
+                  </div>
 
-                  {/* Staff / Technician */}
-                  <td className="py-3.5 px-3 whitespace-nowrap">
-                    <div className="admin-type-primary-label text-zinc-950 dark:text-white flex items-center gap-1.5">
-                      <UserCheck className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                      <span>{log.performed_by_name || 'Lab In-Charge'}</span>
-                    </div>
-                  </td>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-mono uppercase tracking-wider bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-slate-300 border border-zinc-200 dark:border-zinc-700 shrink-0">
+                    {log.lab_name || log.lab_id}
+                  </span>
+                </div>
 
-                  {/* Checklist */}
-                  <td className="py-3.5 px-3 text-center whitespace-nowrap">
-                    <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                      <CheckCircle2 className="h-3 w-3" />
-                      {log.checklist_completed?.length || 0} Steps
+                {/* Middle Row: Date, Performed By, Checklist Verified */}
+                <div className="grid grid-cols-2 gap-2 text-xs p-2.5 rounded-lg bg-zinc-50 dark:bg-zinc-950/60 border border-zinc-100 dark:border-zinc-800/60 font-sans">
+                  <div>
+                    <span className="text-[10px] font-mono text-zinc-600 dark:text-slate-300 uppercase block">Service Date</span>
+                    <span className="font-mono font-semibold text-zinc-900 dark:text-zinc-200 block text-[11.5px]">
+                      {log.service_date}
                     </span>
-                  </td>
+                  </div>
 
-                  {/* Next Due */}
-                  <td className="py-3.5 px-3 text-center text-xs text-sky-600 dark:text-sky-400 font-medium whitespace-nowrap">
-                    {log.next_service_due || '—'}
-                  </td>
+                  <div>
+                    <span className="text-[10px] font-mono text-zinc-600 dark:text-slate-300 uppercase block">Next Target</span>
+                    <span className="font-mono text-sky-600 dark:text-sky-400 block text-[11.5px]">
+                      {log.next_service_due || '—'}
+                    </span>
+                  </div>
 
-                  {/* Action */}
-                  <td className="py-3.5 px-3 text-center whitespace-nowrap">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 px-2.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 group-hover:bg-indigo-50 dark:group-hover:bg-indigo-950/40 rounded-lg"
-                    >
-                      Audit Details <ChevronRight className="h-3.5 w-3.5 ml-0.5" />
-                    </Button>
-                  </td>
+                  <div>
+                    <span className="text-[10px] font-mono text-zinc-600 dark:text-slate-300 uppercase block">Performed By</span>
+                    <span className="font-medium text-zinc-900 dark:text-zinc-200 truncate block">
+                      {log.performed_by_name || 'Lab In-Charge'}
+                    </span>
+                  </div>
+
+                  <div>
+                    <span className="text-[10px] font-mono text-zinc-600 dark:text-slate-300 uppercase block">Checklist</span>
+                    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
+                      <CheckCircle2 className="h-3 w-3" />
+                      {log.checklist_completed?.length || 0} Steps Verified
+                    </span>
+                  </div>
+                </div>
+
+                {/* Bottom Row: Audit Details Touch Target */}
+                <div className="flex items-center justify-end pt-1">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="min-h-[38px] px-3 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-xl"
+                  >
+                    Audit Details <ChevronRight className="h-3.5 w-3.5 ml-1" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Desktop Table (Hidden on Mobile) */}
+          <div className="hidden md:block overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-zinc-50/80 dark:bg-zinc-900/80 border-b border-zinc-200 dark:border-zinc-800 admin-type-table-header text-zinc-600 dark:text-slate-300">
+                  <th className="py-3 px-4">Service Date</th>
+                  <th className="py-3 px-3">Laboratory</th>
+                  <th className="py-3 px-4">Routine & Target Machine(s)</th>
+                  <th className="py-3 px-3">Performed By</th>
+                  <th className="py-3 px-3 text-center">Checklist Verified</th>
+                  <th className="py-3 px-3 text-center">Next Target</th>
+                  <th className="py-3 px-3 text-center">Action</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800 font-sans">
+                {filteredLogs.map((log) => (
+                  <tr
+                    key={log.id}
+                    onClick={() => onSelectLog(log)}
+                    className="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/50 cursor-pointer transition-colors group"
+                  >
+                    {/* Service Date */}
+                    <td className="py-3.5 px-4 admin-type-primary-label font-mono text-zinc-950 dark:text-white whitespace-nowrap">
+                      {log.service_date}
+                    </td>
+
+                    {/* Lab */}
+                    <td className="py-3.5 px-3 whitespace-nowrap">
+                      <span className="admin-type-code-chip px-2 py-0.5 rounded uppercase tracking-wider bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-slate-300 border border-zinc-200 dark:border-zinc-700">
+                        {log.lab_name || log.lab_id}
+                      </span>
+                    </td>
+
+                    {/* Plan & Target Machine */}
+                    <td className="py-3.5 px-4">
+                      <div className="admin-type-primary-label text-zinc-950 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                        {log.plan_title || 'General Maintenance'}
+                      </div>
+                      <div className="admin-type-subtext text-zinc-500 dark:text-slate-300 flex items-center gap-1.5 mt-0.5">
+                        <span className="text-zinc-400 dark:text-slate-400">Target:</span>
+                        <span className="admin-type-code-chip text-zinc-900 dark:text-white font-mono">
+                          {log.asset_identifier}
+                        </span>
+                        {log.parts_replaced && (
+                          <span className="text-[11.5px] text-zinc-500 dark:text-slate-300 truncate max-w-[160px]">
+                            • {log.parts_replaced}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+
+                    {/* Staff / Technician */}
+                    <td className="py-3.5 px-3 whitespace-nowrap">
+                      <div className="admin-type-primary-label text-zinc-950 dark:text-white flex items-center gap-1.5">
+                        <UserCheck className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                        <span>{log.performed_by_name || 'Lab In-Charge'}</span>
+                      </div>
+                    </td>
+
+                    {/* Checklist */}
+                    <td className="py-3.5 px-3 text-center whitespace-nowrap">
+                      <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                        <CheckCircle2 className="h-3 w-3" />
+                        {log.checklist_completed?.length || 0} Steps
+                      </span>
+                    </td>
+
+                    {/* Next Due */}
+                    <td className="py-3.5 px-3 text-center text-xs text-sky-600 dark:text-sky-400 font-medium whitespace-nowrap">
+                      {log.next_service_due || '—'}
+                    </td>
+
+                    {/* Action */}
+                    <td className="py-3.5 px-3 text-center whitespace-nowrap">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 group-hover:bg-indigo-50 dark:group-hover:bg-indigo-950/40 rounded-lg"
+                      >
+                        Audit Details <ChevronRight className="h-3.5 w-3.5 ml-0.5" />
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </div>
   )

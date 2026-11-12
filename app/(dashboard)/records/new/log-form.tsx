@@ -53,6 +53,10 @@ export default function LogForm({
   initialClasses?: any[]
 } = {}) {
   const router = useRouter()
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => {
+    setMounted(true)
+  }, [])
   const { saveLog } = useLogsState()
   const { scope: clientScope } = useUserScope()
   const scopedOptions = rawScopedOptions || (clientScope ? {
@@ -451,7 +455,7 @@ export default function LogForm({
     }
   }
 
-  if (isInfraLoading && availableClasses.length === 0) {
+  if (!mounted || (isInfraLoading && availableClasses.length === 0)) {
     return (
       <div className="flex flex-col items-center justify-center p-12 space-y-3 glass-card rounded-2xl border border-zinc-200 dark:border-zinc-800">
         <Loader2 className="h-6 w-6 animate-spin text-indigo-500" />
@@ -1031,8 +1035,8 @@ export default function LogForm({
             )}
           </div>
 
-          {/* Sticky Bottom Action Bar on Mobile with Safe-Area Clearance */}
-          <div className="sticky bottom-[calc(env(safe-area-inset-bottom,0px)+0.5rem)] md:bottom-0 z-30 bg-white/95 dark:bg-[#101726]/95 backdrop-blur-md rounded-2xl border border-zinc-200/80 dark:border-white/[0.08] p-3 sm:p-4 shadow-lg sm:shadow-xs flex items-center justify-between gap-3 font-sans">
+          {/* Sticky Bottom Action Bar on Mobile (Floats cleanly above h-16 bottom dock) */}
+          <div className="sticky bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] md:bottom-0 z-30 bg-white/95 dark:bg-[#101726]/95 backdrop-blur-md rounded-2xl border border-zinc-200/80 dark:border-white/[0.08] p-3 sm:p-4 shadow-lg sm:shadow-xs flex items-center justify-between gap-3 font-sans">
             <Button
               type="button"
               variant="outline"
@@ -1044,7 +1048,7 @@ export default function LogForm({
                 }
               }}
               disabled={isSubmitting}
-              className="h-11 min-h-[44px] px-4 text-xs font-semibold font-sans shrink-0 touch-manipulation cursor-pointer"
+              className="h-11 min-h-[44px] px-4 text-xs font-semibold font-sans cursor-pointer"
             >
               Cancel
             </Button>
@@ -1052,21 +1056,21 @@ export default function LogForm({
             <Button
               type="submit"
               disabled={isSubmitting || isHoliday}
-              className={`font-semibold gap-1.5 px-4 sm:px-6 shadow-xs text-xs sm:text-sm h-11 min-h-[44px] font-sans touch-manipulation cursor-pointer min-w-0 ${
+              className={`font-semibold gap-1.5 px-4 sm:px-6 shadow-xs text-xs sm:text-sm h-11 min-h-[44px] font-sans cursor-pointer ${
                 isHoliday
                   ? 'bg-zinc-400 dark:bg-zinc-700 text-zinc-200 cursor-not-allowed'
                   : 'bg-indigo-600 hover:bg-indigo-700 text-white'
               }`}
             >
               <FileCheck className="h-4 w-4 shrink-0" />
-              <span className="truncate sm:hidden">
+              <span className="sm:hidden">
                 {isHoliday
                   ? 'Suspended'
                   : isSubmitting
                   ? 'Recording...'
                   : 'Submit Log'}
               </span>
-              <span className="truncate hidden sm:inline">
+              <span className="hidden sm:inline">
                 {isHoliday
                   ? 'Logging Suspended (Holiday)'
                   : isSubmitting
